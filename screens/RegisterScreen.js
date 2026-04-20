@@ -1,5 +1,5 @@
 import { Picker } from '@react-native-picker/picker';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
@@ -36,6 +36,7 @@ const RegisterScreen = () => {
   });
   const [error, setError] = useState('');
   const [registeredEmail, setRegisteredEmail] = useState('');
+  const redirectTimerRef = useRef(null);
 
   const age = useMemo(() => {
     const birthDate = new Date(form.birthYear, Number(form.birthMonth), Number(form.birthDay || 1));
@@ -52,6 +53,12 @@ const RegisterScreen = () => {
 
   const updateField = (key, value) => setForm((previous) => ({ ...previous, [key]: value }));
 
+  useEffect(() => () => {
+    if (redirectTimerRef.current) {
+      clearTimeout(redirectTimerRef.current);
+    }
+  }, []);
+
   const handleRegister = async () => {
     try {
       setError('');
@@ -61,6 +68,9 @@ const RegisterScreen = () => {
       }
       await register({ ...form, age, birthLabel });
       setRegisteredEmail(form.email);
+      redirectTimerRef.current = setTimeout(() => {
+        navigation.navigate('Login');
+      }, 1800);
     } catch (registerError) {
       setError(registerError.message);
     }
@@ -134,7 +144,7 @@ const RegisterScreen = () => {
         <View style={styles.pickerWrap}><Picker selectedValue={form.skinType} onValueChange={(value) => updateField('skinType', value)} dropdownIconColor={affairGoTheme.colors.text}>{SKIN_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View>
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
-        {registeredEmail ? <Text style={styles.successText}>Registrierung erfolgreich. Eine Verifizierungs-Mail wurde an {registeredEmail} gesendet. Nach der Bestaetigung kannst du dich einloggen.</Text> : null}
+        {registeredEmail ? <Text style={styles.successText}>Registrierung erfolgreich. Eine Verifizierungs-Mail wurde an {registeredEmail} gesendet. Du wirst jetzt automatisch zum Login weitergeleitet.</Text> : null}
 
         <AccentButton label="Registrieren" onPress={handleRegister} style={styles.buttonGap} />
         <AccentButton label="Zum Login" variant="secondary" onPress={() => navigation.navigate('Login')} />

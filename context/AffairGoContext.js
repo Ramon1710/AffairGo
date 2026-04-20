@@ -145,6 +145,29 @@ const buildRegistrationProfile = (payload, uid) => ({
   createdAt: serverTimestamp(),
 });
 
+const mapAuthError = (error, fallbackMessage) => {
+  switch (error?.code) {
+    case 'auth/email-already-in-use':
+      return 'Diese E-Mail-Adresse ist bereits registriert. Bitte logge dich ein oder nutze den Passwort-Reset.';
+    case 'auth/invalid-email':
+      return 'Die E-Mail-Adresse ist ungueltig.';
+    case 'auth/weak-password':
+      return 'Das Passwort ist zu schwach. Bitte verwende mindestens 6 Zeichen.';
+    case 'auth/invalid-credential':
+    case 'auth/user-not-found':
+    case 'auth/wrong-password':
+      return 'E-Mail oder Passwort ist nicht korrekt.';
+    case 'auth/too-many-requests':
+      return 'Zu viele Versuche in kurzer Zeit. Bitte warte kurz und versuche es erneut.';
+    case 'auth/network-request-failed':
+      return 'Netzwerkfehler. Bitte pruefe deine Verbindung und versuche es erneut.';
+    case 'auth/user-disabled':
+      return 'Dieses Konto wurde deaktiviert.';
+    default:
+      return fallbackMessage;
+  }
+};
+
 const getCompatibility = (sourcePreferences, targetPreferences) => {
   const base = sourcePreferences.length || 1;
   const shared = sourcePreferences.filter((entry) => targetPreferences.includes(entry)).length;
@@ -241,23 +264,28 @@ export const AffairGoProvider = ({ children }) => {
       throw new Error('Bitte eine gueltige E-Mail-Adresse eingeben.');
     }
 
-    const credentials = await signInWithEmailAndPassword(auth, normalizedEmail, password);
-    await reload(credentials.user);
+    try {
+      const credentials = await signInWithEmailAndPassword(auth, normalizedEmail, password);
+      await reload(credentials.user);
 
-    if (!credentials.user.emailVerified) {
-      await signOut(auth);
-      throw new Error('Bitte bestaetige zuerst deine E-Mail-Adresse.');
+      if (!credentials.user.emailVerified) {
+        await sendEmailVerification(credentials.user);
+        await signOut(auth);
+        throw new Error('Bitte bestaetige zuerst deine E-Mail-Adresse. Wir haben dir soeben erneut eine Verifizierungs-Mail gesendet. Bitte pruefe auch deinen Spam-Ordner.');
+      }
+
+      const profileSnapshot = await getDoc(doc(db, 'users', credentials.user.uid));
+      const profileData = profileSnapshot.exists() ? profileSnapshot.data() : { id: credentials.user.uid, email: credentials.user.email };
+      const normalizedProfile = normalizeUserProfile(profileData, credentials.user);
+
+      setCurrentUser(normalizedProfile);
+      setCurrentRadius(normalizedProfile.radius || INITIAL_CURRENT_USER.radius);
+      setIsAuthenticated(true);
+
+      return { requiresPasswordChange: false, needsOnboarding: !normalizedProfile.onboardingCompleted };
+    } catch (error) {
+      throw new Error(mapAuthError(error, error?.message || 'Login fehlgeschlagen.'));
     }
-
-    const profileSnapshot = await getDoc(doc(db, 'users', credentials.user.uid));
-    const profileData = profileSnapshot.exists() ? profileSnapshot.data() : { id: credentials.user.uid, email: credentials.user.email };
-    const normalizedProfile = normalizeUserProfile(profileData, credentials.user);
-
-    setCurrentUser(normalizedProfile);
-    setCurrentRadius(normalizedProfile.radius || INITIAL_CURRENT_USER.radius);
-    setIsAuthenticated(true);
-
-    return { requiresPasswordChange: false, needsOnboarding: !normalizedProfile.onboardingCompleted };
   };
 
   const logout = async () => {
@@ -273,8 +301,12 @@ export const AffairGoProvider = ({ children }) => {
       throw new Error('Bitte eine gueltige E-Mail-Adresse eingeben.');
     }
 
-    await sendPasswordResetEmail(auth, normalizedEmail);
-    return true;
+    try {
+      await sendPasswordResetEmail(auth, normalizedEmail);
+      return true;
+    } catch (error) {
+      throw new Error(mapAuthError(error, error?.message || 'Passwort-Reset fehlgeschlagen.'));
+    }
   };
 
   const changePassword = async (newPassword) => {
@@ -282,8 +314,12 @@ export const AffairGoProvider = ({ children }) => {
       throw new Error('Du musst eingeloggt sein, um dein Passwort zu aendern.');
     }
 
-    await updatePassword(auth.currentUser, newPassword);
-    setCurrentUser((previous) => ({ ...previous, forcePasswordChange: false }));
+    try {
+      await updatePassword(auth.currentUser, newPassword);
+      setCurrentUser((previous) => ({ ...previous, forcePasswordChange: false }));
+    } catch (error) {
+      throw new Error(mapAuthError(error, error?.message || 'Passwort konnte nicht geaendert werden.'));
+    }
   };
 
   const register = async (payload) => {
@@ -291,15 +327,19 @@ export const AffairGoProvider = ({ children }) => {
       throw new Error('Registrierung erst ab 18 Jahren.');
     }
 
-    const credentials = await createUserWithEmailAndPassword(auth, payload.email.trim(), payload.password);
-    const profile = buildRegistrationProfile(payload, credentials.user.uid);
+    try {
+      const credentials = await createUserWithEmailAndPassword(auth, payload.email.trim(), payload.password);
+      const profile = buildRegistrationProfile(payload, credentials.user.uid);
 
-    await setDoc(doc(db, 'users', credentials.user.uid), toStoredProfile(profile));
-    await sendEmailVerification(credentials.user);
-    await signOut(auth);
+      await setDoc(doc(db, 'users', credentials.user.uid), toStoredProfile(profile));
+      await sendEmailVerification(credentials.user);
+      await signOut(auth);
 
-    setPendingVerificationId(credentials.user.uid);
-    return normalizeUserProfile(profile, credentials.user);
+      setPendingVerificationId(credentials.user.uid);
+      return normalizeUserProfile(profile, credentials.user);
+    } catch (error) {
+      throw new Error(mapAuthError(error, error?.message || 'Registrierung fehlgeschlagen.'));
+    }
   };
 
   const verifyPendingEmail = async () => {
