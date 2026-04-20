@@ -6,7 +6,6 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "platforms": ["ios", "android", "web"],
-    "sdkVersion": "53.0.0",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
