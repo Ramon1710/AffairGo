@@ -42,8 +42,8 @@ const TravelPlannerScreen = () => {
     }));
   };
 
-  const save = () => {
-    saveTravelPlan(mode, form);
+  const save = async () => {
+    await saveTravelPlan(mode, form);
     Alert.alert('Gespeichert', `${meta.title} wurde aktualisiert und ist sofort im Dashboard sichtbar.`);
     navigation.goBack();
   };

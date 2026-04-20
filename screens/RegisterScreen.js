@@ -13,7 +13,7 @@ const yearOptions = Array.from({ length: 82 }, (_, index) => currentYear - 18 - 
 
 const RegisterScreen = () => {
   const navigation = useNavigation();
-  const { register, verifyPendingEmail, pendingVerificationId } = useAffairGo();
+  const { register } = useAffairGo();
   const [form, setForm] = useState({
     profileImageUploaded: false,
     email: '',
@@ -52,15 +52,14 @@ const RegisterScreen = () => {
 
   const updateField = (key, value) => setForm((previous) => ({ ...previous, [key]: value }));
 
-  const handleRegister = () => {
+  const handleRegister = async () => {
     try {
       setError('');
       if (form.password !== form.repeatPassword) {
         setError('Die Passwoerter stimmen nicht ueberein.');
         return;
       }
-      const user = register({ ...form, age, birthLabel });
-      verifyPendingEmail(user.id || pendingVerificationId);
+      await register({ ...form, age, birthLabel });
       setRegisteredEmail(form.email);
     } catch (registerError) {
       setError(registerError.message);
@@ -108,7 +107,7 @@ const RegisterScreen = () => {
           <View style={styles.half}><FormField label="Nachname" value={form.lastName} onChangeText={(value) => updateField('lastName', value)} hint="Nicht sichtbar fuer andere Nutzer" placeholder="Nachname" /></View>
         </View>
 
-        <FormField label="Spitzname" value={form.nickname} onChangeText={(value) => updateField('nickname', value)} hint="Oeffentlich sichtbar und nur einmal im System vorhanden" placeholder="Spitzname" />
+        <FormField label="Spitzname" value={form.nickname} onChangeText={(value) => updateField('nickname', value)} hint="Oeffentlich sichtbar im Profil" placeholder="Spitzname" />
 
         <Text style={styles.sectionLabel}>Geburtsdatum</Text>
         <View style={styles.row}>
@@ -135,7 +134,7 @@ const RegisterScreen = () => {
         <View style={styles.pickerWrap}><Picker selectedValue={form.skinType} onValueChange={(value) => updateField('skinType', value)} dropdownIconColor={affairGoTheme.colors.text}>{SKIN_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View>
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
-        {registeredEmail ? <Text style={styles.successText}>E-Mail bestaetigt fuer {registeredEmail}. Beim ersten Login oeffnet sich direkt das Vorlieben- und Tabu-Fenster.</Text> : null}
+        {registeredEmail ? <Text style={styles.successText}>Registrierung erfolgreich. Eine Verifizierungs-Mail wurde an {registeredEmail} gesendet. Nach der Bestaetigung kannst du dich einloggen.</Text> : null}
 
         <AccentButton label="Registrieren" onPress={handleRegister} style={styles.buttonGap} />
         <AccentButton label="Zum Login" variant="secondary" onPress={() => navigation.navigate('Login')} />

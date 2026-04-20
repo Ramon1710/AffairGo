@@ -16,12 +16,12 @@ const OnboardingScreen = () => {
     );
   };
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     if (!preferences.length) {
       Alert.alert('Vorlieben fehlen', 'Waehle mindestens eine Vorliebe aus, damit Matching und Kompatibilitaet funktionieren.');
       return;
     }
-    completeOnboarding({ preferences, taboos });
+    await completeOnboarding({ preferences, taboos });
     navigation.reset({ index: 0, routes: [{ name: 'Dashboard' }] });
   };
 

@@ -8,53 +8,38 @@ import { useNavigation } from '../naviagtion/SimpleNavigation';
 
 const LoginScreen = () => {
   const navigation = useNavigation();
-  const { login, requestPasswordReset, changePassword } = useAffairGo();
-  const [identifier, setIdentifier] = useState('demo@affairgo.app');
-  const [password, setPassword] = useState('AffairGo123');
+  const { login, requestPasswordReset } = useAffairGo();
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
   const [resetOpen, setResetOpen] = useState(false);
-  const [mustChangePassword, setMustChangePassword] = useState(false);
-  const [newPassword, setNewPassword] = useState('');
-  const [repeatPassword, setRepeatPassword] = useState('');
 
   const passwordIcon = useMemo(() => (showPassword ? 'eye-off-outline' : 'eye-outline'), [showPassword]);
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     try {
       setError('');
-      const result = login({ identifier, password });
-      if (result.requiresPasswordChange) {
-        setMustChangePassword(true);
-        return;
-      }
+      setInfo('');
+      const result = await login({ identifier, password });
       navigation.reset({ index: 0, routes: [{ name: result.needsOnboarding ? 'Onboarding' : 'Dashboard' }] });
     } catch (loginError) {
       setError(loginError.message);
     }
   };
 
-  const handleReset = () => {
-    const success = requestPasswordReset(identifier);
-    setResetOpen(false);
-    if (!success) {
-      setError('Zu diesem Spitznamen oder dieser E-Mail wurde kein Konto gefunden.');
-      return;
+  const handleReset = async () => {
+    try {
+      setError('');
+      setInfo('');
+      await requestPasswordReset(identifier);
+      setResetOpen(false);
+      setInfo('Eine Passwort-Reset-Mail wurde versendet. Bitte pruefe dein Postfach.');
+    } catch (resetError) {
+      setError(resetError.message || 'Zu diesem Spitznamen oder dieser E-Mail wurde kein Konto gefunden.');
+      setResetOpen(false);
     }
-    setMustChangePassword(true);
-  };
-
-  const handlePasswordChange = () => {
-    if (!newPassword || newPassword !== repeatPassword) {
-      setError('Die neuen Passwoerter stimmen nicht ueberein.');
-      return;
-    }
-    changePassword(newPassword);
-    setPassword(newPassword);
-    setNewPassword('');
-    setRepeatPassword('');
-    setMustChangePassword(false);
-    navigation.reset({ index: 0, routes: [{ name: 'Dashboard' }] });
   };
 
   return (
@@ -80,10 +65,10 @@ const LoginScreen = () => {
 
       <GlassCard strong style={styles.card}>
         <FormField
-          label="Spitzname oder E-Mail"
+          label="E-Mail"
           value={identifier}
           onChangeText={setIdentifier}
-          placeholder="nightpulse oder name@mail.de"
+          placeholder="name@mail.de"
           autoCapitalize="none"
         />
         <FormField
@@ -104,32 +89,21 @@ const LoginScreen = () => {
         </Pressable>
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
+        {info ? <Text style={styles.infoText}>{info}</Text> : null}
 
         <AccentButton label="Log In" onPress={handleLogin} style={styles.cta} />
         <AccentButton label="Registrieren" variant="secondary" onPress={() => navigation.navigate('Register')} />
       </GlassCard>
 
-      <Modal transparent animationType="fade" visible={resetOpen || mustChangePassword} onRequestClose={() => setResetOpen(false)}>
+      <Modal transparent animationType="fade" visible={resetOpen} onRequestClose={() => setResetOpen(false)}>
         <View style={styles.modalBackdrop}>
           <GlassCard strong style={styles.modalCard}>
-            {resetOpen ? (
-              <>
-                <Text style={styles.modalTitle}>Passwort vergessen</Text>
-                <Text style={styles.modalText}>
-                  Es wird ein neues Passwort an die hinterlegte Mailadresse geschickt. Danach muss es beim naechsten Login geaendert werden.
-                </Text>
-                <AccentButton label="Mail senden" onPress={handleReset} style={styles.modalButton} />
-                <AccentButton label="Abbrechen" variant="ghost" onPress={() => setResetOpen(false)} />
-              </>
-            ) : (
-              <>
-                <Text style={styles.modalTitle}>Passwort aendern</Text>
-                <Text style={styles.modalText}>Nach dem Zuruecksetzen ist eine direkte Passwortaenderung erforderlich.</Text>
-                <FormField label="Neues Passwort" value={newPassword} onChangeText={setNewPassword} secureTextEntry placeholder="Neues Passwort" />
-                <FormField label="Neues Passwort wiederholen" value={repeatPassword} onChangeText={setRepeatPassword} secureTextEntry placeholder="Passwort wiederholen" />
-                <AccentButton label="Passwort speichern" onPress={handlePasswordChange} style={styles.modalButton} />
-              </>
-            )}
+            <Text style={styles.modalTitle}>Passwort vergessen</Text>
+            <Text style={styles.modalText}>
+              Firebase verschickt einen Reset-Link an die hinterlegte E-Mail-Adresse.
+            </Text>
+            <AccentButton label="Mail senden" onPress={handleReset} style={styles.modalButton} />
+            <AccentButton label="Abbrechen" variant="ghost" onPress={() => setResetOpen(false)} />
           </GlassCard>
         </View>
       </Modal>
@@ -165,6 +139,10 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: affairGoTheme.colors.danger,
+    marginBottom: 12,
+  },
+  infoText: {
+    color: affairGoTheme.colors.success,
     marginBottom: 12,
   },
   cta: {

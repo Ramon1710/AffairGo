@@ -1,3 +1,4 @@
+import { Alert } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -16,7 +17,6 @@ const ProfilScreen = () => {
   const isOwnProfile = !route.params?.profileId || route.params.profileId === currentUser.id;
   const [draft, setDraft] = useState(currentUser);
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
-  const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [repeatPassword, setRepeatPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
@@ -28,22 +28,30 @@ const ProfilScreen = () => {
       [key]: previous[key].includes(value) ? previous[key].filter((entry) => entry !== value) : [...previous[key], value],
     }));
   };
-  const save = () => updateCurrentUser(draft);
-  const savePassword = () => {
-    if (oldPassword !== currentUser.password) {
-      setPasswordError('Das alte Passwort stimmt nicht.');
-      return;
+  const save = async () => {
+    try {
+      await updateCurrentUser(draft);
+      Alert.alert('Gespeichert', 'Dein Profil wurde in Firebase aktualisiert.');
+    } catch (saveError) {
+      Alert.alert('Fehler', saveError.message || 'Profil konnte nicht gespeichert werden.');
     }
+  };
+  const savePassword = async () => {
     if (!newPassword || newPassword !== repeatPassword) {
       setPasswordError('Die neuen Passwoerter stimmen nicht ueberein.');
       return;
     }
-    changePassword(newPassword);
-    setPasswordModalOpen(false);
-    setOldPassword('');
-    setNewPassword('');
-    setRepeatPassword('');
-    setPasswordError('');
+
+    try {
+      await changePassword(newPassword);
+      setPasswordModalOpen(false);
+      setNewPassword('');
+      setRepeatPassword('');
+      setPasswordError('');
+      Alert.alert('Gespeichert', 'Dein Passwort wurde aktualisiert.');
+    } catch (changeError) {
+      setPasswordError(changeError.message || 'Passwort konnte nicht geaendert werden.');
+    }
   };
 
   const profile = isOwnProfile ? draft : viewedProfile;
@@ -62,7 +70,7 @@ const ProfilScreen = () => {
             <Ionicons name="arrow-back" size={28} color={affairGoTheme.colors.accentSoft} />
           </Pressable>
         }
-        rightAction={isOwnProfile ? <Pressable onPress={() => { logout(); navigation.reset({ index: 0, routes: [{ name: 'Landing' }] }); }}><Ionicons name="log-out-outline" size={28} color={affairGoTheme.colors.text} /></Pressable> : null}
+        rightAction={isOwnProfile ? <Pressable onPress={async () => { await logout(); navigation.reset({ index: 0, routes: [{ name: 'Landing' }] }); }}><Ionicons name="log-out-outline" size={28} color={affairGoTheme.colors.text} /></Pressable> : null}
       />
 
       <GlassCard strong style={styles.heroCard}>
@@ -150,7 +158,6 @@ const ProfilScreen = () => {
         <View style={styles.modalBackdrop}>
           <GlassCard strong style={styles.modalCard}>
             <Text style={styles.groupTitle}>Passwort aendern</Text>
-            <FormField label="Altes Passwort" value={oldPassword} onChangeText={setOldPassword} secureTextEntry />
             <FormField label="Neues Passwort" value={newPassword} onChangeText={setNewPassword} secureTextEntry />
             <FormField label="Neues Passwort wiederholen" value={repeatPassword} onChangeText={setRepeatPassword} secureTextEntry />
             {passwordError ? <Text style={styles.passwordError}>{passwordError}</Text> : null}
