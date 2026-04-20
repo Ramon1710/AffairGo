@@ -1,6 +1,4 @@
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createStackNavigator } from '@react-navigation/stack';
-import { Platform } from 'react-native';
 
 import Dashboard from '../screens/Dashboard';
 import LandingScreen from '../screens/LandingScreen';
@@ -16,7 +14,7 @@ import ExploreScreen from '../screens/ExploreScreen';
 import MatchingMapScreen from '../screens/MatchingMapScreen';
 import SwipeScreen from '../screens/SwipeScreen';
 
-const Stack = Platform.OS === 'web' ? createStackNavigator() : createNativeStackNavigator();
+const Stack = createStackNavigator();
 
 const StackNavigator = () => {
   return (
