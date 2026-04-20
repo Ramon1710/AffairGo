@@ -1,6 +1,6 @@
-import { Ionicons } from '@expo/vector-icons';
 import { ImageBackground, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { affairGoTheme } from '../constants/affairGoTheme';
+import { Ionicons } from './SimpleIcons';
 
 export const backgroundSource = require('../assets/login-bg.png');
 

@@ -34,6 +34,51 @@ npm run android
 npm run ios
 ```
 
+## Deploy auf Vercel
+
+Wenn das Projekt bereits mit Vercel und dem GitHub-Repo verbunden ist, reicht ein Push auf `main`.
+
+1. Aenderungen committen
+
+```bash
+git add .
+git commit -m "Update AffairGo"
+```
+
+2. Nach GitHub pushen
+
+```bash
+git push origin main
+```
+
+Vercel startet danach automatisch ein neues Deployment.
+
+Falls das Repo noch nicht in Vercel importiert wurde:
+
+1. Repo zuerst nach GitHub pushen
+
+```bash
+git add .
+git commit -m "Initial AffairGo deploy"
+git push origin main
+```
+
+2. Danach in Vercel:
+
+- `Add New -> Project`
+- GitHub-Repo `Ramon1710/AffairGo` auswaehlen
+- Root Project unveraendert lassen
+- Build Command: `npm run build:web`
+- Output Directory: `dist`
+
+Optional mit Vercel CLI:
+
+```bash
+npm i -g vercel
+vercel
+vercel --prod
+```
+
 ## Hinweis
 
 Die aktuelle Umsetzung ist eine produktnahe Frontend-Demo mit gemeinsamem State. Reale Backend-Themen wie DSGVO-konforme Speicherung, echte Altersverifizierung, Mapbox/OpenStreetMap, Stripe, Apple/Google In-App-Kaeufe, Screenshot-Schutz auf nativen Plattformen und KI-Selfie-Abgleich sind hier bewusst als UI- und Flow-Modell vorbereitet, aber noch nicht an produktive Dienste angebunden.

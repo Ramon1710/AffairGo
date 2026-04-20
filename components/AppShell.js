@@ -1,6 +1,6 @@
-import { Ionicons } from '@expo/vector-icons';
 import { ImageBackground, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from './SimpleIcons';
 
 export const palette = {
   background: '#130105',

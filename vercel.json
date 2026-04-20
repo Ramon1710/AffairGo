@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "npm install && npx expo install --fix",
+  "installCommand": "npm install",
   "buildCommand": "npm run build:web",
   "outputDirectory": "dist",
   "rewrites": [
