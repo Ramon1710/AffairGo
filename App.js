@@ -1,13 +1,14 @@
-import { NavigationContainer } from '@react-navigation/native';
+import 'react-native-gesture-handler';
 import { AffairGoProvider } from './context/AffairGoContext';
+import { NavigationProvider } from './naviagtion/SimpleNavigation';
 import StackNavigator from './naviagtion/StackNavigator';
 
 export default function App() {
   return (
     <AffairGoProvider>
-      <NavigationContainer>
+      <NavigationProvider initialRouteName="Landing">
         <StackNavigator />
-      </NavigationContainer>
+      </NavigationProvider>
     </AffairGoProvider>
   );
 }

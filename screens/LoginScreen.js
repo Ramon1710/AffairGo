@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation } from '../naviagtion/SimpleNavigation';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader } from '../components/AffairGoUI';
 import { affairGoTheme } from '../constants/affairGoTheme';

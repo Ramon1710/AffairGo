@@ -1,4 +1,4 @@
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation } from '../naviagtion/SimpleNavigation';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, GlassCard, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
 import { affairGoTheme } from '../constants/affairGoTheme';

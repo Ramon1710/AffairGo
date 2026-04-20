@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation } from '../naviagtion/SimpleNavigation';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, BulletRow, GlassCard, InlineStat, SectionTitle } from '../components/AffairGoUI';
 import { affairGoTheme, membershipColors } from '../constants/affairGoTheme';
