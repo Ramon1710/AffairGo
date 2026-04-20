@@ -1,6 +1,6 @@
-import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, GlassCard, InlineStat, ScreenHeader, SectionTitle } from '../components/AffairGoUI';
+import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme, membershipColors, travelModeColors } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
 import { useNavigation } from '../naviagtion/SimpleNavigation';

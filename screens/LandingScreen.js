@@ -1,6 +1,6 @@
-import { Ionicons } from '@expo/vector-icons';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, BulletRow, GlassCard, InlineStat, SectionTitle } from '../components/AffairGoUI';
+import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme, membershipColors } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
 import { PRICING_PLANS, WEBSITE_SECTIONS } from '../data/mockData';

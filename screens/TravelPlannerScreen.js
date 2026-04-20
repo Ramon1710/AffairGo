@@ -1,6 +1,6 @@
-import { Ionicons } from '@expo/vector-icons';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader } from '../components/AffairGoUI';
+import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
 import { VISIBILITY_OPTIONS } from '../data/mockData';

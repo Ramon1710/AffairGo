@@ -1,7 +1,7 @@
-import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, GlassCard, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
+import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme, travelModeColors } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
 import { PHOTO_AGE_FILTERS, RADIUS_OPTIONS } from '../data/mockData';

@@ -1,7 +1,7 @@
-import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader } from '../components/AffairGoUI';
+import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
