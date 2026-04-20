@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "AffairGo",
-    "slug": "AffairGo",
+    "name": "AffairGo Webapp",
+    "slug": "affair-go",
     "scheme": "affairgo",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -27,6 +27,9 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "websiteUrl": "https://www.affair-go.com"
     }
   }
 }

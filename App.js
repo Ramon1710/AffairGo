@@ -1,10 +1,13 @@
 import { NavigationContainer } from '@react-navigation/native';
-import StackNavigator from './navigation/StackNavigator';
+import { AffairGoProvider } from './context/AffairGoContext';
+import StackNavigator from './naviagtion/StackNavigator';
 
 export default function App() {
   return (
-    <NavigationContainer>
-      <StackNavigator />
-    </NavigationContainer>
+    <AffairGoProvider>
+      <NavigationContainer>
+        <StackNavigator />
+      </NavigationContainer>
+    </AffairGoProvider>
   );
 }

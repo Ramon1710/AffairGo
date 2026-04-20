@@ -1,233 +1,303 @@
+import React, { useMemo, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
-import { useNavigation } from '@react-navigation/native';
-import { getAuth } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { useEffect, useState } from 'react';
-import {
-    Alert, ImageBackground, ScrollView, StyleSheet,
-    Text, TextInput, TouchableOpacity, View
-} from 'react-native';
-import { db } from '../firebase';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
+import { affairGoTheme } from '../constants/affairGoTheme';
+import { useAffairGo } from '../context/AffairGoContext';
+import { EYE_OPTIONS, FIGURE_OPTIONS, HAIR_OPTIONS, SKIN_OPTIONS } from '../data/mockData';
 
 const ProfilScreen = () => {
   const navigation = useNavigation();
-  const auth = getAuth();
-  const userId = auth.currentUser?.uid;
+  const route = useRoute();
+  const { currentUser, users, updateCurrentUser, addGalleryItem, logout, preferenceOptions, tabooOptions, getCompatibility, changePassword } = useAffairGo();
+  const viewedProfile = useMemo(() => (route.params?.profileId ? users.find((entry) => entry.id === route.params.profileId) : currentUser), [currentUser, route.params?.profileId, users]);
+  const isOwnProfile = !route.params?.profileId || route.params.profileId === currentUser.id;
+  const [draft, setDraft] = useState(currentUser);
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [oldPassword, setOldPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [repeatPassword, setRepeatPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
 
-  const [email, setEmail] = useState('');
-  const [newEmail, setNewEmail] = useState('');
-  const [nickname, setNickname] = useState('');
-  const [newNickname, setNewNickname] = useState('');
-  const [height, setHeight] = useState('');
-  const [figure, setFigure] = useState('');
-  const [penisSize, setPenisSize] = useState('');
-  const [braSize, setBraSize] = useState('');
-  const [hairColor, setHairColor] = useState('');
-  const [eyeColor, setEyeColor] = useState('');
-  const [skinType, setSkinType] = useState('');
-  const [gender, setGender] = useState('männlich');
-
-  const [preferences, setPreferences] = useState([]);
-  const [taboos, setTaboos] = useState([]);
-  const [editMode, setEditMode] = useState(true);
-
-  const preferenceList = [
-    'Oralsex geben', 'Oralsex empfangen', '69-Stellung', 'Zungenküsse',
-    'Vorspiel genießen', 'Langes Liebesspiel', 'Spontaner Sex', 'Dominant sein',
-    'Devot sein', 'Leichte Fesselspiele (Bondage)', 'Dirty Talk', 'Rollenspiele',
-    'Anal (aktiv)', 'Anal (passiv)', 'Toys benutzen', 'Zärtlich & romantisch',
-    'Schnell & hart', 'Erotik mit Augenbinde', 'Sex mit Musik', 'Fesselspiele',
-    'BDSM (soft)', 'BDSM (hart)', 'Gruppensex / Dreier', 'Wechselnde Stellungen',
-    'Langsamer, sinnlicher Sex'
-  ];
-
-  const tabooList = [
-    'Analverkehr', 'Oralsex geben', 'Oralsex empfangen', 'ungeschützter Sex',
-    'Sex ohne Emotion', 'BDSM', 'Gewaltspiele', 'Rollenspiel', 'Fesselspiele',
-    'Gruppensex', 'Dreier (egal welches Geschlecht)', 'Öffentlichkeit / Outdoor-Sex',
-    'Dominanz/Devotion-Spiel', 'Dirty Talk', 'Toys', 'Fußfetisch',
-    'erniedrigende Praktiken', 'harte Praktiken', 'Tausch von intimen Bildern',
-    'Küssen', 'Küssen auf den Mund', 'Kuscheln danach', 'emotionaler Kontakt',
-    'Übernachtungen', 'Kontakt außerhalb der Treffen', 'Sex beim ersten Treffen'
-  ];
-
-  const toggleItem = (item, list, setList) => {
-    setList(list.includes(item) ? list.filter(i => i !== item) : [...list, item]);
+  const updateField = (key, value) => setDraft((previous) => ({ ...previous, [key]: value }));
+  const toggleListValue = (key, value) => {
+    setDraft((previous) => ({
+      ...previous,
+      [key]: previous[key].includes(value) ? previous[key].filter((entry) => entry !== value) : [...previous[key], value],
+    }));
   };
-
-  const loadUserData = async () => {
-    if (!userId) return;
-    try {
-      const docRef = doc(db, 'users', userId);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        const d = docSnap.data();
-        setEmail(d.email || '');
-        setNickname(d.nickname || '');
-        setHeight(d.height || '');
-        setFigure(d.figure || '');
-        setPenisSize(d.penisSize || '');
-        setBraSize(d.braSize || '');
-        setHairColor(d.hairColor || '');
-        setEyeColor(d.eyeColor || '');
-        setSkinType(d.skinType || '');
-        setGender(d.gender || 'männlich');
-        setPreferences(d.preferences || []);
-        setTaboos(d.taboos || []);
-      }
-    } catch (err) {
-      console.error('Fehler beim Laden:', err);
+  const save = () => updateCurrentUser(draft);
+  const savePassword = () => {
+    if (oldPassword !== currentUser.password) {
+      setPasswordError('Das alte Passwort stimmt nicht.');
+      return;
     }
-  };
-
-  const saveUserData = async () => {
-    if (!userId) return;
-    try {
-      const docRef = doc(db, 'users', userId);
-      await setDoc(docRef, {
-        email: newEmail || email,
-        nickname: newNickname || nickname,
-        height,
-        figure,
-        penisSize,
-        braSize,
-        hairColor,
-        eyeColor,
-        skinType,
-        gender,
-        preferences,
-        taboos
-      });
-      if (newEmail) setEmail(newEmail);
-      if (newNickname) setNickname(newNickname);
-      Alert.alert('Gespeichert', 'Dein Profil wurde gespeichert.');
-      setEditMode(false);
-    } catch (err) {
-      Alert.alert('Fehler', 'Daten konnten nicht gespeichert werden.');
-      console.error(err);
+    if (!newPassword || newPassword !== repeatPassword) {
+      setPasswordError('Die neuen Passwoerter stimmen nicht ueberein.');
+      return;
     }
+    changePassword(newPassword);
+    setPasswordModalOpen(false);
+    setOldPassword('');
+    setNewPassword('');
+    setRepeatPassword('');
+    setPasswordError('');
   };
 
-  const handleLogout = () => {
-    navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
-  };
+  const profile = isOwnProfile ? draft : viewedProfile;
 
-  useEffect(() => {
-    loadUserData();
-  }, []);
+  if (!profile) {
+    return null;
+  }
 
   return (
-    <ImageBackground source={require('../assets/login-bg.png')} style={{ flex: 1 }}>
-      <ScrollView contentContainerStyle={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.navigate('Dashboard')}>
-            <Ionicons name="arrow-back" size={28} color="#fff" />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={handleLogout}>
-            <Ionicons name="log-out-outline" size={28} color="#fff" />
-          </TouchableOpacity>
+    <AppBackground>
+      <ScreenHeader
+        title={isOwnProfile ? 'Dein Profil' : profile.nickname}
+        subtitle={isOwnProfile ? 'Persoenliche Daten' : `Kompatibilitaet ${getCompatibility(currentUser.preferences, profile.preferences)}%`}
+        leftAction={
+          <Pressable onPress={() => navigation.goBack()}>
+            <Ionicons name="arrow-back" size={28} color={affairGoTheme.colors.accentSoft} />
+          </Pressable>
+        }
+        rightAction={isOwnProfile ? <Pressable onPress={() => { logout(); navigation.reset({ index: 0, routes: [{ name: 'Landing' }] }); }}><Ionicons name="log-out-outline" size={28} color={affairGoTheme.colors.text} /></Pressable> : null}
+      />
+
+      <GlassCard strong style={styles.heroCard}>
+        <View style={styles.avatar}>
+          <Ionicons name="person" size={76} color={affairGoTheme.colors.text} />
         </View>
+        <Text style={styles.nameLine}>{isOwnProfile ? `${profile.firstName} ${profile.lastName}` : profile.nickname}</Text>
+        <Text style={styles.metaLine}>{profile.birthLabel || `${profile.birthDay}. ${profile.birthMonth + 1}. ${profile.birthYear} (${profile.age} Jahre)`}</Text>
+        <Text style={styles.metaLine}>{profile.gender}</Text>
+        <Text style={styles.photoAge}>Profilbild hochgeladen: vor {profile.profilePhotoAgeMonths} Monaten</Text>
+        {profile.profilePhotoAgeMonths >= 12 ? <Text style={styles.warnRed}>Rote Warnung: Profilbild aelter als 12 Monate</Text> : null}
+        {profile.profilePhotoAgeMonths >= 6 && profile.profilePhotoAgeMonths < 12 ? <Text style={styles.warnSoft}>Hinweis: Profilbild aelter als 6 Monate</Text> : null}
+      </GlassCard>
 
-        <Text style={styles.title}>Dein Profil</Text>
-
-        <Text style={styles.label}>E-Mail:</Text>
-        <TextInput style={styles.input} placeholder="Neue E-Mail" value={newEmail} onChangeText={setNewEmail} placeholderTextColor="#ccc" />
-
-        <Text style={styles.label}>Spitzname:</Text>
-        <TextInput style={styles.input} placeholder="Neuer Spitzname" value={newNickname} onChangeText={setNewNickname} placeholderTextColor="#ccc" />
-
-        <Text style={styles.label}>Körpergröße:</Text>
-        <TextInput style={styles.input} placeholder="z. B. 1,80" value={height} onChangeText={setHeight} placeholderTextColor="#ccc" />
-
-        <Text style={styles.label}>Figur:</Text>
-        <Picker selectedValue={figure} onValueChange={setFigure} style={styles.picker}>
-          {['Mager', 'Schlank', 'Sportlich', 'Normal', 'Pummelig', 'Dick'].map(f => (
-            <Picker.Item key={f} label={f} value={f} />
-          ))}
-        </Picker>
-
-        {gender === 'männlich' || gender === 'divers' ? (
+      <GlassCard style={styles.infoCard}>
+        {isOwnProfile ? (
           <>
-            <Text style={styles.label}>Penisgröße:</Text>
-            <TextInput style={styles.input} value={penisSize} onChangeText={setPenisSize} placeholder="z. B. 16" placeholderTextColor="#ccc" />
+            <FormField label="E-Mail-Adresse" value={profile.email} onChangeText={(value) => updateField('email', value)} hint="Aenderung wird erst nach Bestaetigung aktiv" />
+            <FormField label="Spitzname" value={profile.nickname} onChangeText={(value) => updateField('nickname', value)} hint="Oeffentlich sichtbar, nur falls verfuegbar" />
+            <View style={styles.row}>
+              <View style={styles.half}><FormField label="Koerpergroesse" value={profile.height} onChangeText={(value) => updateField('height', value)} /></View>
+              <View style={styles.half}><Text style={styles.pickerLabel}>Figur</Text><View style={styles.pickerWrap}><Picker selectedValue={profile.figure} onValueChange={(value) => updateField('figure', value)}>{FIGURE_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View></View>
+            </View>
+            <AccentButton label="Passwort aendern" variant="secondary" onPress={() => setPasswordModalOpen(true)} style={styles.passwordButton} />
+            {(profile.gender === 'maennlich' || profile.gender === 'divers') ? <FormField label="Penisgroesse" value={profile.penisSize} onChangeText={(value) => updateField('penisSize', value)} /> : null}
+            {(profile.gender === 'weiblich' || profile.gender === 'divers') ? <FormField label="BH-Groesse" value={profile.braSize} onChangeText={(value) => updateField('braSize', value)} /> : null}
+            <View style={styles.row}>
+              <View style={styles.half}><Text style={styles.pickerLabel}>Haarfarbe</Text><View style={styles.pickerWrap}><Picker selectedValue={profile.hairColor} onValueChange={(value) => updateField('hairColor', value)}>{HAIR_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View></View>
+              <View style={styles.half}><Text style={styles.pickerLabel}>Augenfarbe</Text><View style={styles.pickerWrap}><Picker selectedValue={profile.eyeColor} onValueChange={(value) => updateField('eyeColor', value)}>{EYE_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View></View>
+            </View>
+            <Text style={styles.pickerLabel}>Hauttyp</Text>
+            <View style={styles.pickerWrap}><Picker selectedValue={profile.skinType} onValueChange={(value) => updateField('skinType', value)}>{SKIN_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View>
+            <AccentButton label="Profil speichern" onPress={save} style={styles.saveButton} />
           </>
-        ) : null}
-
-        {gender === 'weiblich' || gender === 'divers' ? (
+        ) : (
           <>
-            <Text style={styles.label}>BH-Größe:</Text>
-            <TextInput style={styles.input} value={braSize} onChangeText={setBraSize} placeholder="z. B. 75B" placeholderTextColor="#ccc" />
+            <Text style={styles.readonlyLine}>Spitzname: {profile.nickname}</Text>
+            <Text style={styles.readonlyLine}>Koerpergroesse: {profile.height}</Text>
+            <Text style={styles.readonlyLine}>Figur: {profile.figure}</Text>
+            {profile.penisSize ? <Text style={styles.readonlyLine}>Penisgroesse: {profile.penisSize}</Text> : null}
+            {profile.braSize ? <Text style={styles.readonlyLine}>BH-Groesse: {profile.braSize}</Text> : null}
           </>
-        ) : null}
+        )}
+      </GlassCard>
 
-        <Text style={styles.label}>Haarfarbe:</Text>
-        <Picker selectedValue={hairColor} onValueChange={setHairColor} style={styles.picker}>
-          {['Blond', 'Braun', 'Schwarz', 'Rot', 'Grau', 'Glatze', 'Gefärbt'].map(h => (
-            <Picker.Item key={h} label={h} value={h} />
+      <GlassCard style={styles.infoCard}>
+        <Text style={styles.groupTitle}>Vorlieben</Text>
+        <View style={styles.chips}>
+          {preferenceOptions.map((item) => (
+            <View key={item} style={styles.chipItem}>
+              <ToggleChip label={item} active={profile.preferences.includes(item)} onPress={() => isOwnProfile && toggleListValue('preferences', item)} />
+            </View>
           ))}
-        </Picker>
-
-        <Text style={styles.label}>Augenfarbe:</Text>
-        <Picker selectedValue={eyeColor} onValueChange={setEyeColor} style={styles.picker}>
-          {['Blau', 'Braun', 'Grün', 'Grau', 'Schwarz', 'Gemischt'].map(e => (
-            <Picker.Item key={e} label={e} value={e} />
+        </View>
+        <Text style={styles.groupTitle}>Tabus</Text>
+        <View style={styles.chips}>
+          {tabooOptions.map((item) => (
+            <View key={item} style={styles.chipItem}>
+              <ToggleChip label={item} active={profile.taboos.includes(item)} onPress={() => isOwnProfile && toggleListValue('taboos', item)} />
+            </View>
           ))}
-        </Picker>
+        </View>
+      </GlassCard>
 
-        <Text style={styles.label}>Hauttyp:</Text>
-        <Picker selectedValue={skinType} onValueChange={setSkinType} style={styles.picker}>
-          {['Sehr hell', 'Hell', 'Mittel', 'Oliv', 'Dunkel', 'Sehr dunkel'].map(s => (
-            <Picker.Item key={s} label={s} value={s} />
+      <GlassCard style={styles.infoCard}>
+        <Text style={styles.groupTitle}>Galerie</Text>
+        <View style={styles.galleryRow}>
+          {profile.gallery.map((item) => (
+            <View key={item.id} style={styles.galleryItem}>
+              <Ionicons name="image-outline" size={28} color={affairGoTheme.colors.textMuted} />
+              <Text style={styles.galleryLabel}>{item.label}</Text>
+              <Text style={styles.galleryAge}>{item.ageLabel}</Text>
+            </View>
           ))}
-        </Picker>
+          {isOwnProfile && profile.gallery.length < 10 ? (
+            <Pressable style={styles.galleryItem} onPress={addGalleryItem}>
+              <Ionicons name="add" size={34} color={affairGoTheme.colors.text} />
+              <Text style={styles.galleryLabel}>Foto hinzufuegen</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </GlassCard>
 
-        <Text style={styles.sectionTitle}>Vorlieben (markiere was du magst):</Text>
-        {editMode ? preferenceList.map((pref, i) => (
-          <TouchableOpacity key={i} onPress={() => toggleItem(pref, preferences, setPreferences)}>
-            <Text style={preferences.includes(pref) ? styles.selectedItem : styles.unselectedItem}>{pref}</Text>
-          </TouchableOpacity>
-        )) : preferences.map((item, i) => (
-          <Text key={i} style={styles.selectedItem}>{item}</Text>
-        ))}
-
-        <Text style={styles.sectionTitle}>Tabus (markiere was du nicht magst):</Text>
-        {editMode ? tabooList.map((tab, i) => (
-          <TouchableOpacity key={i} onPress={() => toggleItem(tab, taboos, setTaboos)}>
-            <Text style={taboos.includes(tab) ? styles.selectedItem : styles.unselectedItem}>{tab}</Text>
-          </TouchableOpacity>
-        )) : taboos.map((item, i) => (
-          <Text key={i} style={styles.selectedItem}>{item}</Text>
-        ))}
-
-        <TouchableOpacity style={styles.button} onPress={editMode ? saveUserData : () => setEditMode(true)}>
-          <Text style={styles.buttonText}>{editMode ? 'Speichern' : 'Ändern?'}</Text>
-        </TouchableOpacity>
-
-        <View style={{ height: 80 }} />
-      </ScrollView>
-    </ImageBackground>
+      <Modal transparent visible={passwordModalOpen} animationType="fade" onRequestClose={() => setPasswordModalOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <GlassCard strong style={styles.modalCard}>
+            <Text style={styles.groupTitle}>Passwort aendern</Text>
+            <FormField label="Altes Passwort" value={oldPassword} onChangeText={setOldPassword} secureTextEntry />
+            <FormField label="Neues Passwort" value={newPassword} onChangeText={setNewPassword} secureTextEntry />
+            <FormField label="Neues Passwort wiederholen" value={repeatPassword} onChangeText={setRepeatPassword} secureTextEntry />
+            {passwordError ? <Text style={styles.passwordError}>{passwordError}</Text> : null}
+            <AccentButton label="Speichern" onPress={savePassword} style={styles.modalButton} />
+            <AccentButton label="Abbrechen" variant="ghost" onPress={() => setPasswordModalOpen(false)} />
+          </GlassCard>
+        </View>
+      </Modal>
+    </AppBackground>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { padding: 20 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
-  title: { fontSize: 22, fontWeight: 'bold', color: '#fff', textAlign: 'center', marginBottom: 20 },
-  label: { fontWeight: 'bold', color: '#fff', marginTop: 20 },
-  input: {
-    backgroundColor: 'rgba(255,255,255,0.1)', padding: 10, borderRadius: 8,
-    marginTop: 8, color: '#fff', borderWidth: 1, borderColor: '#ccc'
+  heroCard: {
+    alignItems: 'center',
+    marginBottom: 14,
   },
-  picker: {
-    backgroundColor: 'rgba(255,255,255,0.1)', color: '#fff',
-    borderRadius: 8, marginTop: 8
+  avatar: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
   },
-  sectionTitle: { fontSize: 16, fontWeight: 'bold', color: '#fff', marginTop: 30, marginBottom: 10 },
-  selectedItem: { color: '#c00', fontWeight: 'bold', marginVertical: 4 },
-  unselectedItem: { color: '#ccc', marginVertical: 4 },
-  button: { backgroundColor: '#c00', padding: 12, borderRadius: 10, marginTop: 20 },
-  buttonText: { color: '#fff', textAlign: 'center', fontWeight: 'bold' }
+  nameLine: {
+    color: affairGoTheme.colors.text,
+    fontSize: 34,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  metaLine: {
+    color: affairGoTheme.colors.textMuted,
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  photoAge: {
+    color: affairGoTheme.colors.text,
+    marginTop: 14,
+  },
+  warnSoft: {
+    color: affairGoTheme.colors.accentSoft,
+    marginTop: 6,
+  },
+  warnRed: {
+    color: affairGoTheme.colors.danger,
+    marginTop: 6,
+  },
+  infoCard: {
+    marginBottom: 14,
+  },
+  row: {
+    flexDirection: 'row',
+    marginHorizontal: -6,
+  },
+  half: {
+    flex: 1,
+    marginHorizontal: 6,
+  },
+  pickerLabel: {
+    color: affairGoTheme.colors.text,
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  pickerWrap: {
+    minHeight: 50,
+    borderRadius: affairGoTheme.radius.md,
+    borderWidth: 1,
+    borderColor: affairGoTheme.colors.line,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginBottom: 14,
+    overflow: 'hidden',
+    justifyContent: 'center',
+  },
+  saveButton: {
+    marginTop: 8,
+  },
+  passwordButton: {
+    marginBottom: 14,
+  },
+  readonlyLine: {
+    color: affairGoTheme.colors.text,
+    lineHeight: 26,
+  },
+  groupTitle: {
+    color: affairGoTheme.colors.text,
+    fontSize: 24,
+    fontWeight: '700',
+    marginBottom: 14,
+  },
+  chips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 12,
+  },
+  chipItem: {
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  galleryRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  galleryItem: {
+    width: '31%',
+    minHeight: 120,
+    borderWidth: 1,
+    borderColor: affairGoTheme.colors.line,
+    borderRadius: 18,
+    marginRight: '2%',
+    marginBottom: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    padding: 10,
+  },
+  galleryLabel: {
+    color: affairGoTheme.colors.text,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  galleryAge: {
+    color: affairGoTheme.colors.textMuted,
+    marginTop: 6,
+    textAlign: 'center',
+    fontSize: 12,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    maxWidth: 560,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  passwordError: {
+    color: affairGoTheme.colors.danger,
+    marginBottom: 12,
+  },
+  modalButton: {
+    marginBottom: 10,
+  },
 });
 
 export default ProfilScreen;

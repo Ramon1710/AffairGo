@@ -1,175 +1,195 @@
-import { FontAwesome5, Ionicons } from '@expo/vector-icons';
+import React from 'react';
+import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import {
-    Alert,
-    ImageBackground,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
-} from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { AccentButton, AppBackground, GlassCard, InlineStat, ScreenHeader, SectionTitle } from '../components/AffairGoUI';
+import { affairGoTheme, membershipColors, travelModeColors } from '../constants/affairGoTheme';
+import { useAffairGo } from '../context/AffairGoContext';
+
+const quickActions = [
+  { key: 'MatchingMap', label: 'Matching Map', icon: 'map-outline' },
+  { key: 'Swipe', label: 'Swipe', icon: 'swap-horizontal-outline' },
+  { key: 'Chat', label: 'Chats', icon: 'chatbubbles-outline' },
+];
 
 const Dashboard = () => {
-  const userStatus = 'basic'; // später dynamisch laden
   const navigation = useNavigation();
-
-  const handleNavigation = (target) => {
-    const implementedScreens = ['MatchingMap', 'Swipe', 'Chat', 'Event', 'Explore', 'Profil'];
-    if (implementedScreens.includes(target)) {
-      navigation.navigate(target);
-    } else {
-      Alert.alert('Hinweis', `Funktion "${target}" ist noch nicht implementiert.`);
-    }
-  };
+  const { currentUser, visibleProfiles, events, nearbyOnlineProfiles } = useAffairGo();
 
   return (
-    <ImageBackground source={require('../assets/login-bg.png')} style={{ flex: 1 }}>
-      <ScrollView contentContainerStyle={styles.container}>
-        
-        {/* Obere Ebene */}
-        <View style={styles.topRow}>
-          <View style={styles.menuBox}>
-            <TouchableOpacity style={styles.menuButton} onPress={() => handleNavigation('Explore')}>
-              <Ionicons name="airplane" size={20} color="#fff" />
-              <Text style={styles.menuText}>Dienstreise</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.menuButton} onPress={() => handleNavigation('Explore')}>
-              <Ionicons name="sunny" size={20} color="#fff" />
-              <Text style={styles.menuText}>Urlaub</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.menuButton} onPress={() => handleNavigation('Event')}>
-              <Ionicons name="calendar" size={20} color="#fff" />
-              <Text style={styles.menuText}>Veranstaltungen</Text>
-            </TouchableOpacity>
+    <AppBackground>
+      <ScreenHeader
+        title="Dashboard"
+        subtitle={currentUser.nickname}
+        leftAction={
+          <View>
+            <Pressable style={styles.menuIcon} onPress={() => navigation.navigate('TravelPlanner', { mode: 'business' })}>
+              <Ionicons name="menu" size={34} color={affairGoTheme.colors.accent} />
+            </Pressable>
           </View>
+        }
+        rightAction={
+          <Pressable style={[styles.profileButton, { borderColor: membershipColors[currentUser.membership] }]} onPress={() => navigation.navigate('Profil')}>
+            <Ionicons name="person" size={24} color={membershipColors[currentUser.membership]} />
+          </Pressable>
+        }
+      />
 
-          <TouchableOpacity
-            style={[
-              styles.profileButton,
-              userStatus === 'basic' && { backgroundColor: 'red' },
-              userStatus === 'premium' && { backgroundColor: 'gold' },
-              userStatus === 'gold' && { backgroundColor: '#ffd700' }
-            ]}
-            onPress={() => handleNavigation('Profil')}
-          >
-            <Ionicons name="person-circle-outline" size={28} color="#fff" />
-          </TouchableOpacity>
+      <View style={styles.travelRow}>
+        <GlassCard style={styles.travelMenu}>
+          <Pressable style={styles.menuItem} onPress={() => navigation.navigate('TravelPlanner', { mode: 'business' })}>
+            <Text style={styles.menuItemText}>Dienstreise</Text>
+          </Pressable>
+          <Pressable style={styles.menuItem} onPress={() => navigation.navigate('TravelPlanner', { mode: 'vacation' })}>
+            <Text style={styles.menuItemText}>Urlaub</Text>
+          </Pressable>
+          <Pressable style={styles.menuItem} onPress={() => navigation.navigate('Event')}>
+            <Text style={styles.menuItemText}>Veranstaltungen in der Naehe</Text>
+          </Pressable>
+        </GlassCard>
+
+        <View style={styles.statCluster}>
+          <InlineStat label="Radius" value={`${currentUser.radius} km`} />
+          <InlineStat label="Online jetzt" value={String(nearbyOnlineProfiles.length)} accent={affairGoTheme.colors.success} />
+          <InlineStat label="Premium" value={currentUser.membership.toUpperCase()} accent={membershipColors[currentUser.membership]} />
         </View>
+      </View>
 
-        {/* Mittlere Ebene */}
-        <View style={styles.verticalButtonContainer}>
-          <TouchableOpacity style={styles.bigButton} onPress={() => handleNavigation('MatchingMap')}>
-            <Ionicons name="map" size={26} color="#fff" />
-            <Text style={styles.bigButtonText}>Matching Map</Text>
-          </TouchableOpacity>
+      <View style={styles.grid}>
+        {quickActions.map((action) => (
+          <Pressable key={action.key} style={styles.tile} onPress={() => navigation.navigate(action.key)}>
+            <GlassCard strong style={styles.tileCard}>
+              <Ionicons name={action.icon} size={56} color={affairGoTheme.colors.accent} />
+              <Text style={styles.tileLabel}>{action.label}</Text>
+            </GlassCard>
+          </Pressable>
+        ))}
+      </View>
 
-          <TouchableOpacity style={styles.bigButton} onPress={() => handleNavigation('Swipe')}>
-            <Ionicons name="swap-horizontal" size={26} color="#fff" />
-            <Text style={styles.bigButtonText}>Swipen</Text>
-          </TouchableOpacity>
+      <SectionTitle title="Veranstaltungen" aside="Werbung" />
+      {events.slice(0, 2).map((event) => (
+        <GlassCard key={event.id} style={styles.eventCard}>
+          <Text style={styles.eventTitle}>{event.title}</Text>
+          <Text style={styles.eventText}>{event.date}, {event.time}</Text>
+          <Text style={styles.eventText}>{event.address}</Text>
+          <Text style={styles.eventText}>{event.distanceKm} km entfernt, {event.participants.total} Anmeldungen</Text>
+          <AccentButton label="Event oeffnen" variant="secondary" onPress={() => navigation.navigate('Event')} style={styles.eventButton} />
+        </GlassCard>
+      ))}
 
-          <TouchableOpacity style={styles.bigButton} onPress={() => handleNavigation('Chat')}>
-            <Ionicons name="chatbubbles" size={26} color="#fff" />
-            <Text style={styles.bigButtonText}>Chats</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Untere Ebene */}
-        <View style={styles.bottomSection}>
-          <Text style={styles.sectionTitle}>Veranstaltungen in deiner Nähe</Text>
-          <TouchableOpacity style={styles.eventCard} onPress={() => handleNavigation('Event')}>
-            <FontAwesome5 name="glass-cheers" size={20} color="#fff" />
-            <View style={{ marginLeft: 10 }}>
-              <Text style={styles.eventText}>Private Swingerparty</Text>
-              <Text style={styles.eventSubtext}>23 km entfernt · 15 Anmeldungen</Text>
+      <SectionTitle title="Jetzt sichtbar" aside="Radar" />
+      <View style={styles.radarList}>
+        {visibleProfiles.slice(0, 3).map((profile) => (
+          <GlassCard key={profile.id} style={styles.radarCard}>
+            <View style={styles.radarRow}>
+              <View>
+                <Text style={styles.radarName}>{profile.nickname}</Text>
+                <Text style={styles.radarMeta}>{profile.age} Jahre, {profile.figure}, {profile.distanceKm} km</Text>
+              </View>
+              <Text style={[styles.radarTag, { color: travelModeColors[profile.travelMode] || affairGoTheme.colors.blue }]}>
+                {profile.travelMode === 'business' ? 'Dienstreise' : profile.travelMode === 'vacation' ? 'Urlaub' : 'Aktiv'}
+              </Text>
             </View>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-    </ImageBackground>
+          </GlassCard>
+        ))}
+      </View>
+    </AppBackground>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 20,
-    flexGrow: 1,
-    minHeight: '100%',
-    justifyContent: 'space-between'
-  },
-  topRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 20
-  },
-  menuBox: {
-    flexDirection: 'column',
-    gap: 10
-  },
-  menuButton: {
-    flexDirection: 'row',
+  menuIcon: {
+    width: 40,
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 6
-  },
-  menuText: {
-    color: '#fff',
-    marginLeft: 10
   },
   profileButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 1,
+    backgroundColor: 'rgba(0,0,0,0.18)',
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'center'
   },
-  verticalButtonContainer: {
-    gap: 15,
-    marginBottom: 30
+  travelRow: {
+    marginBottom: 18,
   },
-  bigButton: {
-    backgroundColor: '#c00',
-    paddingVertical: 20,
-    paddingHorizontal: 15,
-    borderRadius: 12,
+  travelMenu: {
+    marginBottom: 16,
+  },
+  menuItem: {
+    paddingVertical: 8,
+  },
+  menuItemText: {
+    color: affairGoTheme.colors.text,
+    fontSize: 20,
+    lineHeight: 30,
+  },
+  statCluster: {
     flexDirection: 'row',
-    alignItems: 'center'
+    justifyContent: 'space-between',
   },
-  bigButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    marginLeft: 15,
-    fontWeight: 'bold'
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: 10,
   },
-  bottomSection: {
-    padding: 15,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: 10
+  tile: {
+    width: '48%',
+    marginBottom: 16,
   },
-  sectionTitle: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 10
+  tileCard: {
+    minHeight: 180,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tileLabel: {
+    color: affairGoTheme.colors.text,
+    fontSize: 24,
+    fontWeight: '600',
+    marginTop: 18,
   },
   eventCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#c00',
-    padding: 10,
-    borderRadius: 10
+    marginBottom: 14,
+  },
+  eventTitle: {
+    color: affairGoTheme.colors.accent,
+    fontSize: 24,
+    fontWeight: '700',
+    marginBottom: 8,
   },
   eventText: {
-    color: '#fff',
-    fontWeight: 'bold'
+    color: affairGoTheme.colors.text,
+    fontSize: 16,
+    lineHeight: 24,
   },
-  eventSubtext: {
-    color: '#eee',
-    fontSize: 12
-  }
+  eventButton: {
+    marginTop: 14,
+  },
+  radarList: {
+    marginBottom: 12,
+  },
+  radarCard: {
+    marginBottom: 12,
+  },
+  radarRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  radarName: {
+    color: affairGoTheme.colors.text,
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  radarMeta: {
+    color: affairGoTheme.colors.textMuted,
+    marginTop: 4,
+  },
+  radarTag: {
+    fontWeight: '700',
+  },
 });
 
 export default Dashboard;

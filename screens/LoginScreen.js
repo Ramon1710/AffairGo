@@ -1,156 +1,200 @@
+import React, { useMemo, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { useState } from 'react';
-import {
-    Alert,
-    ImageBackground,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
-} from 'react-native';
-import { auth } from '../firebase';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader } from '../components/AffairGoUI';
+import { affairGoTheme } from '../constants/affairGoTheme';
+import { useAffairGo } from '../context/AffairGoContext';
 
 const LoginScreen = () => {
   const navigation = useNavigation();
-
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const { login, requestPasswordReset, changePassword } = useAffairGo();
+  const [identifier, setIdentifier] = useState('demo@affairgo.app');
+  const [password, setPassword] = useState('AffairGo123');
   const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState('');
+  const [resetOpen, setResetOpen] = useState(false);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [repeatPassword, setRepeatPassword] = useState('');
 
-  const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('Fehler', 'Bitte alle Felder ausfüllen.');
-      return;
-    }
+  const passwordIcon = useMemo(() => (showPassword ? 'eye-off-outline' : 'eye-outline'), [showPassword]);
 
+  const handleLogin = () => {
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      navigation.replace('Dashboard');
-    } catch (error) {
-      Alert.alert('Login fehlgeschlagen', error.message);
+      setError('');
+      const result = login({ identifier, password });
+      if (result.requiresPasswordChange) {
+        setMustChangePassword(true);
+        return;
+      }
+      navigation.reset({ index: 0, routes: [{ name: result.needsOnboarding ? 'Onboarding' : 'Dashboard' }] });
+    } catch (loginError) {
+      setError(loginError.message);
     }
   };
 
-  const handleForgotPassword = () => {
-    Alert.alert(
-      'Passwort vergessen',
-      'Ein neues Passwort wurde an deine E-Mail-Adresse gesendet.'
-    );
+  const handleReset = () => {
+    const success = requestPasswordReset(identifier);
+    setResetOpen(false);
+    if (!success) {
+      setError('Zu diesem Spitznamen oder dieser E-Mail wurde kein Konto gefunden.');
+      return;
+    }
+    setMustChangePassword(true);
+  };
+
+  const handlePasswordChange = () => {
+    if (!newPassword || newPassword !== repeatPassword) {
+      setError('Die neuen Passwoerter stimmen nicht ueberein.');
+      return;
+    }
+    changePassword(newPassword);
+    setPassword(newPassword);
+    setNewPassword('');
+    setRepeatPassword('');
+    setMustChangePassword(false);
+    navigation.reset({ index: 0, routes: [{ name: 'Dashboard' }] });
   };
 
   return (
-    <ImageBackground
-      source={require('../assets/login-bg.png')}
-      style={styles.background}
-      resizeMode="cover"
-    >
-      <View style={styles.overlay}>
-        <Text style={styles.title}>AffairGo Login</Text>
+    <AppBackground contentContainerStyle={styles.content}>
+      <ScreenHeader
+        title="Log In To AffairGo"
+        subtitle="www.affair-go.com"
+        leftAction={
+          <Pressable onPress={() => navigation.navigate('Landing')}>
+            <Ionicons name="arrow-back" size={28} color={affairGoTheme.colors.accent} />
+          </Pressable>
+        }
+        rightAction={
+          <Pressable onPress={() => navigation.navigate('Register')}>
+            <Text style={styles.linkText}>Sign Up</Text>
+          </Pressable>
+        }
+      />
 
-        <TextInput
-          style={styles.input}
-          placeholder="E-Mail"
-          placeholderTextColor="#ccc"
-          value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
+      <View style={styles.logoWrap}>
+        <Ionicons name="heart" size={88} color={affairGoTheme.colors.accent} />
+      </View>
+
+      <GlassCard strong style={styles.card}>
+        <FormField
+          label="Spitzname oder E-Mail"
+          value={identifier}
+          onChangeText={setIdentifier}
+          placeholder="nightpulse oder name@mail.de"
           autoCapitalize="none"
         />
+        <FormField
+          label="Passwort"
+          value={password}
+          onChangeText={setPassword}
+          placeholder="Passwort"
+          secureTextEntry={!showPassword}
+          right={
+            <Pressable onPress={() => setShowPassword((value) => !value)}>
+              <Ionicons name={passwordIcon} size={20} color={affairGoTheme.colors.textMuted} />
+            </Pressable>
+          }
+        />
 
-        <View style={styles.passwordContainer}>
-          <TextInput
-            style={styles.passwordInput}
-            placeholder="Passwort"
-            placeholderTextColor="#ccc"
-            secureTextEntry={!showPassword}
-            value={password}
-            onChangeText={setPassword}
-          />
-          <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-            <Ionicons name={showPassword ? 'eye' : 'eye-off'} size={24} color="#ccc" />
-          </TouchableOpacity>
+        <Pressable onPress={() => setResetOpen(true)} style={styles.inlineAction}>
+          <Text style={styles.inlineActionText}>Passwort vergessen?</Text>
+        </Pressable>
+
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+        <AccentButton label="Log In" onPress={handleLogin} style={styles.cta} />
+        <AccentButton label="Registrieren" variant="secondary" onPress={() => navigation.navigate('Register')} />
+      </GlassCard>
+
+      <Modal transparent animationType="fade" visible={resetOpen || mustChangePassword} onRequestClose={() => setResetOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <GlassCard strong style={styles.modalCard}>
+            {resetOpen ? (
+              <>
+                <Text style={styles.modalTitle}>Passwort vergessen</Text>
+                <Text style={styles.modalText}>
+                  Es wird ein neues Passwort an die hinterlegte Mailadresse geschickt. Danach muss es beim naechsten Login geaendert werden.
+                </Text>
+                <AccentButton label="Mail senden" onPress={handleReset} style={styles.modalButton} />
+                <AccentButton label="Abbrechen" variant="ghost" onPress={() => setResetOpen(false)} />
+              </>
+            ) : (
+              <>
+                <Text style={styles.modalTitle}>Passwort aendern</Text>
+                <Text style={styles.modalText}>Nach dem Zuruecksetzen ist eine direkte Passwortaenderung erforderlich.</Text>
+                <FormField label="Neues Passwort" value={newPassword} onChangeText={setNewPassword} secureTextEntry placeholder="Neues Passwort" />
+                <FormField label="Neues Passwort wiederholen" value={repeatPassword} onChangeText={setRepeatPassword} secureTextEntry placeholder="Passwort wiederholen" />
+                <AccentButton label="Passwort speichern" onPress={handlePasswordChange} style={styles.modalButton} />
+              </>
+            )}
+          </GlassCard>
         </View>
-
-        <TouchableOpacity onPress={handleForgotPassword}>
-          <Text style={styles.forgotText}>Passwort vergessen?</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
-          <Text style={styles.loginText}>Login</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={() => navigation.navigate('Register')}>
-          <Text style={styles.registerText}>Noch kein Account? Jetzt registrieren</Text>
-        </TouchableOpacity>
-      </View>
-    </ImageBackground>
+      </Modal>
+    </AppBackground>
   );
 };
 
 const styles = StyleSheet.create({
-  background: { flex: 1 },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+  content: {
     justifyContent: 'center',
+  },
+  logoWrap: {
     alignItems: 'center',
-    padding: 20
+    marginBottom: 18,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 30
-  },
-  input: {
+  card: {
+    maxWidth: 640,
     width: '100%',
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 12,
-    color: '#fff'
+    alignSelf: 'center',
   },
-  passwordContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    marginBottom: 12,
-    width: '100%'
+  linkText: {
+    color: affairGoTheme.colors.accentSoft,
+    fontSize: 18,
   },
-  passwordInput: {
+  inlineAction: {
+    alignSelf: 'center',
+    marginBottom: 12,
+  },
+  inlineActionText: {
+    color: affairGoTheme.colors.text,
+    textDecorationLine: 'underline',
+    fontSize: 16,
+  },
+  errorText: {
+    color: affairGoTheme.colors.danger,
+    marginBottom: 12,
+  },
+  cta: {
+    marginBottom: 12,
+  },
+  modalBackdrop: {
     flex: 1,
-    color: '#fff',
-    paddingVertical: 10
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    padding: 20,
   },
-  forgotText: {
-    color: '#ccc',
-    marginBottom: 20
-  },
-  loginButton: {
-    backgroundColor: '#c00',
-    padding: 15,
-    borderRadius: 10,
+  modalCard: {
+    maxWidth: 560,
     width: '100%',
-    alignItems: 'center',
-    marginBottom: 10
+    alignSelf: 'center',
   },
-  loginText: {
-    color: '#fff',
-    fontWeight: 'bold'
+  modalTitle: {
+    color: affairGoTheme.colors.text,
+    fontSize: 24,
+    fontWeight: '700',
+    marginBottom: 10,
   },
-  registerText: {
-    color: '#eee',
-    textDecorationLine: 'underline'
-  }
+  modalText: {
+    color: affairGoTheme.colors.textMuted,
+    lineHeight: 22,
+    marginBottom: 16,
+  },
+  modalButton: {
+    marginBottom: 10,
+  },
 });
 
 export default LoginScreen;
