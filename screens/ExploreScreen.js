@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '../naviagtion/SimpleNavigation';
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, GlassCard, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
+import { useNavigation } from '../naviagtion/SimpleNavigation';
 
 const ExploreScreen = () => {
   const navigation = useNavigation();

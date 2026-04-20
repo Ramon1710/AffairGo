@@ -1,10 +1,9 @@
-import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '../naviagtion/SimpleNavigation';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, GlassCard, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
+import { useNavigation } from '../naviagtion/SimpleNavigation';
 
 const SwipeScreen = () => {
   const navigation = useNavigation();

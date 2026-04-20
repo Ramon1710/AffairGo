@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '../naviagtion/SimpleNavigation';
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, GlassCard, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
 import { affairGoTheme, travelModeColors } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
 import { PHOTO_AGE_FILTERS, RADIUS_OPTIONS } from '../data/mockData';
+import { useNavigation } from '../naviagtion/SimpleNavigation';
 
 const MatchingMapScreen = () => {
   const navigation = useNavigation();

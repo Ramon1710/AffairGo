@@ -1,10 +1,9 @@
-import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '../naviagtion/SimpleNavigation';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, GlassCard, InlineStat, ScreenHeader, SectionTitle } from '../components/AffairGoUI';
 import { affairGoTheme, membershipColors, travelModeColors } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
+import { useNavigation } from '../naviagtion/SimpleNavigation';
 
 const quickActions = [
   { key: 'MatchingMap', label: 'Matching Map', icon: 'map-outline' },

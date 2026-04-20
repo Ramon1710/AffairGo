@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '../naviagtion/SimpleNavigation';
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
 import { RADIUS_OPTIONS } from '../data/mockData';
+import { useNavigation } from '../naviagtion/SimpleNavigation';
 
 const EventScreen = () => {
   const navigation = useNavigation();

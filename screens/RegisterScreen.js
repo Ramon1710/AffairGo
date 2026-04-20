@@ -1,12 +1,12 @@
-import React, { useMemo, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
-import { useNavigation } from '../naviagtion/SimpleNavigation';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
 import { EYE_OPTIONS, FIGURE_OPTIONS, GENDER_OPTIONS, HAIR_OPTIONS, MONTH_OPTIONS, SKIN_OPTIONS } from '../data/mockData';
+import { useNavigation } from '../naviagtion/SimpleNavigation';
 
 const currentYear = new Date().getFullYear();
 const yearOptions = Array.from({ length: 82 }, (_, index) => currentYear - 18 - index);

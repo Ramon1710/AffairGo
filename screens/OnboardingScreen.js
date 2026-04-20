@@ -1,8 +1,8 @@
-import { useNavigation } from '../naviagtion/SimpleNavigation';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, GlassCard, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
+import { useNavigation } from '../naviagtion/SimpleNavigation';
 
 const OnboardingScreen = () => {
   const navigation = useNavigation();
