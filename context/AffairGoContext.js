@@ -33,11 +33,6 @@ import {
 } from '../data/mockData';
 import { auth, db } from '../firebase';
 
-const emailActionSettings = {
-  url: 'https://www.affair-go.com',
-  handleCodeInApp: false,
-};
-
 const AffairGoContext = createContext(null);
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -168,12 +163,17 @@ const mapAuthError = (error, fallbackMessage) => {
       return 'Netzwerkfehler. Bitte pruefe deine Verbindung und versuche es erneut.';
     case 'auth/user-disabled':
       return 'Dieses Konto wurde deaktiviert.';
-    case 'auth/missing-continue-uri':
-    case 'auth/invalid-continue-uri':
-    case 'auth/unauthorized-continue-uri':
-      return 'Die Verifizierungs-Mail konnte nicht erzeugt werden. Bitte pruefe die freigegebenen Domains in Firebase Authentication.';
     default:
       return fallbackMessage;
+  }
+};
+
+const trySendVerificationEmail = async (user) => {
+  try {
+    await sendEmailVerification(user);
+    return true;
+  } catch {
+    return false;
   }
 };
 
@@ -278,9 +278,12 @@ export const AffairGoProvider = ({ children }) => {
       await reload(credentials.user);
 
       if (!credentials.user.emailVerified) {
-        await sendEmailVerification(credentials.user, emailActionSettings);
+        const resendWorked = await trySendVerificationEmail(credentials.user);
         await signOut(auth);
-        throw new Error('Bitte bestaetige zuerst deine E-Mail-Adresse. Wir haben dir soeben erneut eine Verifizierungs-Mail gesendet. Bitte pruefe auch deinen Spam-Ordner.');
+        if (resendWorked) {
+          throw new Error('Bitte bestaetige zuerst deine E-Mail-Adresse. Wir haben dir soeben erneut eine Verifizierungs-Mail gesendet. Bitte pruefe auch deinen Spam-Ordner.');
+        }
+        throw new Error('Dein Konto wurde angelegt, aber die Verifizierungs-Mail konnte nicht gesendet werden. Bitte pruefe die Firebase-E-Mail-Vorlagen und versuche es erneut.');
       }
 
       const profileSnapshot = await getDoc(doc(db, 'users', credentials.user.uid));
@@ -311,7 +314,7 @@ export const AffairGoProvider = ({ children }) => {
     }
 
     try {
-      await sendPasswordResetEmail(auth, normalizedEmail, emailActionSettings);
+      await sendPasswordResetEmail(auth, normalizedEmail);
       return true;
     } catch (error) {
       throw new Error(mapAuthError(error, error?.message || 'Passwort-Reset fehlgeschlagen.'));
@@ -341,13 +344,13 @@ export const AffairGoProvider = ({ children }) => {
       const profile = buildRegistrationProfile(payload, credentials.user.uid);
 
       await setDoc(doc(db, 'users', credentials.user.uid), toStoredProfile(profile));
-      await sendEmailVerification(credentials.user, emailActionSettings);
+      const emailSent = await trySendVerificationEmail(credentials.user);
       await signOut(auth);
 
       setPendingVerificationId(credentials.user.uid);
       return {
         profile: normalizeUserProfile(profile, credentials.user),
-        emailSent: true,
+        emailSent,
       };
     } catch (error) {
       throw new Error(mapAuthError(error, error?.message || 'Registrierung fehlgeschlagen.'));

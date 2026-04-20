@@ -1,6 +1,6 @@
 import { Picker } from '@react-native-picker/picker';
 import { useMemo, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
@@ -35,8 +35,6 @@ const RegisterScreen = () => {
     skinType: SKIN_OPTIONS[1],
   });
   const [error, setError] = useState('');
-  const [registeredEmail, setRegisteredEmail] = useState('');
-  const [successOpen, setSuccessOpen] = useState(false);
 
   const age = useMemo(() => {
     const birthDate = new Date(form.birthYear, Number(form.birthMonth), Number(form.birthDay || 1));
@@ -56,22 +54,18 @@ const RegisterScreen = () => {
   const handleRegister = async () => {
     try {
       setError('');
-      setSuccessOpen(false);
       if (form.password !== form.repeatPassword) {
         setError('Die Passwoerter stimmen nicht ueberein.');
         return;
       }
-      await register({ ...form, age, birthLabel });
-      setRegisteredEmail(form.email);
-      setSuccessOpen(true);
+      const result = await register({ ...form, age, birthLabel });
+      const infoMessage = result?.emailSent
+        ? `Registrierung erfolgreich. Wir haben eine Verifizierungs-Mail an ${form.email} gesendet.`
+        : `Konto angelegt fuer ${form.email}, aber die Verifizierungs-Mail konnte nicht gesendet werden. Bitte versuche den Login, damit wir sie erneut senden.`;
+      navigation.replace('Login', { infoMessage, prefillEmail: form.email });
     } catch (registerError) {
       setError(registerError.message);
     }
-  };
-
-  const handleGoToLogin = () => {
-    setSuccessOpen(false);
-    navigation.navigate('Login');
   };
 
   return (
@@ -142,23 +136,9 @@ const RegisterScreen = () => {
         <View style={styles.pickerWrap}><Picker selectedValue={form.skinType} onValueChange={(value) => updateField('skinType', value)} dropdownIconColor={affairGoTheme.colors.text}>{SKIN_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View>
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
-        {registeredEmail ? <Text style={styles.successText}>Konto angelegt fuer {registeredEmail}. Bitte bestaetige jetzt deine E-Mail-Adresse.</Text> : null}
-
         <AccentButton label="Registrieren" onPress={handleRegister} style={styles.buttonGap} />
         <AccentButton label="Zum Login" variant="secondary" onPress={() => navigation.navigate('Login')} />
       </GlassCard>
-
-      <Modal transparent animationType="fade" visible={successOpen} onRequestClose={handleGoToLogin}>
-        <View style={styles.modalBackdrop}>
-          <GlassCard strong style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Registrierung erfolgreich</Text>
-            <Text style={styles.modalText}>
-              Dein Konto wurde angelegt. Wir haben eine Verifizierungs-Mail an {registeredEmail} gesendet. Bitte pruefe auch deinen Spam-Ordner.
-            </Text>
-            <AccentButton label="Zum Login" onPress={handleGoToLogin} style={styles.modalButton} />
-          </GlassCard>
-        </View>
-      </Modal>
     </AppBackground>
   );
 };
@@ -261,38 +241,8 @@ const styles = StyleSheet.create({
     color: affairGoTheme.colors.danger,
     marginBottom: 10,
   },
-  successText: {
-    color: affairGoTheme.colors.success,
-    lineHeight: 22,
-    marginBottom: 12,
-  },
   buttonGap: {
     marginBottom: 10,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  modalCard: {
-    maxWidth: 560,
-    width: '100%',
-    alignSelf: 'center',
-  },
-  modalTitle: {
-    color: affairGoTheme.colors.text,
-    fontSize: 24,
-    fontWeight: '700',
-    marginBottom: 10,
-  },
-  modalText: {
-    color: affairGoTheme.colors.textMuted,
-    lineHeight: 22,
-    marginBottom: 16,
-  },
-  modalButton: {
-    marginBottom: 4,
   },
 });
 

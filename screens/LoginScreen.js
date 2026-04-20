@@ -4,16 +4,17 @@ import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader } from 
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
-import { useNavigation } from '../naviagtion/SimpleNavigation';
+import { useNavigation, useRoute } from '../naviagtion/SimpleNavigation';
 
 const LoginScreen = () => {
   const navigation = useNavigation();
+  const route = useRoute();
   const { login, requestPasswordReset } = useAffairGo();
-  const [identifier, setIdentifier] = useState('');
+  const [identifier, setIdentifier] = useState(route.params?.prefillEmail || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
-  const [info, setInfo] = useState('');
+  const [info, setInfo] = useState(route.params?.infoMessage || '');
   const [resetOpen, setResetOpen] = useState(false);
 
   const passwordIcon = useMemo(() => (showPassword ? 'eye-off-outline' : 'eye-outline'), [showPassword]);
