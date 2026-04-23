@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
@@ -9,15 +9,26 @@ import { useNavigation, useRoute } from '../naviagtion/SimpleNavigation';
 const LoginScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
-  const { login, requestPasswordReset } = useAffairGo();
+  const { login, requestPasswordReset, resendVerificationEmail } = useAffairGo();
   const [identifier, setIdentifier] = useState(route.params?.prefillEmail || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState(route.params?.infoMessage || '');
   const [resetOpen, setResetOpen] = useState(false);
+  const [successOpen, setSuccessOpen] = useState(Boolean(route.params?.showSuccessModal));
 
   const passwordIcon = useMemo(() => (showPassword ? 'eye-off-outline' : 'eye-outline'), [showPassword]);
+
+  useEffect(() => {
+    if (route.params?.prefillEmail) {
+      setIdentifier(route.params.prefillEmail);
+    }
+    if (route.params?.infoMessage) {
+      setInfo(route.params.infoMessage);
+    }
+    setSuccessOpen(Boolean(route.params?.showSuccessModal));
+  }, [route.params]);
 
   const handleLogin = async () => {
     try {
@@ -42,6 +53,24 @@ const LoginScreen = () => {
       setResetOpen(false);
     }
   };
+
+  const handleResendVerification = async () => {
+    try {
+      setError('');
+      const result = await resendVerificationEmail({ email: identifier, password });
+      if (result.alreadyVerified) {
+        setInfo('Deine E-Mail-Adresse ist bereits bestaetigt. Du kannst dich jetzt normal einloggen.');
+        return;
+      }
+      setInfo('Die Verifizierungs-Mail wurde erneut gesendet. Bitte pruefe dein Postfach und den Spam-Ordner.');
+    } catch (resendError) {
+      setError(resendError.message);
+    }
+  };
+
+  const showResendVerification =
+    Boolean(error && /verifizierungs-mail|e-mail-adresse/i.test(error)) ||
+    Boolean(info && /verifizierungs-mail/i.test(info));
 
   return (
     <AppBackground contentContainerStyle={styles.content}>
@@ -93,6 +122,7 @@ const LoginScreen = () => {
         {info ? <Text style={styles.infoText}>{info}</Text> : null}
 
         <AccentButton label="Log In" onPress={handleLogin} style={styles.cta} />
+        {showResendVerification ? <AccentButton label="Verifizierungs-Mail erneut senden" variant="secondary" onPress={handleResendVerification} style={styles.cta} /> : null}
         <AccentButton label="Registrieren" variant="secondary" onPress={() => navigation.navigate('Register')} />
       </GlassCard>
 
@@ -105,6 +135,16 @@ const LoginScreen = () => {
             </Text>
             <AccentButton label="Mail senden" onPress={handleReset} style={styles.modalButton} />
             <AccentButton label="Abbrechen" variant="ghost" onPress={() => setResetOpen(false)} />
+          </GlassCard>
+        </View>
+      </Modal>
+
+      <Modal transparent animationType="fade" visible={successOpen} onRequestClose={() => setSuccessOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <GlassCard strong style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Registrierung erfolgreich</Text>
+            <Text style={styles.modalText}>{info}</Text>
+            <AccentButton label="Weiter zum Login" onPress={() => setSuccessOpen(false)} style={styles.modalButton} />
           </GlassCard>
         </View>
       </Modal>

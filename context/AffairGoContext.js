@@ -177,6 +177,14 @@ const trySendVerificationEmail = async (user) => {
   }
 };
 
+const trySignOut = async () => {
+  try {
+    await signOut(auth);
+  } catch (error) {
+    console.warn('AffairGo signOut warning', error);
+  }
+};
+
 const getCompatibility = (sourcePreferences, targetPreferences) => {
   const base = sourcePreferences.length || 1;
   const shared = sourcePreferences.filter((entry) => targetPreferences.includes(entry)).length;
@@ -279,7 +287,7 @@ export const AffairGoProvider = ({ children }) => {
 
       if (!credentials.user.emailVerified) {
         const resendWorked = await trySendVerificationEmail(credentials.user);
-        await signOut(auth);
+        await trySignOut();
         if (resendWorked) {
           throw new Error('Bitte bestaetige zuerst deine E-Mail-Adresse. Wir haben dir soeben erneut eine Verifizierungs-Mail gesendet. Bitte pruefe auch deinen Spam-Ordner.');
         }
@@ -301,7 +309,7 @@ export const AffairGoProvider = ({ children }) => {
   };
 
   const logout = async () => {
-    await signOut(auth);
+    await trySignOut();
     setIsAuthenticated(false);
     setCurrentUser(createDefaultCurrentUser());
   };
@@ -345,7 +353,7 @@ export const AffairGoProvider = ({ children }) => {
 
       await setDoc(doc(db, 'users', credentials.user.uid), toStoredProfile(profile));
       const emailSent = await trySendVerificationEmail(credentials.user);
-      await signOut(auth);
+      await trySignOut();
 
       setPendingVerificationId(credentials.user.uid);
       return {
@@ -371,6 +379,39 @@ export const AffairGoProvider = ({ children }) => {
     }
 
     return false;
+  };
+
+  const resendVerificationEmail = async ({ email, password }) => {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedEmail || !normalizedEmail.includes('@')) {
+      throw new Error('Bitte eine gueltige E-Mail-Adresse eingeben.');
+    }
+
+    if (!password) {
+      throw new Error('Bitte gib dein Passwort ein, damit wir die Verifizierungs-Mail erneut senden koennen.');
+    }
+
+    try {
+      const credentials = await signInWithEmailAndPassword(auth, normalizedEmail, password);
+      await reload(credentials.user);
+
+      if (credentials.user.emailVerified) {
+        await trySignOut();
+        return { alreadyVerified: true };
+      }
+
+      const emailSent = await trySendVerificationEmail(credentials.user);
+      await trySignOut();
+
+      if (!emailSent) {
+        throw new Error('Die Verifizierungs-Mail konnte nicht gesendet werden. Bitte pruefe die Firebase-E-Mail-Vorlagen und versuche es erneut.');
+      }
+
+      return { alreadyVerified: false };
+    } catch (error) {
+      throw new Error(mapAuthError(error, error?.message || 'Verifizierungs-Mail konnte nicht erneut gesendet werden.'));
+    }
   };
 
   const completeOnboarding = async ({ preferences, taboos }) => {
@@ -583,6 +624,7 @@ export const AffairGoProvider = ({ children }) => {
     logout,
     register,
     verifyPendingEmail,
+    resendVerificationEmail,
     requestPasswordReset,
     changePassword,
     completeOnboarding,

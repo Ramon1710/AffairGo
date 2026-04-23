@@ -59,11 +59,22 @@ const RegisterScreen = () => {
         return;
       }
       const result = await register({ ...form, age, birthLabel });
-      const infoMessage = result?.emailSent
+      const successMessage = result?.emailSent
         ? `Registrierung erfolgreich. Wir haben eine Verifizierungs-Mail an ${form.email} gesendet.`
         : `Konto angelegt fuer ${form.email}, aber die Verifizierungs-Mail konnte nicht gesendet werden. Bitte versuche den Login, damit wir sie erneut senden.`;
-      navigation.replace('Login', { infoMessage, prefillEmail: form.email });
+      navigation.reset({
+        index: 0,
+        routes: [{
+          name: 'Login',
+          params: {
+            infoMessage: successMessage,
+            prefillEmail: form.email,
+            showSuccessModal: true,
+          },
+        }],
+      });
     } catch (registerError) {
+      console.warn('AffairGo register failed', registerError);
       setError(registerError.message);
     }
   };
