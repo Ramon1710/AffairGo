@@ -35,6 +35,7 @@ const RegisterScreen = () => {
     skinType: SKIN_OPTIONS[1],
   });
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const age = useMemo(() => {
     const birthDate = new Date(form.birthYear, Number(form.birthMonth), Number(form.birthDay || 1));
@@ -54,8 +55,10 @@ const RegisterScreen = () => {
   const handleRegister = async () => {
     try {
       setError('');
+      setIsSubmitting(true);
       if (form.password !== form.repeatPassword) {
         setError('Die Passwoerter stimmen nicht ueberein.');
+        setIsSubmitting(false);
         return;
       }
       const result = await register({ ...form, age, birthLabel });
@@ -76,6 +79,8 @@ const RegisterScreen = () => {
     } catch (registerError) {
       console.warn('AffairGo register failed', registerError);
       setError(registerError.message);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -147,8 +152,8 @@ const RegisterScreen = () => {
         <View style={styles.pickerWrap}><Picker selectedValue={form.skinType} onValueChange={(value) => updateField('skinType', value)} dropdownIconColor={affairGoTheme.colors.text}>{SKIN_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View>
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
-        <AccentButton label="Registrieren" onPress={handleRegister} style={styles.buttonGap} />
-        <AccentButton label="Zum Login" variant="secondary" onPress={() => navigation.navigate('Login')} />
+        <AccentButton label={isSubmitting ? 'Registrierung laeuft...' : 'Registrieren'} onPress={handleRegister} disabled={isSubmitting} style={styles.buttonGap} />
+        <AccentButton label="Zum Login" variant="secondary" onPress={() => navigation.navigate('Login')} disabled={isSubmitting} />
       </GlassCard>
     </AppBackground>
   );

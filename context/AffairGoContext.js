@@ -12,8 +12,7 @@ import {
     doc,
     getDoc,
     serverTimestamp,
-    setDoc,
-    updateDoc
+    setDoc
 } from 'firebase/firestore';
 import {
     createContext,
@@ -225,9 +224,18 @@ export const AffairGoProvider = ({ children }) => {
         return;
       }
 
-      const profileRef = doc(db, 'users', firebaseUser.uid);
-      const profileSnapshot = await getDoc(profileRef);
-      const profileData = profileSnapshot.exists() ? profileSnapshot.data() : { id: firebaseUser.uid, email: firebaseUser.email };
+      let profileData = { id: firebaseUser.uid, email: firebaseUser.email };
+
+      try {
+        const profileRef = doc(db, 'users', firebaseUser.uid);
+        const profileSnapshot = await getDoc(profileRef);
+        if (profileSnapshot.exists()) {
+          profileData = profileSnapshot.data();
+        }
+      } catch (error) {
+        console.warn('AffairGo profile bootstrap warning', error);
+      }
+
       const normalizedProfile = normalizeUserProfile(profileData, firebaseUser);
 
       setCurrentUser(normalizedProfile);
@@ -240,11 +248,13 @@ export const AffairGoProvider = ({ children }) => {
   }, []);
 
   const persistCurrentUserPatch = async (patch) => {
-    if (!auth.currentUser) {
+    const userId = auth.currentUser?.uid || currentUser.id;
+
+    if (!userId || userId === 'me') {
       return;
     }
 
-    await updateDoc(doc(db, 'users', auth.currentUser.uid), toStoredProfile({ ...currentUser, ...patch }));
+    await setDoc(doc(db, 'users', userId), toStoredProfile({ ...currentUser, ...patch }), { merge: true });
   };
 
   const visibleProfiles = useMemo(() => users.filter((user) => {
@@ -424,7 +434,12 @@ export const AffairGoProvider = ({ children }) => {
     };
 
     setCurrentUser(nextUser);
-    await persistCurrentUserPatch({ preferences, taboos, onboardingCompleted: true, searchActive: true });
+
+    persistCurrentUserPatch({ preferences, taboos, onboardingCompleted: true, searchActive: true }).catch((error) => {
+      console.warn('AffairGo onboarding persist warning', error);
+    });
+
+    return nextUser;
   };
 
   const updateCurrentUser = async (patch) => {

@@ -9,6 +9,7 @@ const OnboardingScreen = () => {
   const { preferenceOptions, tabooOptions, completeOnboarding } = useAffairGo();
   const [preferences, setPreferences] = React.useState([]);
   const [taboos, setTaboos] = React.useState([]);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   const toggleValue = (list, setList, value) => {
     setList((previous) =>
@@ -21,8 +22,16 @@ const OnboardingScreen = () => {
       Alert.alert('Vorlieben fehlen', 'Waehle mindestens eine Vorliebe aus, damit Matching und Kompatibilitaet funktionieren.');
       return;
     }
-    await completeOnboarding({ preferences, taboos });
-    navigation.reset({ index: 0, routes: [{ name: 'Dashboard' }] });
+
+    try {
+      setIsSubmitting(true);
+      await completeOnboarding({ preferences, taboos });
+      navigation.reset({ index: 0, routes: [{ name: 'Dashboard' }] });
+    } catch (error) {
+      Alert.alert('Onboarding fehlgeschlagen', error?.message || 'Die Angaben konnten nicht gespeichert werden.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -51,7 +60,7 @@ const OnboardingScreen = () => {
           ))}
         </View>
 
-        <AccentButton label="Onboarding abschliessen" onPress={handleContinue} style={styles.button} />
+        <AccentButton label={isSubmitting ? 'Speichern...' : 'Onboarding abschliessen'} onPress={handleContinue} disabled={isSubmitting} style={styles.button} />
       </GlassCard>
     </AppBackground>
   );

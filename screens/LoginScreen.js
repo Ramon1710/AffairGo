@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
@@ -17,6 +17,9 @@ const LoginScreen = () => {
   const [info, setInfo] = useState(route.params?.infoMessage || '');
   const [resetOpen, setResetOpen] = useState(false);
   const [successOpen, setSuccessOpen] = useState(Boolean(route.params?.showSuccessModal));
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isResetSubmitting, setIsResetSubmitting] = useState(false);
+  const [isResendingVerification, setIsResendingVerification] = useState(false);
 
   const passwordIcon = useMemo(() => (showPassword ? 'eye-off-outline' : 'eye-outline'), [showPassword]);
 
@@ -34,10 +37,13 @@ const LoginScreen = () => {
     try {
       setError('');
       setInfo('');
+      setIsSubmitting(true);
       const result = await login({ identifier, password });
       navigation.reset({ index: 0, routes: [{ name: result.needsOnboarding ? 'Onboarding' : 'Dashboard' }] });
     } catch (loginError) {
       setError(loginError.message);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -45,18 +51,22 @@ const LoginScreen = () => {
     try {
       setError('');
       setInfo('');
+      setIsResetSubmitting(true);
       await requestPasswordReset(identifier);
       setResetOpen(false);
       setInfo('Eine Passwort-Reset-Mail wurde versendet. Bitte pruefe dein Postfach.');
     } catch (resetError) {
       setError(resetError.message || 'Zu diesem Spitznamen oder dieser E-Mail wurde kein Konto gefunden.');
       setResetOpen(false);
+    } finally {
+      setIsResetSubmitting(false);
     }
   };
 
   const handleResendVerification = async () => {
     try {
       setError('');
+      setIsResendingVerification(true);
       const result = await resendVerificationEmail({ email: identifier, password });
       if (result.alreadyVerified) {
         setInfo('Deine E-Mail-Adresse ist bereits bestaetigt. Du kannst dich jetzt normal einloggen.');
@@ -65,6 +75,8 @@ const LoginScreen = () => {
       setInfo('Die Verifizierungs-Mail wurde erneut gesendet. Bitte pruefe dein Postfach und den Spam-Ordner.');
     } catch (resendError) {
       setError(resendError.message);
+    } finally {
+      setIsResendingVerification(false);
     }
   };
 
@@ -121,25 +133,25 @@ const LoginScreen = () => {
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
         {info ? <Text style={styles.infoText}>{info}</Text> : null}
 
-        <AccentButton label="Log In" onPress={handleLogin} style={styles.cta} />
-        {showResendVerification ? <AccentButton label="Verifizierungs-Mail erneut senden" variant="secondary" onPress={handleResendVerification} style={styles.cta} /> : null}
-        <AccentButton label="Registrieren" variant="secondary" onPress={() => navigation.navigate('Register')} />
+        <AccentButton label={isSubmitting ? 'Login laeuft...' : 'Log In'} onPress={handleLogin} disabled={isSubmitting || isResetSubmitting || isResendingVerification} style={styles.cta} />
+        {showResendVerification ? <AccentButton label={isResendingVerification ? 'Mail wird gesendet...' : 'Verifizierungs-Mail erneut senden'} variant="secondary" onPress={handleResendVerification} disabled={isSubmitting || isResetSubmitting || isResendingVerification} style={styles.cta} /> : null}
+        <AccentButton label="Registrieren" variant="secondary" onPress={() => navigation.navigate('Register')} disabled={isSubmitting || isResetSubmitting || isResendingVerification} />
       </GlassCard>
 
-      <Modal transparent animationType="fade" visible={resetOpen} onRequestClose={() => setResetOpen(false)}>
+      {resetOpen ? (
         <View style={styles.modalBackdrop}>
           <GlassCard strong style={styles.modalCard}>
             <Text style={styles.modalTitle}>Passwort vergessen</Text>
             <Text style={styles.modalText}>
               Firebase verschickt einen Reset-Link an die hinterlegte E-Mail-Adresse.
             </Text>
-            <AccentButton label="Mail senden" onPress={handleReset} style={styles.modalButton} />
-            <AccentButton label="Abbrechen" variant="ghost" onPress={() => setResetOpen(false)} />
+            <AccentButton label={isResetSubmitting ? 'Mail wird gesendet...' : 'Mail senden'} onPress={handleReset} disabled={isResetSubmitting} style={styles.modalButton} />
+            <AccentButton label="Abbrechen" variant="ghost" onPress={() => setResetOpen(false)} disabled={isResetSubmitting} />
           </GlassCard>
         </View>
-      </Modal>
+      ) : null}
 
-      <Modal transparent animationType="fade" visible={successOpen} onRequestClose={() => setSuccessOpen(false)}>
+      {successOpen ? (
         <View style={styles.modalBackdrop}>
           <GlassCard strong style={styles.modalCard}>
             <Text style={styles.modalTitle}>Registrierung erfolgreich</Text>
@@ -147,7 +159,7 @@ const LoginScreen = () => {
             <AccentButton label="Weiter zum Login" onPress={() => setSuccessOpen(false)} style={styles.modalButton} />
           </GlassCard>
         </View>
-      </Modal>
+      ) : null}
     </AppBackground>
   );
 };
@@ -190,10 +202,11 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   modalBackdrop: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.55)',
     justifyContent: 'center',
     padding: 20,
+    zIndex: 20,
   },
   modalCard: {
     maxWidth: 560,
