@@ -107,7 +107,7 @@ const toStoredProfile = (profile) => {
 
 const buildRegistrationProfile = (payload, uid) => ({
   id: uid,
-  email: payload.email.trim(),
+  email: payload.email.trim().toLowerCase(),
   nickname: payload.nickname.trim(),
   firstName: payload.firstName?.trim() || '',
   lastName: payload.lastName?.trim() || '',
@@ -169,10 +169,31 @@ const mapAuthError = (error, fallbackMessage) => {
 
 const trySendVerificationEmail = async (user) => {
   try {
-    await sendEmailVerification(user);
+    await withTimeout(
+      sendEmailVerification(user),
+      10000,
+      'Die Verifizierungs-Mail konnte nicht rechtzeitig angefordert werden.'
+    );
     return true;
   } catch {
     return false;
+  }
+};
+
+const withTimeout = async (promise, timeoutMs, timeoutMessage) => {
+  let timeoutId;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
   }
 };
 
@@ -358,12 +379,25 @@ export const AffairGoProvider = ({ children }) => {
     }
 
     try {
-      const credentials = await createUserWithEmailAndPassword(auth, payload.email.trim(), payload.password);
+      const normalizedEmail = payload.email.trim().toLowerCase();
+      const credentials = await withTimeout(
+        createUserWithEmailAndPassword(auth, normalizedEmail, payload.password),
+        15000,
+        'Die Registrierung hat beim Anlegen des Kontos zu lange gedauert. Bitte pruefe Netzwerk und Firebase-Konfiguration.'
+      );
       const profile = buildRegistrationProfile(payload, credentials.user.uid);
 
-      await setDoc(doc(db, 'users', credentials.user.uid), toStoredProfile(profile));
+      await withTimeout(
+        setDoc(doc(db, 'users', credentials.user.uid), toStoredProfile(profile)),
+        15000,
+        'Das Profil konnte nicht rechtzeitig gespeichert werden. Bitte pruefe die Firestore-Konfiguration.'
+      );
       const emailSent = await trySendVerificationEmail(credentials.user);
-      await trySignOut();
+      await withTimeout(
+        trySignOut(),
+        5000,
+        'Die Registrierung wurde angelegt, aber die Abmeldung danach hat zu lange gedauert.'
+      );
 
       setPendingVerificationId(credentials.user.uid);
       return {

@@ -99,6 +99,37 @@ export const SectionTitle = ({ title, aside }) => (
   </View>
 );
 
+export const StatusPill = ({ label, tone = 'default', style }) => {
+  const toneStyles = {
+    default: [styles.statusPill, styles.statusPillDefault],
+    success: [styles.statusPill, styles.statusPillSuccess],
+    warning: [styles.statusPill, styles.statusPillWarning],
+    danger: [styles.statusPill, styles.statusPillDanger],
+    info: [styles.statusPill, styles.statusPillInfo],
+  };
+
+  return (
+    <View style={[...(toneStyles[tone] || toneStyles.default), style]}>
+      <Text style={styles.statusPillLabel}>{label}</Text>
+    </View>
+  );
+};
+
+export const InfoBanner = ({ title, detail, tone = 'info', style }) => (
+  <View style={[styles.infoBanner, tone === 'warning' && styles.infoBannerWarning, tone === 'success' && styles.infoBannerSuccess, style]}>
+    <Text style={styles.infoBannerTitle}>{title}</Text>
+    {detail ? <Text style={styles.infoBannerDetail}>{detail}</Text> : null}
+  </View>
+);
+
+export const EmptyState = ({ title, detail, action }) => (
+  <GlassCard style={styles.emptyState}>
+    <Text style={styles.emptyStateTitle}>{title}</Text>
+    <Text style={styles.emptyStateDetail}>{detail}</Text>
+    {action ? <View style={styles.emptyStateAction}>{action}</View> : null}
+  </GlassCard>
+);
+
 const styles = StyleSheet.create({
   background: {
     flex: 1,
@@ -291,5 +322,82 @@ const styles = StyleSheet.create({
   sectionAside: {
     color: affairGoTheme.colors.accentSoft,
     fontSize: 14,
+  },
+  statusPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: affairGoTheme.radius.pill,
+    borderWidth: 1,
+    alignSelf: 'flex-start',
+  },
+  statusPillDefault: {
+    backgroundColor: affairGoTheme.colors.cardMuted,
+    borderColor: affairGoTheme.colors.line,
+  },
+  statusPillSuccess: {
+    backgroundColor: 'rgba(137,214,178,0.14)',
+    borderColor: 'rgba(137,214,178,0.55)',
+  },
+  statusPillWarning: {
+    backgroundColor: 'rgba(255,189,108,0.14)',
+    borderColor: 'rgba(255,189,108,0.55)',
+  },
+  statusPillDanger: {
+    backgroundColor: 'rgba(255,140,140,0.14)',
+    borderColor: 'rgba(255,140,140,0.55)',
+  },
+  statusPillInfo: {
+    backgroundColor: 'rgba(131,200,255,0.14)',
+    borderColor: 'rgba(131,200,255,0.55)',
+  },
+  statusPillLabel: {
+    color: affairGoTheme.colors.text,
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  infoBanner: {
+    padding: 14,
+    borderRadius: affairGoTheme.radius.md,
+    borderWidth: 1,
+    borderColor: 'rgba(131,200,255,0.45)',
+    backgroundColor: 'rgba(131,200,255,0.08)',
+  },
+  infoBannerWarning: {
+    borderColor: 'rgba(255,189,108,0.45)',
+    backgroundColor: 'rgba(255,189,108,0.08)',
+  },
+  infoBannerSuccess: {
+    borderColor: 'rgba(137,214,178,0.45)',
+    backgroundColor: 'rgba(137,214,178,0.08)',
+  },
+  infoBannerTitle: {
+    color: affairGoTheme.colors.text,
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  infoBannerDetail: {
+    color: affairGoTheme.colors.textMuted,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  emptyState: {
+    alignItems: 'flex-start',
+  },
+  emptyStateTitle: {
+    color: affairGoTheme.colors.text,
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  emptyStateDetail: {
+    color: affairGoTheme.colors.textMuted,
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  emptyStateAction: {
+    marginTop: 14,
   },
 });

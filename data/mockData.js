@@ -22,6 +22,41 @@ export const VISIBILITY_OPTIONS = ['Ab sofort sichtbar', '2 Wochen vorher sichtb
 export const RADIUS_OPTIONS = [5, 10, 20, 25, 50, 100, 150];
 export const PHOTO_AGE_FILTERS = [1, 2, 3, 6, 12];
 
+export const PROFILE_STATUS_OPTIONS = [
+  { key: 'verified', label: 'Verifiziert', tone: 'verified' },
+  { key: 'review', label: 'Pruefung offen', tone: 'review' },
+  { key: 'expired', label: 'Foto veraltet', tone: 'expired' },
+];
+
+export const MEMBERSHIP_OPTIONS = [
+  { key: 'basic', label: 'Basic', pitch: 'Fuer diskrete Standardsuche' },
+  { key: 'premium', label: 'Premium', pitch: 'Mehr Reichweite und Matching-Kontrolle' },
+  { key: 'gold', label: 'Gold', pitch: 'Maximale Sichtbarkeit und Vorab-Chat' },
+];
+
+export const EVENT_CATEGORIES = ['Lounge', 'Private Party', 'Afterwork', 'Hotel Date', 'Travel Meetup'];
+
+export const DASHBOARD_SIGNAL_CARDS = [
+  {
+    id: 'signal-1',
+    title: 'Diskrete Sichtbarkeit',
+    detail: 'Nur waehrend aktiver Suche sichtbar, danach wieder verborgen.',
+    icon: 'shield-checkmark-outline',
+  },
+  {
+    id: 'signal-2',
+    title: 'Fotoalter im Blick',
+    detail: 'Alte Profilbilder werden im Matching deutlich markiert.',
+    icon: 'images-outline',
+  },
+  {
+    id: 'signal-3',
+    title: 'Reise-Modus',
+    detail: 'Plane Urlaubs- und Dienstreise-Fenster vorab fuer die Sichtbarkeit.',
+    icon: 'navigate-outline',
+  },
+];
+
 export const PREFERENCE_OPTIONS = [
   'Oralsex geben',
   'Oralsex empfangen',
@@ -181,6 +216,7 @@ export const INITIAL_CURRENT_USER = {
   searchActive: true,
   online: true,
   verified: true,
+  verificationState: 'verified',
   emailVerified: true,
   onboardingCompleted: true,
   points: 140,
@@ -226,6 +262,7 @@ export const INITIAL_USERS = [
     status: 'active',
     travelMode: 'vacation',
     verified: true,
+    verificationState: 'verified',
     profilePhotoAgeMonths: 2,
     joinedLabel: 'Vor 2 Monaten',
     height: '1,68 m',
@@ -258,6 +295,7 @@ export const INITIAL_USERS = [
     status: 'active',
     travelMode: 'business',
     verified: true,
+    verificationState: 'verified',
     profilePhotoAgeMonths: 7,
     joinedLabel: 'Vor 1 Woche',
     height: '1,85 m',
@@ -290,6 +328,7 @@ export const INITIAL_USERS = [
     status: 'active',
     travelMode: 'active',
     verified: false,
+    verificationState: 'expired',
     profilePhotoAgeMonths: 13,
     joinedLabel: 'Vor 5 Tagen',
     height: '1,74 m',
@@ -322,6 +361,7 @@ export const INITIAL_USERS = [
     status: 'active',
     travelMode: 'vacation',
     verified: true,
+    verificationState: 'review',
     profilePhotoAgeMonths: 1,
     joinedLabel: 'Vor 4 Wochen',
     height: '1,70 m',
@@ -345,6 +385,7 @@ export const INITIAL_EVENTS = [
   {
     id: 'e1',
     title: 'Private Swingerparty',
+    category: 'Private Party',
     date: 'Fr., 17. Mai',
     time: '21:00',
     address: '50259 Pulheim, Musterstrasse 7',
@@ -358,6 +399,7 @@ export const INITIAL_EVENTS = [
   {
     id: 'e2',
     title: 'Afterwork Lounge',
+    category: 'Afterwork',
     date: 'Sa., 24. Mai',
     time: '20:30',
     address: '50674 Koeln, Belgische Allee 2',
@@ -394,3 +436,18 @@ export const INITIAL_CHATS = [
 ];
 
 export const EXPLORE_CITIES = ['Berlin', 'Hamburg', 'Muenchen', 'Wien', 'Amsterdam'];
+
+export const EMPTY_STATE_COPY = {
+  matches: {
+    title: 'Noch keine passenden Profile',
+    detail: 'Erhoehe Radius oder lockere einen Filter, damit neue Vorschlaege sichtbar werden.',
+  },
+  chats: {
+    title: 'Noch keine aktiven Chats',
+    detail: 'Ein Match oder Gold-Nachricht startet hier deinen ersten Verlauf.',
+  },
+  events: {
+    title: 'Noch keine Events in Reichweite',
+    detail: 'Lege selbst ein Event an oder erweitere deine Sichtbarkeit fuer neue Termine.',
+  },
+};
