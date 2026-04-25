@@ -205,6 +205,20 @@ const trySignOut = async () => {
   }
 };
 
+const tryStoreRegistrationProfile = async (profile, userId) => {
+  try {
+    await withTimeout(
+      setDoc(doc(db, 'users', userId), toStoredProfile(profile)),
+      10000,
+      'Das Profil konnte nicht rechtzeitig gespeichert werden.'
+    );
+    return true;
+  } catch (error) {
+    console.warn('AffairGo registration profile save warning', error);
+    return false;
+  }
+};
+
 const getCompatibility = (sourcePreferences, targetPreferences) => {
   const base = sourcePreferences.length || 1;
   const shared = sourcePreferences.filter((entry) => targetPreferences.includes(entry)).length;
@@ -386,12 +400,7 @@ export const AffairGoProvider = ({ children }) => {
         'Die Registrierung hat beim Anlegen des Kontos zu lange gedauert. Bitte pruefe Netzwerk und Firebase-Konfiguration.'
       );
       const profile = buildRegistrationProfile(payload, credentials.user.uid);
-
-      await withTimeout(
-        setDoc(doc(db, 'users', credentials.user.uid), toStoredProfile(profile)),
-        15000,
-        'Das Profil konnte nicht rechtzeitig gespeichert werden. Bitte pruefe die Firestore-Konfiguration.'
-      );
+      const profileSaved = await tryStoreRegistrationProfile(profile, credentials.user.uid);
       const emailSent = await trySendVerificationEmail(credentials.user);
       await withTimeout(
         trySignOut(),
@@ -403,6 +412,7 @@ export const AffairGoProvider = ({ children }) => {
       return {
         profile: normalizeUserProfile(profile, credentials.user),
         emailSent,
+        profileSaved,
       };
     } catch (error) {
       throw new Error(mapAuthError(error, error?.message || 'Registrierung fehlgeschlagen.'));

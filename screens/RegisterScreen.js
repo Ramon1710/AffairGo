@@ -62,9 +62,14 @@ const RegisterScreen = () => {
         return;
       }
       const result = await register({ ...form, age, birthLabel });
-      const successMessage = result?.emailSent
+      let successMessage = result?.emailSent
         ? `Registrierung erfolgreich. Wir haben eine Verifizierungs-Mail an ${form.email} gesendet.`
         : `Konto angelegt fuer ${form.email}, aber die Verifizierungs-Mail konnte nicht gesendet werden. Bitte versuche den Login, damit wir sie erneut senden.`;
+
+      if (!result?.profileSaved) {
+        successMessage += ' Deine Profildaten konnten noch nicht vollstaendig bestaetigt werden. Bitte logge dich nach der Mail-Bestaetigung erneut ein; wir versuchen die Profilspeicherung dann erneut.';
+      }
+
       navigation.reset({
         index: 0,
         routes: [{
