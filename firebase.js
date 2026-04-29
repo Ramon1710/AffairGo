@@ -1,25 +1,23 @@
 // firebase.js
 
-// Firebase SDK für React Native / Expo
-import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { initializeApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 
-// Deine Firebase-Konfiguration
 const firebaseConfig = {
-  apiKey: "AIzaSyADdVt7T8OrJ3i3cYtazbbUaarBLcsq6xQ",
-  authDomain: "affairgo-54ac0.firebaseapp.com",
-  databaseURL: "https://affairgo-54ac0-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId: "affairgo-54ac0",
-  storageBucket: "affairgo-54ac0.appspot.com",
-  messagingSenderId: "75576714453",
-  appId: "1:75576714453:web:56a0aae427fc301f3d2e5c",
-  measurementId: "G-151QJPJZR9"
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || 'AIzaSyADdVt7T8OrJ3i3cYtazbbUaarBLcsq6xQ',
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || 'affairgo-54ac0.firebaseapp.com',
+  databaseURL: process.env.EXPO_PUBLIC_FIREBASE_DATABASE_URL || 'https://affairgo-54ac0-default-rtdb.europe-west1.firebasedatabase.app',
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || 'affairgo-54ac0',
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET || 'affairgo-54ac0.appspot.com',
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || '75576714453',
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || '1:75576714453:web:56a0aae427fc301f3d2e5c',
+  measurementId: process.env.EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID || 'G-151QJPJZR9',
 };
 
-// Initialisieren
 const app = initializeApp(firebaseConfig);
 
-// Dienste exportieren
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+export const storage = getStorage(app);

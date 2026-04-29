@@ -19,7 +19,7 @@ const OnboardingScreen = () => {
 
   const handleContinue = async () => {
     if (!preferences.length) {
-      Alert.alert('Vorlieben fehlen', 'Waehle mindestens eine Vorliebe aus, damit Matching und Kompatibilitaet funktionieren.');
+      Alert.alert('Vorlieben fehlen', 'Wähle mindestens eine Vorliebe aus, damit Matching und Kompatibilität funktionieren.');
       return;
     }
 
@@ -39,8 +39,8 @@ const OnboardingScreen = () => {
       <ScreenHeader title="Vorlieben und Tabus" subtitle="Erster Login" />
       <GlassCard strong style={styles.card}>
         <Text style={styles.copy}>
-          Dieses Fenster erscheint erst nach bestaetigter E-Mail und dem ersten Login. Die Angaben steuern Matching,
-          Sichtbarkeit und den Kompatibilitaets-Score.
+          Dieses Fenster erscheint erst nach bestätigter E-Mail und dem ersten Login. Die Angaben steuern Matching,
+          Sichtbarkeit und den Kompatibilitäts-Score.
         </Text>
         <Text style={styles.label}>Vorlieben</Text>
         <View style={styles.chipWrap}>
@@ -60,7 +60,7 @@ const OnboardingScreen = () => {
           ))}
         </View>
 
-        <AccentButton label={isSubmitting ? 'Speichern...' : 'Onboarding abschliessen'} onPress={handleContinue} disabled={isSubmitting} style={styles.button} />
+        <AccentButton label={isSubmitting ? 'Speichern...' : 'Onboarding abschließen'} onPress={handleContinue} disabled={isSubmitting} style={styles.button} />
       </GlassCard>
     </AppBackground>
   );

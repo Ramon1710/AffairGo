@@ -6,28 +6,48 @@ import { useAffairGo } from '../context/AffairGoContext';
 import { VISIBILITY_OPTIONS } from '../data/mockData';
 import { useNavigation, useRoute } from '../naviagtion/SimpleNavigation';
 
+const createEmptyPlan = () => ({
+  startDate: '',
+  endDate: '',
+  fromTime: '',
+  toTime: '',
+  postalCode: '',
+  city: '',
+  street: '',
+  visibility: [],
+});
+
 const TravelPlannerScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
   const mode = route.params?.mode === 'vacation' ? 'vacation' : 'business';
-  const { currentUser, saveTravelPlan } = useAffairGo();
-  const initialPlan = currentUser.travelPlans[mode];
+  const { currentUser, saveTravelPlan, deleteTravelPlan } = useAffairGo();
+  const existingPlans = currentUser.travelPlans[mode] || [];
 
-  const [form, setForm] = React.useState(initialPlan);
+  const [form, setForm] = React.useState(createEmptyPlan());
   const labels = {
     business: {
       title: 'Dienstreise',
       button: 'Dienstreise speichern',
       accent: affairGoTheme.colors.yellow,
+      empty: 'Noch keine Dienstreisen geplant.',
     },
     vacation: {
       title: 'Urlaub',
       button: 'Urlaub speichern',
       accent: affairGoTheme.colors.blue,
+      empty: 'Noch keine Urlaube geplant.',
     },
   };
+  const [editingPlanId, setEditingPlanId] = React.useState(null);
 
   const meta = labels[mode];
+  const isEditing = Boolean(editingPlanId);
+
+  const resetForm = () => {
+    setForm(createEmptyPlan());
+    setEditingPlanId(null);
+  };
 
   const updateField = (key, value) => {
     setForm((previous) => ({ ...previous, [key]: value }));
@@ -43,16 +63,51 @@ const TravelPlannerScreen = () => {
   };
 
   const save = async () => {
-    await saveTravelPlan(mode, form);
-    Alert.alert('Gespeichert', `${meta.title} wurde aktualisiert und ist sofort im Dashboard sichtbar.`);
-    navigation.goBack();
+    await saveTravelPlan(mode, { ...form, id: editingPlanId || undefined });
+    Alert.alert('Gespeichert', `${meta.title} wurde ${isEditing ? 'aktualisiert' : 'gespeichert'} und ist sofort im Dashboard sichtbar.`);
+    navigation.reset({ index: 0, routes: [{ name: 'Dashboard' }] });
+  };
+
+  const startEditing = (plan) => {
+    setForm({
+      id: plan.id,
+      startDate: plan.startDate,
+      endDate: plan.endDate,
+      fromTime: plan.fromTime,
+      toTime: plan.toTime,
+      postalCode: plan.postalCode,
+      city: plan.city,
+      street: plan.street,
+      visibility: [...plan.visibility],
+    });
+    setEditingPlanId(plan.id);
+  };
+
+  const handleDelete = (plan) => {
+    Alert.alert(
+      'Eintrag löschen',
+      `Soll ${meta.title.toLowerCase()} ${plan.city ? `für ${plan.city}` : 'wirklich'} gelöscht werden?`,
+      [
+        { text: 'Abbrechen', style: 'cancel' },
+        {
+          text: 'Löschen',
+          style: 'destructive',
+          onPress: async () => {
+            await deleteTravelPlan(mode, plan.id);
+            if (editingPlanId === plan.id) {
+              resetForm();
+            }
+          },
+        },
+      ]
+    );
   };
 
   return (
     <AppBackground>
       <ScreenHeader
         title={meta.title}
-        subtitle="Planung bis zu 2 Wochen voraus"
+        subtitle={isEditing ? 'Eintrag bearbeiten' : 'Planung bis zu 2 Wochen voraus'}
         leftAction={
           <Pressable onPress={() => navigation.goBack()}>
             <Ionicons name="arrow-back" size={28} color={affairGoTheme.colors.text} />
@@ -72,7 +127,7 @@ const TravelPlannerScreen = () => {
 
         <View style={styles.row}>
           <View style={styles.half}>
-            <FormField label="Verfuegbar ab" value={form.fromTime} onChangeText={(value) => updateField('fromTime', value)} placeholder="00:00 Uhr" />
+            <FormField label="Verfügbar ab" value={form.fromTime} onChangeText={(value) => updateField('fromTime', value)} placeholder="00:00 Uhr" />
           </View>
           <View style={styles.half}>
             <FormField label="Bis" value={form.toTime} onChangeText={(value) => updateField('toTime', value)} placeholder="00:00 Uhr" />
@@ -88,7 +143,7 @@ const TravelPlannerScreen = () => {
           </View>
         </View>
 
-        <FormField label="Strasse" value={form.street} onChangeText={(value) => updateField('street', value)} placeholder="Strasse und Hausnummer" />
+        <FormField label="Straße" value={form.street} onChangeText={(value) => updateField('street', value)} placeholder="Straße und Hausnummer" />
 
         <Text style={styles.sectionLabel}>Sichtbarkeit</Text>
         {VISIBILITY_OPTIONS.map((option) => {
@@ -103,7 +158,27 @@ const TravelPlannerScreen = () => {
           );
         })}
 
-        <AccentButton label={meta.button} onPress={save} style={styles.button} />
+        <AccentButton label={isEditing ? `${meta.title} aktualisieren` : meta.button} onPress={save} style={styles.button} />
+        {isEditing ? <AccentButton label="Bearbeitung abbrechen" variant="ghost" onPress={resetForm} /> : null}
+      </GlassCard>
+
+      <GlassCard style={styles.plannedCard}>
+        <Text style={styles.sectionLabel}>Bereits geplant</Text>
+        {existingPlans.length ? existingPlans.map((plan) => (
+          <View key={plan.id} style={styles.planRow}>
+            <Text style={styles.planTitle}>{plan.city || 'Ohne Ort'}{plan.postalCode ? `, ${plan.postalCode}` : ''}</Text>
+            <Text style={styles.planMeta}>{plan.startDate} bis {plan.endDate}</Text>
+            <Text style={styles.planMeta}>{plan.fromTime} bis {plan.toTime}</Text>
+            <View style={styles.planActions}>
+              <Pressable onPress={() => startEditing(plan)} style={styles.planActionButton}>
+                <Text style={styles.planActionText}>Bearbeiten</Text>
+              </Pressable>
+              <Pressable onPress={() => handleDelete(plan)} style={styles.planActionButton}>
+                <Text style={[styles.planActionText, styles.deleteText]}>Löschen</Text>
+              </Pressable>
+            </View>
+          </View>
+        )) : <Text style={styles.planMeta}>{meta.empty}</Text>}
       </GlassCard>
     </AppBackground>
   );
@@ -148,6 +223,39 @@ const styles = StyleSheet.create({
   },
   button: {
     marginTop: 10,
+  },
+  plannedCard: {
+    marginTop: 14,
+  },
+  planRow: {
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: affairGoTheme.colors.line,
+  },
+  planTitle: {
+    color: affairGoTheme.colors.text,
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  planMeta: {
+    color: affairGoTheme.colors.textMuted,
+    lineHeight: 22,
+  },
+  planActions: {
+    flexDirection: 'row',
+    marginTop: 8,
+  },
+  planActionButton: {
+    marginRight: 18,
+    paddingVertical: 4,
+  },
+  planActionText: {
+    color: affairGoTheme.colors.accentSoft,
+    fontWeight: '700',
+  },
+  deleteText: {
+    color: affairGoTheme.colors.danger,
   },
 });
 

@@ -1,7 +1,7 @@
 export const MONTH_OPTIONS = [
   'Januar',
   'Februar',
-  'Maerz',
+  'März',
   'April',
   'Mai',
   'Juni',
@@ -14,22 +14,22 @@ export const MONTH_OPTIONS = [
 ];
 
 export const FIGURE_OPTIONS = ['Mager', 'Schlank', 'Sportlich', 'Normal', 'Pummelig', 'Dick'];
-export const HAIR_OPTIONS = ['Blond', 'Braun', 'Schwarz', 'Rot', 'Grau', 'Glatze', 'Gefaerbt'];
-export const EYE_OPTIONS = ['Blau', 'Braun', 'Gruen', 'Grau', 'Schwarz', 'Gemischt'];
+export const HAIR_OPTIONS = ['Blond', 'Braun', 'Schwarz', 'Rot', 'Grau', 'Glatze', 'Gefärbt'];
+export const EYE_OPTIONS = ['Blau', 'Braun', 'Grün', 'Grau', 'Schwarz', 'Gemischt'];
 export const SKIN_OPTIONS = ['Sehr hell', 'Hell', 'Mittel', 'Oliv', 'Dunkel', 'Sehr dunkel'];
-export const GENDER_OPTIONS = ['maennlich', 'weiblich', 'divers'];
+export const GENDER_OPTIONS = ['männlich', 'weiblich', 'divers'];
 export const VISIBILITY_OPTIONS = ['Ab sofort sichtbar', '2 Wochen vorher sichtbar', 'Ab Stichtag sichtbar'];
 export const RADIUS_OPTIONS = [5, 10, 20, 25, 50, 100, 150];
 export const PHOTO_AGE_FILTERS = [1, 2, 3, 6, 12];
 
 export const PROFILE_STATUS_OPTIONS = [
   { key: 'verified', label: 'Verifiziert', tone: 'verified' },
-  { key: 'review', label: 'Pruefung offen', tone: 'review' },
+  { key: 'review', label: 'Prüfung offen', tone: 'review' },
   { key: 'expired', label: 'Foto veraltet', tone: 'expired' },
 ];
 
 export const MEMBERSHIP_OPTIONS = [
-  { key: 'basic', label: 'Basic', pitch: 'Fuer diskrete Standardsuche' },
+  { key: 'basic', label: 'Basic', pitch: 'Für diskrete Standardsuche' },
   { key: 'premium', label: 'Premium', pitch: 'Mehr Reichweite und Matching-Kontrolle' },
   { key: 'gold', label: 'Gold', pitch: 'Maximale Sichtbarkeit und Vorab-Chat' },
 ];
@@ -40,7 +40,7 @@ export const DASHBOARD_SIGNAL_CARDS = [
   {
     id: 'signal-1',
     title: 'Diskrete Sichtbarkeit',
-    detail: 'Nur waehrend aktiver Suche sichtbar, danach wieder verborgen.',
+    detail: 'Nur während aktiver Suche sichtbar, danach wieder verborgen.',
     icon: 'shield-checkmark-outline',
   },
   {
@@ -52,7 +52,7 @@ export const DASHBOARD_SIGNAL_CARDS = [
   {
     id: 'signal-3',
     title: 'Reise-Modus',
-    detail: 'Plane Urlaubs- und Dienstreise-Fenster vorab fuer die Sichtbarkeit.',
+    detail: 'Plane Urlaubs- und Dienstreise-Fenster vorab für die Sichtbarkeit.',
     icon: 'navigate-outline',
   },
 ];
@@ -61,8 +61,8 @@ export const PREFERENCE_OPTIONS = [
   'Oralsex geben',
   'Oralsex empfangen',
   '69-Stellung',
-  'Zungenkuesse',
-  'Vorspiel geniessen',
+  'Zungenküsse',
+  'Vorspiel genießen',
   'Langes Liebesspiel',
   'Spontaner Sex',
   'Dominant sein',
@@ -73,7 +73,7 @@ export const PREFERENCE_OPTIONS = [
   'Anal aktiv',
   'Anal passiv',
   'Toys benutzen',
-  'Zaertlich und romantisch',
+  'Zärtlich und romantisch',
   'Schnell und hart',
   'Erotik mit Augenbinde',
   'Sex mit Musik',
@@ -89,7 +89,7 @@ export const TABOO_OPTIONS = [
   'Kein Analverkehr',
   'Kein Oralsex geben',
   'Kein Oralsex empfangen',
-  'Kein ungeschuetzter Sex',
+  'Kein ungeschützter Sex',
   'Kein Sex ohne Emotion',
   'Kein BDSM',
   'Keine Gewaltspiele',
@@ -97,20 +97,20 @@ export const TABOO_OPTIONS = [
   'Keine Fesselspiele',
   'Kein Gruppensex',
   'Kein Dreier',
-  'Keine Oeffentlichkeit',
+  'Keine Öffentlichkeit',
   'Kein Dominanz-Spiel',
   'Kein Dirty Talk',
   'Keine Toys',
-  'Kein Fussfetisch',
+  'Kein Fußfetisch',
   'Keine erniedrigenden Praktiken',
   'Keine harten Praktiken',
   'Kein Tausch intimer Bilder',
-  'Kein Kuessen',
-  'Kein Kuessen auf den Mund',
+  'Kein Küssen',
+  'Kein Küssen auf den Mund',
   'Kein Kuscheln danach',
   'Kein emotionaler Kontakt',
-  'Keine Uebernachtungen',
-  'Kein Kontakt ausserhalb',
+  'Keine Übernachtungen',
+  'Kein Kontakt außerhalb',
   'Kein Sex beim ersten Treffen',
 ];
 
@@ -118,14 +118,14 @@ export const GAME_OPTIONS = [
   { id: 'connect4', title: 'Vier Gewinnt', reward: 20 },
   { id: 'rps', title: 'Schere Stein Papier', reward: 10 },
   { id: 'quiz', title: 'Flirt Quiz', reward: 25 },
-  { id: 'emoji', title: 'Emoji Raetsel', reward: 15 },
+  { id: 'emoji', title: 'Emoji Rätsel', reward: 15 },
   { id: 'truth', title: 'Wahrheit oder Pflicht Light', reward: 30 },
 ];
 
 export const ICEBREAKER_SUGGESTIONS = [
-  'Welche drei Dinge machen fuer dich ein wirklich gutes erstes Treffen aus?',
-  'Welchen Wochenendplan wuerdest du spontan sofort mitnehmen?',
-  'Welche Vorliebe ist dir wichtig, ueber die man offen sprechen sollte?',
+  'Welche drei Dinge machen für dich ein wirklich gutes erstes Treffen aus?',
+  'Welchen Wochenendplan würdest du spontan sofort mitnehmen?',
+  'Welche Vorliebe ist dir wichtig, über die man offen sprechen sollte?',
   'Bist du eher Team Reiseplanung oder Team spontanes Abenteuer?',
 ];
 
@@ -136,6 +136,8 @@ export const PRICING_PLANS = [
     price: '0 EUR',
     accent: '#b95d5d',
     features: ['Begrenzte Swipes', 'Nur Chat nach Match', 'Standardprofil', 'Eventansicht'],
+    activation: { membership: 'basic', billingCycle: 'monthly', priceLabel: '0 EUR' },
+    buttonLabel: 'Basic nutzen',
   },
   {
     key: 'premium',
@@ -143,13 +145,31 @@ export const PRICING_PLANS = [
     price: '9,99 EUR',
     accent: '#f2b85a',
     features: ['Unbegrenzte Swipes', 'Matching Map', 'Fotoalter-Filter', 'Verifizierte Matches only'],
+    promoLabel: '21 Tage gratis testen',
+    detailPrice: 'Danach 9,99 EUR pro Monat',
+    activation: {
+      membership: 'premium',
+      trialDays: 21,
+      billingCycle: 'trial',
+      priceLabel: '21 Tage gratis, danach 9,99 EUR / Monat',
+    },
+    buttonLabel: '21 Tage Premium testen',
   },
   {
     key: 'gold',
     title: 'Gold',
     price: '19,99 EUR',
     accent: '#ffe17c',
-    features: ['Swipe zurueck', 'Vor Match schreiben', 'Unsichtbar-Modus', 'Explore-Modus mit fiktiven Staedten'],
+    features: ['Swipe zurück', 'Vor Match schreiben', 'Unsichtbar-Modus', 'Explore-Modus mit fiktiven Städten'],
+    promoLabel: '6 Monate mit Rabatt',
+    detailPrice: '99,99 EUR für 6 Monate statt 119,94 EUR',
+    activation: {
+      membership: 'gold',
+      billingCycle: '6m',
+      goldDiscountPackage: true,
+      priceLabel: '99,99 EUR / 6 Monate',
+    },
+    buttonLabel: 'Gold 6 Monate buchen',
   },
 ];
 
@@ -157,8 +177,8 @@ export const WEBSITE_SECTIONS = [
   {
     title: 'Profil und Sicherheit',
     items: [
-      'Nur Spitzname ist oeffentlich sichtbar',
-      '18+ Pruefung beim Onboarding',
+      'Nur Spitzname ist öffentlich sichtbar',
+      '18+ Prüfung beim Onboarding',
       'Profilbild-Verifizierung mit Selfie-Check',
       'Warnung bei alten Fotos und klarer Verifizierungsstatus',
     ],
@@ -200,14 +220,14 @@ export const INITIAL_CURRENT_USER = {
   penisSize: '',
   braSize: '75B',
   hairColor: 'Braun',
-  eyeColor: 'Gruen',
+  eyeColor: 'Grün',
   skinType: 'Hell',
   profilePhotoAgeMonths: 3,
   gallery: [
     { id: 'g1', label: 'Studio', ageLabel: 'Vor 2 Monaten' },
     { id: 'g2', label: 'Weekend', ageLabel: 'Vor 6 Monaten' },
   ],
-  preferences: ['Zungenkuesse', 'Vorspiel geniessen', 'Sex mit Musik', 'Zaertlich und romantisch'],
+  preferences: ['Zungenküsse', 'Vorspiel genießen', 'Sex mit Musik', 'Zärtlich und romantisch'],
   taboos: ['Kein BDSM', 'Kein Dreier'],
   searchAgeMin: 28,
   searchAgeMax: 48,
@@ -224,26 +244,32 @@ export const INITIAL_CURRENT_USER = {
   joinedLabel: 'Vor 3 Wochen',
   featureSuggestions: [],
   travelPlans: {
-    business: {
-      startDate: '21.05.2026',
-      endDate: '24.05.2026',
-      fromTime: '18:00',
-      toTime: '23:30',
-      postalCode: '50667',
-      city: 'Koeln',
-      street: 'Domkloster 4',
-      visibility: ['Ab sofort sichtbar'],
-    },
-    vacation: {
-      startDate: '08.06.2026',
-      endDate: '15.06.2026',
-      fromTime: '19:00',
-      toTime: '01:00',
-      postalCode: '25980',
-      city: 'Westerland',
-      street: 'Strandweg 7',
-      visibility: ['2 Wochen vorher sichtbar'],
-    },
+    business: [
+      {
+        id: 'travel-business-1',
+        startDate: '21.05.2026',
+        endDate: '24.05.2026',
+        fromTime: '18:00',
+        toTime: '23:30',
+        postalCode: '50667',
+        city: 'Köln',
+        street: 'Domkloster 4',
+        visibility: ['Ab sofort sichtbar'],
+      },
+    ],
+    vacation: [
+      {
+        id: 'travel-vacation-1',
+        startDate: '08.06.2026',
+        endDate: '15.06.2026',
+        fromTime: '19:00',
+        toTime: '01:00',
+        postalCode: '25980',
+        city: 'Westerland',
+        street: 'Strandweg 7',
+        visibility: ['2 Wochen vorher sichtbar'],
+      },
+    ],
   },
 };
 
@@ -255,7 +281,7 @@ export const INITIAL_USERS = [
     lastName: 'K',
     age: 39,
     gender: 'weiblich',
-    city: 'Koeln',
+    city: 'Köln',
     distanceKm: 12,
     x: '20%',
     y: '48%',
@@ -271,11 +297,27 @@ export const INITIAL_USERS = [
     hairColor: 'Blond',
     eyeColor: 'Blau',
     skinType: 'Hell',
-    preferences: ['Zungenkuesse', 'Spontaner Sex', 'Sex mit Musik', 'Zaertlich und romantisch'],
+    preferences: ['Zungenküsse', 'Spontaner Sex', 'Sex mit Musik', 'Zärtlich und romantisch'],
     taboos: ['Kein BDSM', 'Kein Dreier'],
     searchAgeMin: 30,
     searchAgeMax: 48,
     online: true,
+    travelPlans: {
+      business: [],
+      vacation: [
+        {
+          id: 'u1-travel-1',
+          startDate: '02.06.2026',
+          endDate: '09.06.2026',
+          fromTime: '18:00',
+          toTime: '23:00',
+          postalCode: '25980',
+          city: 'Westerland',
+          street: 'Dünenweg 5',
+          visibility: ['Ab sofort sichtbar'],
+        },
+      ],
+    },
     gallery: [
       { id: 'u1g1', label: 'Seaside', ageLabel: 'Vor 1 Monat' },
       { id: 'u1g2', label: 'City', ageLabel: 'Vor 4 Monaten' },
@@ -287,8 +329,8 @@ export const INITIAL_USERS = [
     firstName: 'Lars',
     lastName: 'S',
     age: 48,
-    gender: 'maennlich',
-    city: 'Duesseldorf',
+    gender: 'männlich',
+    city: 'Düsseldorf',
     distanceKm: 23,
     x: '68%',
     y: '68%',
@@ -304,11 +346,27 @@ export const INITIAL_USERS = [
     hairColor: 'Braun',
     eyeColor: 'Braun',
     skinType: 'Mittel',
-    preferences: ['Dirty Talk', 'Rollenspiele', 'Vorspiel geniessen', 'Zungenkuesse'],
+    preferences: ['Dirty Talk', 'Rollenspiele', 'Vorspiel genießen', 'Zungenküsse'],
     taboos: ['Kein Kuscheln danach'],
     searchAgeMin: 30,
     searchAgeMax: 45,
     online: true,
+    travelPlans: {
+      business: [
+        {
+          id: 'u2-travel-1',
+          startDate: '14.05.2026',
+          endDate: '16.05.2026',
+          fromTime: '19:00',
+          toTime: '23:30',
+          postalCode: '50667',
+          city: 'Köln',
+          street: 'Messeplatz 3',
+          visibility: ['2 Wochen vorher sichtbar'],
+        },
+      ],
+      vacation: [],
+    },
     gallery: [
       { id: 'u2g1', label: 'Business', ageLabel: 'Vor 7 Monaten' },
       { id: 'u2g2', label: 'Hotel', ageLabel: 'Vor 12 Monaten' },
@@ -335,11 +393,11 @@ export const INITIAL_USERS = [
     figure: 'Sportlich',
     penisSize: '15 cm',
     braSize: '85B',
-    hairColor: 'Gefaerbt',
+    hairColor: 'Gefärbt',
     eyeColor: 'Grau',
     skinType: 'Oliv',
     preferences: ['Rollenspiele', 'Dirty Talk', 'Leichte Fesselspiele', 'Sex mit Musik'],
-    taboos: ['Kein ungeschuetzter Sex', 'Kein emotionaler Kontakt'],
+    taboos: ['Kein ungeschützter Sex', 'Kein emotionaler Kontakt'],
     searchAgeMin: 28,
     searchAgeMax: 55,
     online: false,
@@ -368,13 +426,29 @@ export const INITIAL_USERS = [
     figure: 'Normal',
     braSize: '80B',
     hairColor: 'Schwarz',
-    eyeColor: 'Gruen',
+    eyeColor: 'Grün',
     skinType: 'Mittel',
-    preferences: ['Spontaner Sex', 'Zungenkuesse', 'Zaertlich und romantisch', 'Langes Liebesspiel'],
+    preferences: ['Spontaner Sex', 'Zungenküsse', 'Zärtlich und romantisch', 'Langes Liebesspiel'],
     taboos: ['Kein Sex beim ersten Treffen'],
     searchAgeMin: 32,
     searchAgeMax: 46,
     online: true,
+    travelPlans: {
+      business: [],
+      vacation: [
+        {
+          id: 'u4-travel-1',
+          startDate: '25.06.2026',
+          endDate: '29.06.2026',
+          fromTime: '20:00',
+          toTime: '01:00',
+          postalCode: '10115',
+          city: 'Berlin',
+          street: 'Spreeufer 8',
+          visibility: ['Ab Stichtag sichtbar'],
+        },
+      ],
+    },
     gallery: [
       { id: 'u4g1', label: 'Portrait', ageLabel: 'Vor 3 Wochen' },
     ],
@@ -388,12 +462,12 @@ export const INITIAL_EVENTS = [
     category: 'Private Party',
     date: 'Fr., 17. Mai',
     time: '21:00',
-    address: '50259 Pulheim, Musterstrasse 7',
+    address: '50259 Pulheim, Musterstraße 7',
     distanceKm: 23,
     participants: { total: 15, women: 3, men: 11, divers: 1 },
     maxParticipants: 20,
     verifiedOnly: true,
-    description: 'Privates Loft, Dresscode elegant, Teilnahme anonym bestaetigt.',
+    description: 'Privates Loft, Dresscode elegant, Teilnahme anonym bestätigt.',
     imageLabel: 'Loft',
   },
   {
@@ -402,7 +476,7 @@ export const INITIAL_EVENTS = [
     category: 'Afterwork',
     date: 'Sa., 24. Mai',
     time: '20:30',
-    address: '50674 Koeln, Belgische Allee 2',
+    address: '50674 Köln, Belgische Allee 2',
     distanceKm: 8,
     participants: { total: 9, women: 4, men: 4, divers: 1 },
     maxParticipants: 18,
@@ -429,18 +503,18 @@ export const INITIAL_CHATS = [
     match: true,
     inactivityDays: 8,
     messages: [
-      { id: 'm3', from: 'u4', text: 'Ich bin ueber das Wochenende in der Stadt.', time: '17:30' },
+      { id: 'm3', from: 'u4', text: 'Ich bin über das Wochenende in der Stadt.', time: '17:30' },
       { id: 'm4', from: 'me', text: 'Perfekt, ich schaue gerade auf die Matching Map.', time: '17:42' },
     ],
   },
 ];
 
-export const EXPLORE_CITIES = ['Berlin', 'Hamburg', 'Muenchen', 'Wien', 'Amsterdam'];
+export const EXPLORE_CITIES = ['Berlin', 'Hamburg', 'München', 'Wien', 'Amsterdam'];
 
 export const EMPTY_STATE_COPY = {
   matches: {
     title: 'Noch keine passenden Profile',
-    detail: 'Erhoehe Radius oder lockere einen Filter, damit neue Vorschlaege sichtbar werden.',
+    detail: 'Erhöhe Radius oder lockere einen Filter, damit neue Vorschläge sichtbar werden.',
   },
   chats: {
     title: 'Noch keine aktiven Chats',
@@ -448,6 +522,6 @@ export const EMPTY_STATE_COPY = {
   },
   events: {
     title: 'Noch keine Events in Reichweite',
-    detail: 'Lege selbst ein Event an oder erweitere deine Sichtbarkeit fuer neue Termine.',
+    detail: 'Lege selbst ein Event an oder erweitere deine Sichtbarkeit für neue Termine.',
   },
 };

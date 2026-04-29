@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, GlassCard, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
@@ -11,13 +11,22 @@ const ExploreScreen = () => {
   const { currentUser, exploreCities, submitFeatureIdea, featureIdeas } = useAffairGo();
   const [selectedCity, setSelectedCity] = useState(exploreCities[0]);
 
+  const handleSubmitIdea = async () => {
+    try {
+      await submitFeatureIdea(`Neues Spiel für ${selectedCity}`);
+      Alert.alert('Idee eingereicht', 'Deine Idee wurde gespeichert und fuer die Moderationspruefung markiert.');
+    } catch (error) {
+      Alert.alert('Idee blockiert', error.message || 'Die Idee konnte aktuell nicht eingereicht werden.');
+    }
+  };
+
   if (currentUser.membership !== 'gold') {
     return (
       <AppBackground contentContainerStyle={styles.centered}>
         <GlassCard strong style={styles.lockedCard}>
           <Text style={styles.title}>Explore-Modus ist Gold-only</Text>
-          <Text style={styles.copy}>Fiktive Staedte und freies Erkunden ausserhalb des echten Radius sind nur im Gold-Paket verfuegbar.</Text>
-          <AccentButton label="Zurueck" onPress={() => navigation.goBack()} />
+          <Text style={styles.copy}>Fiktive Städte und freies Erkunden außerhalb des echten Radius sind nur im Gold-Paket verfügbar.</Text>
+          <AccentButton label="Zurück" onPress={() => navigation.goBack()} />
         </GlassCard>
       </AppBackground>
     );
@@ -27,12 +36,12 @@ const ExploreScreen = () => {
     <AppBackground>
       <ScreenHeader
         title="Explore"
-        subtitle="Fiktive Staedte fuer Gold"
+        subtitle="Fiktive Städte für Gold"
         leftAction={<Pressable onPress={() => navigation.goBack()}><Ionicons name="arrow-back" size={28} color={affairGoTheme.colors.text} /></Pressable>}
       />
 
       <GlassCard strong style={styles.lockedCard}>
-        <Text style={styles.title}>Zielstadt waehlen</Text>
+        <Text style={styles.title}>Zielstadt wählen</Text>
         <View style={styles.cityWrap}>
           {exploreCities.map((city) => (
             <View key={city} style={styles.cityItem}>
@@ -45,8 +54,8 @@ const ExploreScreen = () => {
 
       <GlassCard style={styles.lockedCard}>
         <Text style={styles.title}>Ideenbox</Text>
-        <Text style={styles.copy}>Community-Vorschlaege koennen mit Premium-Tagen oder Boosts belohnt werden.</Text>
-        <AccentButton label="Feature-Idee einreichen" onPress={() => submitFeatureIdea(`Neues Spiel fuer ${selectedCity}`)} style={styles.ideaButton} />
+        <Text style={styles.copy}>Community-Vorschläge können mit Premium-Tagen oder Boosts belohnt werden.</Text>
+        <AccentButton label="Feature-Idee einreichen" onPress={handleSubmitIdea} style={styles.ideaButton} />
         <Text style={styles.copy}>Bisherige Ideen: {featureIdeas.length}</Text>
       </GlassCard>
     </AppBackground>

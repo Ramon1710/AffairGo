@@ -1,26 +1,84 @@
-import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { allowScreenCaptureAsync, preventScreenCaptureAsync } from 'expo-screen-capture';
+import { useEffect, useMemo, useState } from 'react';
+import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
 import { GAME_OPTIONS, ICEBREAKER_SUGGESTIONS } from '../data/mockData';
-import { useNavigation } from '../naviagtion/SimpleNavigation';
+import { useNavigation, useRoute } from '../naviagtion/SimpleNavigation';
 
 const ChatScreen = () => {
   const navigation = useNavigation();
+  const route = useRoute();
   const { chats, users, sendMessage, softBlock, playGame, currentUser } = useAffairGo();
   const [selectedChatId, setSelectedChatId] = useState(chats[0]?.id || null);
   const [draft, setDraft] = useState('');
-  const selectedChat = useMemo(() => chats.find((chat) => chat.id === selectedChatId) || chats[0], [chats, selectedChatId]);
-  const selectedUser = users.find((user) => user.id === selectedChat?.userId);
+  const routeUserId = route.params?.userId || null;
+  const selectedChat = useMemo(() => {
+    if (selectedChatId) {
+      return chats.find((chat) => chat.id === selectedChatId) || null;
+    }
 
-  const submitMessage = () => {
-    if (!selectedChat) {
+    if (routeUserId) {
+      return chats.find((chat) => chat.userId === routeUserId) || null;
+    }
+
+    return chats[0] || null;
+  }, [chats, routeUserId, selectedChatId]);
+  const selectedUser = users.find((user) => user.id === (selectedChat?.userId || routeUserId));
+  const availableGames = currentUser.membership === 'gold' ? GAME_OPTIONS : currentUser.membership === 'premium' ? GAME_OPTIONS.slice(0, 2) : [];
+  const availableIcebreakers = currentUser.membership === 'basic' ? [] : ICEBREAKER_SUGGESTIONS.slice(0, currentUser.membership === 'gold' ? 4 : 2);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      return undefined;
+    }
+
+    preventScreenCaptureAsync().catch(() => undefined);
+
+    return () => {
+      allowScreenCaptureAsync().catch(() => undefined);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!routeUserId) {
       return;
     }
-    sendMessage(selectedChat.userId, draft);
-    setDraft('');
+
+    const existingChat = chats.find((chat) => chat.userId === routeUserId);
+    if (existingChat) {
+      setSelectedChatId(existingChat.id);
+    }
+  }, [chats, routeUserId]);
+
+  const submitMessage = async () => {
+    const targetUserId = selectedChat?.userId || routeUserId;
+
+    if (!targetUserId) {
+      return;
+    }
+
+    try {
+      await sendMessage(targetUserId, draft);
+      setDraft('');
+    } catch (error) {
+      Alert.alert('Nachricht blockiert', error.message || 'Die Nachricht konnte nicht gesendet werden.');
+    }
+  };
+
+  const handleSoftBlock = async () => {
+    if (!selectedUser?.id) {
+      return;
+    }
+
+    try {
+      await softBlock(selectedUser.id);
+      Alert.alert('Profil blockiert', 'Das Profil wurde aus deinen Chats entfernt und fuer dich ausgeblendet.');
+    } catch (error) {
+      Alert.alert('Blockieren nicht moeglich', error.message || 'Das Profil konnte aktuell nicht blockiert werden.');
+    }
   };
 
   return (
@@ -30,6 +88,15 @@ const ChatScreen = () => {
         subtitle={currentUser.membership === 'gold' ? 'Gold kann auch vor dem Match schreiben' : 'Nur nach Match'}
         leftAction={<Pressable onPress={() => navigation.goBack()}><Ionicons name="arrow-back" size={28} color={affairGoTheme.colors.text} /></Pressable>}
       />
+
+      <GlassCard style={styles.securityCard}>
+        <Text style={styles.securityTitle}>Screenshot-Schutz</Text>
+        <Text style={styles.securityText}>
+          {Platform.OS === 'web'
+            ? 'Im Web wird der Schutz als Hinweis modelliert. In nativen Builds wird dieser Bereich für Screenshot-Sperren vorbereitet.'
+            : 'Dieser Bereich ist für nativen Screenshot-Schutz vorbereitet, damit Chat-Inhalte nicht unbemerkt gespeichert werden.'}
+        </Text>
+      </GlassCard>
 
       <View style={styles.layout}>
         <GlassCard style={styles.sidebar}>
@@ -52,7 +119,7 @@ const ChatScreen = () => {
                   <Text style={styles.partnerName}>{selectedUser.nickname}</Text>
                   <Text style={styles.partnerMeta}>{selectedUser.age} Jahre, {selectedUser.distanceKm} km entfernt</Text>
                 </View>
-                <ToggleChip label="Soft-Block" active={false} onPress={() => softBlock(selectedUser.id)} />
+                <ToggleChip label="Soft-Block" active={false} onPress={handleSoftBlock} />
               </View>
 
               <View style={styles.messageList}>
@@ -68,16 +135,18 @@ const ChatScreen = () => {
               <AccentButton label="Senden" onPress={submitMessage} style={styles.sendButton} />
 
               <Text style={styles.sectionLabel}>Icebreaker</Text>
-              {ICEBREAKER_SUGGESTIONS.slice(0, 2).map((suggestion) => (
+              {availableIcebreakers.length ? availableIcebreakers.map((suggestion) => (
                 <Pressable key={suggestion} onPress={() => setDraft(suggestion)} style={styles.suggestion}><Text style={styles.suggestionText}>{suggestion}</Text></Pressable>
-              ))}
+              )) : <Text style={styles.partnerMeta}>Icebreaker sind ab Premium verfügbar.</Text>}
 
               <Text style={styles.sectionLabel}>Spiele und Rewards</Text>
-              <View style={styles.gamesWrap}>
-                {GAME_OPTIONS.map((game) => (
-                  <View key={game.id} style={styles.gameItem}><AccentButton label={`${game.title} +${game.reward}`} variant="secondary" onPress={() => playGame(game.reward)} /></View>
-                ))}
-              </View>
+              {availableGames.length ? (
+                <View style={styles.gamesWrap}>
+                  {availableGames.map((game) => (
+                    <View key={game.id} style={styles.gameItem}><AccentButton label={`${game.title} +${game.reward}`} variant="secondary" onPress={() => playGame(game.reward)} /></View>
+                  ))}
+                </View>
+              ) : <Text style={styles.partnerMeta}>Spiele sind ab Premium verfügbar.</Text>}
             </>
           ) : (
             <Text style={styles.partnerMeta}>Noch keine aktiven Chats vorhanden.</Text>
@@ -89,6 +158,19 @@ const ChatScreen = () => {
 };
 
 const styles = StyleSheet.create({
+  securityCard: {
+    marginBottom: 12,
+  },
+  securityTitle: {
+    color: affairGoTheme.colors.text,
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  securityText: {
+    color: affairGoTheme.colors.textMuted,
+    lineHeight: 22,
+  },
   layout: {
     flexDirection: 'row',
     alignItems: 'flex-start',

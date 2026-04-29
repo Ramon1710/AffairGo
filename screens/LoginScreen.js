@@ -9,17 +9,23 @@ import { useNavigation, useRoute } from '../naviagtion/SimpleNavigation';
 const LoginScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
-  const { login, requestPasswordReset, resendVerificationEmail } = useAffairGo();
+  const { login, requestPasswordReset, resendVerificationEmail, changePassword } = useAffairGo();
   const [identifier, setIdentifier] = useState(route.params?.prefillEmail || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [repeatPassword, setRepeatPassword] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState(route.params?.infoMessage || '');
   const [resetOpen, setResetOpen] = useState(false);
   const [successOpen, setSuccessOpen] = useState(Boolean(route.params?.showSuccessModal));
+  const [forcePasswordChangeOpen, setForcePasswordChangeOpen] = useState(false);
+  const [passwordChangeError, setPasswordChangeError] = useState('');
+  const [pendingNextRoute, setPendingNextRoute] = useState('Dashboard');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResetSubmitting, setIsResetSubmitting] = useState(false);
   const [isResendingVerification, setIsResendingVerification] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   const passwordIcon = useMemo(() => (showPassword ? 'eye-off-outline' : 'eye-outline'), [showPassword]);
 
@@ -39,6 +45,12 @@ const LoginScreen = () => {
       setInfo('');
       setIsSubmitting(true);
       const result = await login({ identifier, password });
+      if (result.requiresPasswordChange) {
+        setPendingNextRoute(result.needsOnboarding ? 'Onboarding' : 'Dashboard');
+        setForcePasswordChangeOpen(true);
+        setInfo('Bitte ändere jetzt dein Passwort, bevor du die App weiter nutzt.');
+        return;
+      }
       navigation.reset({ index: 0, routes: [{ name: result.needsOnboarding ? 'Onboarding' : 'Dashboard' }] });
     } catch (loginError) {
       setError(loginError.message);
@@ -54,7 +66,7 @@ const LoginScreen = () => {
       setIsResetSubmitting(true);
       await requestPasswordReset(identifier);
       setResetOpen(false);
-      setInfo('Eine Passwort-Reset-Mail wurde versendet. Bitte pruefe dein Postfach.');
+      setInfo('Eine Passwort-Reset-Mail wurde versendet. Bitte prüfe dein Postfach. Nach dem nächsten Login musst du dein Passwort einmal neu setzen.');
     } catch (resetError) {
       setError(resetError.message || 'Zu diesem Spitznamen oder dieser E-Mail wurde kein Konto gefunden.');
       setResetOpen(false);
@@ -69,10 +81,10 @@ const LoginScreen = () => {
       setIsResendingVerification(true);
       const result = await resendVerificationEmail({ email: identifier, password });
       if (result.alreadyVerified) {
-        setInfo('Deine E-Mail-Adresse ist bereits bestaetigt. Du kannst dich jetzt normal einloggen.');
+        setInfo('Deine E-Mail-Adresse ist bereits bestätigt. Du kannst dich jetzt normal einloggen.');
         return;
       }
-      setInfo('Die Verifizierungs-Mail wurde erneut gesendet. Bitte pruefe dein Postfach und den Spam-Ordner.');
+      setInfo('Die Verifizierungs-Mail wurde erneut gesendet. Bitte prüfe dein Postfach und den Spam-Ordner.');
     } catch (resendError) {
       setError(resendError.message);
     } finally {
@@ -83,6 +95,28 @@ const LoginScreen = () => {
   const showResendVerification =
     Boolean(error && /verifizierungs-mail|e-mail-adresse/i.test(error)) ||
     Boolean(info && /verifizierungs-mail/i.test(info));
+
+  const handleForcedPasswordChange = async () => {
+    try {
+      setPasswordChangeError('');
+      setIsChangingPassword(true);
+
+      if (!newPassword || newPassword !== repeatPassword) {
+        setPasswordChangeError('Die neuen Passwörter stimmen nicht überein.');
+        return;
+      }
+
+      await changePassword({ newPassword, skipCurrentPasswordCheck: true });
+      setForcePasswordChangeOpen(false);
+      setNewPassword('');
+      setRepeatPassword('');
+      navigation.reset({ index: 0, routes: [{ name: pendingNextRoute }] });
+    } catch (changeError) {
+      setPasswordChangeError(changeError.message || 'Das Passwort konnte nicht geändert werden.');
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
 
   return (
     <AppBackground contentContainerStyle={styles.content}>
@@ -107,12 +141,13 @@ const LoginScreen = () => {
 
       <GlassCard strong style={styles.card}>
         <FormField
-          label="E-Mail"
+          label="Spitzname / E-Mail"
           value={identifier}
           onChangeText={setIdentifier}
-          placeholder="name@mail.de"
+          placeholder="Spitzname oder name@mail.de"
           autoCapitalize="none"
         />
+        <Text style={styles.helperText}>Login, Passwort-Reset und Verifizierungs-Mails funktionieren mit Spitzname oder E-Mail.</Text>
         <FormField
           label="Passwort"
           value={password}
@@ -133,7 +168,7 @@ const LoginScreen = () => {
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
         {info ? <Text style={styles.infoText}>{info}</Text> : null}
 
-        <AccentButton label={isSubmitting ? 'Login laeuft...' : 'Log In'} onPress={handleLogin} disabled={isSubmitting || isResetSubmitting || isResendingVerification} style={styles.cta} />
+        <AccentButton label={isSubmitting ? 'Login läuft...' : 'Log In'} onPress={handleLogin} disabled={isSubmitting || isResetSubmitting || isResendingVerification} style={styles.cta} />
         {showResendVerification ? <AccentButton label={isResendingVerification ? 'Mail wird gesendet...' : 'Verifizierungs-Mail erneut senden'} variant="secondary" onPress={handleResendVerification} disabled={isSubmitting || isResetSubmitting || isResendingVerification} style={styles.cta} /> : null}
         <AccentButton label="Registrieren" variant="secondary" onPress={() => navigation.navigate('Register')} disabled={isSubmitting || isResetSubmitting || isResendingVerification} />
       </GlassCard>
@@ -157,6 +192,19 @@ const LoginScreen = () => {
             <Text style={styles.modalTitle}>Registrierung erfolgreich</Text>
             <Text style={styles.modalText}>{info}</Text>
             <AccentButton label="Weiter zum Login" onPress={() => setSuccessOpen(false)} style={styles.modalButton} />
+          </GlassCard>
+        </View>
+      ) : null}
+
+      {forcePasswordChangeOpen ? (
+        <View style={styles.modalBackdrop}>
+          <GlassCard strong style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Passwort ändern</Text>
+            <Text style={styles.modalText}>Aus Sicherheitsgründen musst du nach dem Passwort-Reset jetzt ein neues Passwort setzen.</Text>
+            <FormField label="Neues Passwort" value={newPassword} onChangeText={setNewPassword} secureTextEntry />
+            <FormField label="Neues Passwort wiederholen" value={repeatPassword} onChangeText={setRepeatPassword} secureTextEntry />
+            {passwordChangeError ? <Text style={styles.errorText}>{passwordChangeError}</Text> : null}
+            <AccentButton label={isChangingPassword ? 'Passwort wird gespeichert...' : 'Passwort speichern'} onPress={handleForcedPasswordChange} disabled={isChangingPassword} style={styles.modalButton} />
           </GlassCard>
         </View>
       ) : null}
@@ -189,6 +237,12 @@ const styles = StyleSheet.create({
     color: affairGoTheme.colors.text,
     textDecorationLine: 'underline',
     fontSize: 16,
+  },
+  helperText: {
+    color: affairGoTheme.colors.textMuted,
+    lineHeight: 20,
+    marginTop: -4,
+    marginBottom: 12,
   },
   errorText: {
     color: affairGoTheme.colors.danger,

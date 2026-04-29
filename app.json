@@ -16,19 +16,32 @@
     },
     "assetBundlePatterns": ["**/*"],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "AffairGo nutzt deinen Standort, um reale Treffer und Live-Entfernungen auf der Matching Map anzuzeigen."
+      }
     },
     "android": {
+      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       }
     },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "AffairGo nutzt deinen Standort, um reale Treffer und Live-Entfernungen auf der Matching Map anzuzeigen."
+        }
+      ]
+    ],
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "extra": {
-      "websiteUrl": "https://www.affair-go.com"
+      "websiteUrl": "https://www.affair-go.com",
+      "mapProvider": "geoapify"
     }
   }
 }

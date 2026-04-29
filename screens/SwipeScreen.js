@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, GlassCard, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
@@ -7,21 +7,37 @@ import { useNavigation } from '../naviagtion/SimpleNavigation';
 
 const SwipeScreen = () => {
   const navigation = useNavigation();
-  const { visibleProfiles, respondToSwipe, rewindLastSwipe, currentUser, getCompatibility } = useAffairGo();
+  const { visibleProfiles, respondToSwipe, rewindLastSwipe, currentUser, getCompatibility, remainingSwipes, swipeLimitReached, getProfileTravelSummary } = useAffairGo();
   const currentProfile = visibleProfiles[0];
+  const currentProfileTravel = currentProfile ? getProfileTravelSummary(currentProfile) : null;
+
+  const handleSwipe = async (action) => {
+    try {
+      await respondToSwipe(currentProfile.id, action);
+    } catch (error) {
+      Alert.alert('Swipe blockiert', error.message);
+    }
+  };
 
   return (
     <AppBackground contentContainerStyle={styles.content}>
       <ScreenHeader
         title="Swipe"
-        subtitle="Tinder-aehnlicher Demo-Flow"
+        subtitle="Tinder-ähnlicher Demo-Flow"
         leftAction={
           <Pressable onPress={() => navigation.goBack()}>
             <Ionicons name="arrow-back" size={28} color={affairGoTheme.colors.text} />
           </Pressable>
         }
-        rightAction={currentUser.membership === 'gold' ? <ToggleChip label="Zurueck" active={false} onPress={rewindLastSwipe} /> : null}
+        rightAction={currentUser.membership === 'gold' ? <ToggleChip label="Zurück" active={false} onPress={rewindLastSwipe} /> : null}
       />
+
+      {currentUser.membership === 'basic' ? (
+        <GlassCard style={styles.limitCard}>
+          <Text style={styles.limitTitle}>Basic-Swipes übrig: {remainingSwipes}</Text>
+          <Text style={styles.copy}>Premium und Gold haben unbegrenzte Swipes.</Text>
+        </GlassCard>
+      ) : null}
 
       {currentProfile ? (
         <GlassCard strong style={styles.card}>
@@ -30,18 +46,25 @@ const SwipeScreen = () => {
           </View>
           <Text style={styles.name}>{currentProfile.nickname}</Text>
           <Text style={styles.meta}>{currentProfile.age} Jahre, {currentProfile.distanceKm} km, {currentProfile.figure}</Text>
-          <Text style={styles.meta}>Matching-Score: {getCompatibility(currentUser.preferences, currentProfile.preferences)}%</Text>
+          <Text style={styles.meta}>Matching-Score: {getCompatibility(currentUser, currentProfile)}%</Text>
+          {currentProfileTravel ? (
+            <Text style={styles.meta}>
+              {currentProfileTravel.label}
+              {currentProfileTravel.location ? ` in ${currentProfileTravel.location}` : ''}
+              {currentProfileTravel.period ? ` • ${currentProfileTravel.period}` : ''}
+            </Text>
+          ) : null}
           <Text style={styles.copy}>Vorlieben treffen zu, wenn mindestens 30% passen und beide Altersfilter einander zulassen.</Text>
           <View style={styles.actionRow}>
-            <AccentButton label="Kein Interesse" variant="secondary" onPress={() => respondToSwipe(currentProfile.id, 'dismiss')} style={styles.actionButton} />
-            <AccentButton label="Match" onPress={() => respondToSwipe(currentProfile.id, 'like')} style={styles.actionButton} />
+            <AccentButton label="Kein Interesse" variant="secondary" onPress={() => handleSwipe('dismiss')} disabled={swipeLimitReached} style={styles.actionButton} />
+            <AccentButton label="Match" onPress={() => handleSwipe('like')} disabled={swipeLimitReached} style={styles.actionButton} />
           </View>
           <AccentButton label="Profil ansehen" variant="ghost" onPress={() => navigation.navigate('Profil', { profileId: currentProfile.id })} />
         </GlassCard>
       ) : (
         <GlassCard strong style={styles.card}>
           <Text style={styles.name}>Keine weiteren Profile im aktuellen Radius</Text>
-          <Text style={styles.copy}>Erhoehe den Radius, passe Vorlieben an oder warte auf neue aktive Suchanfragen in deiner Naehe.</Text>
+          <Text style={styles.copy}>Erhöhe den Radius, passe Vorlieben an oder warte auf neue aktive Suchanfragen in deiner Nähe.</Text>
           <AccentButton label="Zur Matching Map" onPress={() => navigation.navigate('MatchingMap')} style={styles.cta} />
         </GlassCard>
       )}
@@ -57,6 +80,18 @@ const styles = StyleSheet.create({
     maxWidth: 640,
     width: '100%',
     alignSelf: 'center',
+  },
+  limitCard: {
+    maxWidth: 640,
+    width: '100%',
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+  limitTitle: {
+    color: affairGoTheme.colors.text,
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 6,
   },
   heroPhoto: {
     height: 260,

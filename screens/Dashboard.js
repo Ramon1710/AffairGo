@@ -13,7 +13,11 @@ const quickActions = [
 
 const Dashboard = () => {
   const navigation = useNavigation();
-  const { currentUser, visibleProfiles, events, nearbyOnlineProfiles } = useAffairGo();
+  const { currentUser, visibleProfiles, events, nearbyOnlineProfiles, getProfileTravelSummary, membershipStatusLabel } = useAffairGo();
+  const plannedTrips = [
+    ...(currentUser.travelPlans.business || []).map((trip) => ({ ...trip, mode: 'business' })),
+    ...(currentUser.travelPlans.vacation || []).map((trip) => ({ ...trip, mode: 'vacation' })),
+  ];
 
   return (
     <AppBackground>
@@ -43,7 +47,7 @@ const Dashboard = () => {
             <Text style={styles.menuItemText}>Urlaub</Text>
           </Pressable>
           <Pressable style={styles.menuItem} onPress={() => navigation.navigate('Event')}>
-            <Text style={styles.menuItemText}>Veranstaltungen in der Naehe</Text>
+            <Text style={styles.menuItemText}>Veranstaltungen in der Nähe</Text>
           </Pressable>
         </GlassCard>
 
@@ -52,6 +56,8 @@ const Dashboard = () => {
           <InlineStat label="Online jetzt" value={String(nearbyOnlineProfiles.length)} accent={affairGoTheme.colors.success} />
           <InlineStat label="Premium" value={currentUser.membership.toUpperCase()} accent={membershipColors[currentUser.membership]} />
         </View>
+        <Text style={styles.membershipText}>{membershipStatusLabel}</Text>
+        {currentUser.membership === 'gold' && currentUser.invisibleMode ? <Text style={styles.membershipHint}>Unsichtbar-Modus ist aktiv.</Text> : null}
       </View>
 
       <View style={styles.grid}>
@@ -72,25 +78,50 @@ const Dashboard = () => {
           <Text style={styles.eventText}>{event.date}, {event.time}</Text>
           <Text style={styles.eventText}>{event.address}</Text>
           <Text style={styles.eventText}>{event.distanceKm} km entfernt, {event.participants.total} Anmeldungen</Text>
-          <AccentButton label="Event oeffnen" variant="secondary" onPress={() => navigation.navigate('Event')} style={styles.eventButton} />
+          <AccentButton label="Event öffnen" variant="secondary" onPress={() => navigation.navigate('Event')} style={styles.eventButton} />
         </GlassCard>
       ))}
 
+      <SectionTitle title="Geplante Reisen" aside="Dashboard" />
+      {plannedTrips.length ? plannedTrips.map((trip) => (
+        <GlassCard key={trip.id} style={styles.eventCard}>
+          <Text style={styles.eventTitle}>{trip.mode === 'business' ? 'Dienstreise' : 'Urlaub'}</Text>
+          <Text style={styles.eventText}>{trip.city || 'Ohne Ort'}{trip.postalCode ? `, ${trip.postalCode}` : ''}</Text>
+          <Text style={styles.eventText}>{trip.startDate} bis {trip.endDate}</Text>
+          <Text style={styles.eventText}>{trip.fromTime} bis {trip.toTime}</Text>
+          {trip.street ? <Text style={styles.eventText}>{trip.street}</Text> : null}
+        </GlassCard>
+      )) : (
+        <GlassCard style={styles.eventCard}>
+          <Text style={styles.eventText}>Noch keine Dienstreisen oder Urlaube geplant.</Text>
+        </GlassCard>
+      )}
+
       <SectionTitle title="Jetzt sichtbar" aside="Radar" />
       <View style={styles.radarList}>
-        {visibleProfiles.slice(0, 3).map((profile) => (
-          <GlassCard key={profile.id} style={styles.radarCard}>
-            <View style={styles.radarRow}>
-              <View>
-                <Text style={styles.radarName}>{profile.nickname}</Text>
-                <Text style={styles.radarMeta}>{profile.age} Jahre, {profile.figure}, {profile.distanceKm} km</Text>
+        {visibleProfiles.slice(0, 3).map((profile) => {
+          const travelSummary = getProfileTravelSummary(profile);
+          return (
+            <GlassCard key={profile.id} style={styles.radarCard}>
+              <View style={styles.radarRow}>
+                <View style={styles.radarInfo}>
+                  <Text style={styles.radarName}>{profile.nickname}</Text>
+                  <Text style={styles.radarMeta}>{profile.age} Jahre, {profile.figure}, {profile.distanceKm} km</Text>
+                  {travelSummary ? (
+                    <Text style={styles.radarMeta}>
+                      {travelSummary.label}
+                      {travelSummary.location ? ` in ${travelSummary.location}` : ''}
+                      {travelSummary.period ? ` • ${travelSummary.period}` : ''}
+                    </Text>
+                  ) : null}
+                </View>
+                <Text style={[styles.radarTag, { color: travelModeColors[travelSummary?.mode || profile.travelMode] || affairGoTheme.colors.blue }]}> 
+                  {travelSummary?.label || 'Aktiv'}
+                </Text>
               </View>
-              <Text style={[styles.radarTag, { color: travelModeColors[profile.travelMode] || affairGoTheme.colors.blue }]}>
-                {profile.travelMode === 'business' ? 'Dienstreise' : profile.travelMode === 'vacation' ? 'Urlaub' : 'Aktiv'}
-              </Text>
-            </View>
-          </GlassCard>
-        ))}
+            </GlassCard>
+          );
+        })}
       </View>
     </AppBackground>
   );
@@ -127,6 +158,16 @@ const styles = StyleSheet.create({
   statCluster: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+  },
+  membershipText: {
+    color: affairGoTheme.colors.textMuted,
+    marginTop: 12,
+    lineHeight: 22,
+  },
+  membershipHint: {
+    color: affairGoTheme.colors.success,
+    marginTop: 6,
+    fontWeight: '700',
   },
   grid: {
     flexDirection: 'row',
@@ -176,6 +217,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  radarInfo: {
+    flex: 1,
+    paddingRight: 12,
   },
   radarName: {
     color: affairGoTheme.colors.text,

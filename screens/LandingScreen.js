@@ -1,4 +1,5 @@
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Modal, Platform, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, BulletRow, GlassCard, InlineStat, SectionTitle } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme, membershipColors } from '../constants/affairGoTheme';
@@ -8,7 +9,29 @@ import { useNavigation } from '../naviagtion/SimpleNavigation';
 
 const LandingScreen = () => {
   const navigation = useNavigation();
-  const { currentUser, events, visibleProfiles, isAuthenticated, activatePlan, featureIdeas } = useAffairGo();
+  const { currentUser, events, visibleProfiles, isAuthenticated, activatePlan, purchasePlan, featureIdeas, membershipStatusLabel } = useAffairGo();
+  const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState(null);
+
+  const openPurchaseModal = (plan) => {
+    if (plan.key === 'basic') {
+      activatePlan(plan.activation || plan.key);
+      return;
+    }
+
+    setSelectedPlan(plan);
+    setPurchaseModalOpen(true);
+  };
+
+  const handlePurchase = async (paymentMethod) => {
+    if (!selectedPlan) {
+      return;
+    }
+
+    await purchasePlan({ plan: selectedPlan.activation, paymentMethod });
+    setPurchaseModalOpen(false);
+    setSelectedPlan(null);
+  };
 
   return (
     <AppBackground contentContainerStyle={styles.content}>
@@ -21,7 +44,7 @@ const LandingScreen = () => {
           <Text style={styles.domainText}>www.affair-go.com</Text>
           <Text style={styles.heroTitle}>Sicheres Matching, Reiseplanung und Community in einem gemeinsamen System.</Text>
           <Text style={styles.heroText}>
-            Die Website erklaert das Produkt, die Webapp nutzt denselben Zustand fuer Login, Profil, Matching Map,
+            Die Website erklärt das Produkt, die Webapp nutzt denselben Zustand für Login, Profil, Matching Map,
             Events, Reisen, Chat und Premium-Logik.
           </Text>
           <View style={styles.heroActions}>
@@ -42,12 +65,13 @@ const LandingScreen = () => {
             <InlineStat label="Sichtbare Matches" value={String(visibleProfiles.length)} />
             <InlineStat label="Events im Radius" value={String(events.length)} />
           </View>
+          <Text style={styles.membershipStatus}>{membershipStatusLabel}</Text>
         </View>
 
         <GlassCard strong style={styles.previewCard}>
           <Text style={styles.previewEyebrow}>Live-Vorschau</Text>
           <Text style={styles.previewTitle}>Direkt verbunden mit der Webapp</Text>
-          <BulletRow icon="shield-checkmark-outline" label="18+ und Bildpruefung" detail="Profilfoto-Upload mit KI-Selfie-Check als verifizierter Flow modelliert." />
+          <BulletRow icon="shield-checkmark-outline" label="18+ und Bildprüfung" detail="Profilfoto-Upload mit KI-Selfie-Check als verifizierter Flow modelliert." />
           <BulletRow icon="navigate-outline" label="Matching Map mit Radius" detail="Aktive Suche, Reise-Modi, Fotoalter-Filter und Radar greifen auf dieselben Mock-Daten zu." />
           <BulletRow icon="chatbubble-ellipses-outline" label="Chat, Spiele und Icebreaker" detail="Nach Match sofort schreiben, als Gold auch vor Match. Punkte werden direkt dem Profil gutgeschrieben." />
         </GlassCard>
@@ -71,31 +95,46 @@ const LandingScreen = () => {
           <GlassCard key={plan.key} style={styles.priceCard}>
             <Text style={[styles.planName, { color: membershipColors[plan.key] }]}>{plan.title}</Text>
             <Text style={styles.planPrice}>{plan.price}</Text>
+            {plan.promoLabel ? <Text style={styles.planPromo}>{plan.promoLabel}</Text> : null}
+            {plan.detailPrice ? <Text style={styles.planDetail}>{plan.detailPrice}</Text> : null}
             {plan.features.map((feature) => (
               <Text key={feature} style={styles.planFeature}>• {feature}</Text>
             ))}
             <AccentButton
-              label={`Demo auf ${plan.title}`}
+              label={plan.buttonLabel || `Demo auf ${plan.title}`}
               variant={plan.key === 'basic' ? 'secondary' : 'primary'}
-              onPress={() => activatePlan(plan.key)}
+              onPress={() => openPurchaseModal(plan)}
               style={styles.planButton}
             />
           </GlassCard>
         ))}
       </View>
 
-      <SectionTitle title="Sicherheit und Community" aside="direkt verknuepft" />
+      <Modal transparent visible={purchaseModalOpen} animationType="fade" onRequestClose={() => setPurchaseModalOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <GlassCard strong style={styles.modalCard}>
+            <Text style={styles.cardTitle}>Demo-In-App-Kauf</Text>
+            <Text style={styles.modalText}>{selectedPlan?.title} wird jetzt als Demo-Kauf aktiviert. Wähle den simulierten Bezahlweg.</Text>
+            <AccentButton label="Mit Apple kaufen" onPress={() => handlePurchase('Apple In-App Purchase')} style={styles.planButton} />
+            <AccentButton label="Mit Google kaufen" onPress={() => handlePurchase('Google Play Billing')} variant="secondary" style={styles.planButton} />
+            <AccentButton label="Mit Stripe kaufen" onPress={() => handlePurchase('Stripe Checkout')} variant="secondary" style={styles.planButton} />
+            <AccentButton label="Abbrechen" variant="ghost" onPress={() => { setPurchaseModalOpen(false); setSelectedPlan(null); }} />
+          </GlassCard>
+        </View>
+      </Modal>
+
+      <SectionTitle title="Sicherheit und Community" aside="direkt verknüpft" />
       <View style={[styles.communityRow, Platform.OS === 'web' && styles.communityRowWeb]}>
         <GlassCard style={styles.communityCard}>
           <Text style={styles.cardTitle}>Sicherheitslogik</Text>
           <BulletRow icon="warning-outline" label="Alte Fotos markieren" detail="6 Monate = Hinweis, 12 Monate = rote Warnung im Profil und auf Karten." />
-          <BulletRow icon="eye-off-outline" label="Unsichtbar suchen ist nicht erlaubt" detail="Sichtbarkeit gibt es nur, wenn der Suchmodus aktiv ist." />
-          <BulletRow icon="camera-outline" label="Screenshot-Schutz" detail="Im Web als Hinweis modelliert, in nativen Builds fuer Chat und Profil als Plattform-Feature gedacht." />
+          <BulletRow icon="eye-off-outline" label="Gold kann unsichtbar bleiben" detail="Mit Gold bleibt die Suche aktiv, ohne dass dein Profil in fremden Trefferlisten auftaucht." />
+          <BulletRow icon="camera-outline" label="Screenshot-Schutz" detail="Im Web als Hinweis modelliert, in nativen Builds für Chat und Profil als Plattform-Feature gedacht." />
         </GlassCard>
         <GlassCard style={styles.communityCard}>
           <Text style={styles.cardTitle}>Community-Ideenbox</Text>
           <Text style={styles.ideaLead}>Bisher eingereichte Ideen: {featureIdeas.length}</Text>
-          <Text style={styles.ideaText}>Nutzer koennen Features und Spiele vorschlagen. Bei Annahme sind Boosts, Premium-Tage oder Punkte moeglich.</Text>
+          <Text style={styles.ideaText}>Nutzer können Features und Spiele vorschlagen. Bei Annahme sind Boosts, Premium-Tage oder Punkte möglich.</Text>
           <AccentButton label="Jetzt einloggen" onPress={() => navigation.navigate('Login')} />
         </GlassCard>
       </View>
@@ -170,6 +209,11 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     marginTop: 24,
   },
+  membershipStatus: {
+    color: affairGoTheme.colors.textMuted,
+    marginTop: 12,
+    lineHeight: 22,
+  },
   previewCard: {
     flex: Platform.OS === 'web' ? 0.8 : undefined,
     marginLeft: Platform.OS === 'web' ? 22 : 0,
@@ -228,6 +272,17 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 14,
   },
+  planPromo: {
+    color: affairGoTheme.colors.success,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  planDetail: {
+    color: affairGoTheme.colors.textMuted,
+    fontSize: 15,
+    lineHeight: 22,
+    marginBottom: 10,
+  },
   planFeature: {
     color: affairGoTheme.colors.textMuted,
     fontSize: 15,
@@ -246,6 +301,23 @@ const styles = StyleSheet.create({
   communityCard: {
     width: Platform.OS === 'web' ? '49%' : '100%',
     marginBottom: 14,
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    padding: 20,
+    zIndex: 20,
+  },
+  modalCard: {
+    maxWidth: 560,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  modalText: {
+    color: affairGoTheme.colors.textMuted,
+    lineHeight: 22,
+    marginBottom: 16,
   },
   ideaLead: {
     color: affairGoTheme.colors.text,
