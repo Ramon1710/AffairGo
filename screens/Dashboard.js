@@ -1,8 +1,9 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { AccentButton, AppBackground, GlassCard, InlineStat, ScreenHeader, SectionTitle } from '../components/AffairGoUI';
+import { AccentButton, AppBackground, EmptyState, GlassCard, InfoBanner, InlineStat, ScreenHeader, SectionTitle, StatusPill } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme, membershipColors, travelModeColors } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
+import { DASHBOARD_SIGNAL_CARDS, EMPTY_STATE_COPY } from '../data/mockData';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
 
 const quickActions = [
@@ -14,9 +15,18 @@ const quickActions = [
 const Dashboard = () => {
   const navigation = useNavigation();
   const { currentUser, visibleProfiles, events, nearbyOnlineProfiles, getProfileTravelSummary, membershipStatusLabel } = useAffairGo();
+  const toTripList = (trip, mode) => {
+    if (!trip || typeof trip !== 'object' || Array.isArray(trip)) {
+      return [];
+    }
+    if (!trip.startDate && !trip.endDate && !trip.city && !trip.street) {
+      return [];
+    }
+    return [{ ...trip, mode, id: `${mode}-${trip.startDate || 'draft'}-${trip.city || 'unknown'}` }];
+  };
   const plannedTrips = [
-    ...(currentUser.travelPlans.business || []).map((trip) => ({ ...trip, mode: 'business' })),
-    ...(currentUser.travelPlans.vacation || []).map((trip) => ({ ...trip, mode: 'vacation' })),
+    ...toTripList(currentUser.travelPlans?.business, 'business'),
+    ...toTripList(currentUser.travelPlans?.vacation, 'vacation'),
   ];
 
   return (
@@ -60,6 +70,15 @@ const Dashboard = () => {
         {currentUser.membership === 'gold' && currentUser.invisibleMode ? <Text style={styles.membershipHint}>Unsichtbar-Modus ist aktiv.</Text> : null}
       </View>
 
+      <View style={styles.signalGrid}>
+        {DASHBOARD_SIGNAL_CARDS.map((card) => (
+          <GlassCard key={card.id} style={styles.signalCard}>
+            <StatusPill label={card.title} tone="info" style={styles.signalPill} />
+            <Text style={styles.signalDetail}>{card.detail}</Text>
+          </GlassCard>
+        ))}
+      </View>
+
       <View style={styles.grid}>
         {quickActions.map((action) => (
           <Pressable key={action.key} style={styles.tile} onPress={() => navigation.navigate(action.key)}>
@@ -72,7 +91,7 @@ const Dashboard = () => {
       </View>
 
       <SectionTitle title="Veranstaltungen" aside="Werbung" />
-      {events.slice(0, 2).map((event) => (
+      {events.length ? events.slice(0, 2).map((event) => (
         <GlassCard key={event.id} style={styles.eventCard}>
           <Text style={styles.eventTitle}>{event.title}</Text>
           <Text style={styles.eventText}>{event.date}, {event.time}</Text>
@@ -80,7 +99,13 @@ const Dashboard = () => {
           <Text style={styles.eventText}>{event.distanceKm} km entfernt, {event.participants.total} Anmeldungen</Text>
           <AccentButton label="Event öffnen" variant="secondary" onPress={() => navigation.navigate('Event')} style={styles.eventButton} />
         </GlassCard>
-      ))}
+      )) : (
+        <EmptyState
+          title={EMPTY_STATE_COPY.events.title}
+          detail={EMPTY_STATE_COPY.events.detail}
+          action={<AccentButton label="Event anlegen" variant="secondary" onPress={() => navigation.navigate('Event')} />}
+        />
+      )}
 
       <SectionTitle title="Geplante Reisen" aside="Dashboard" />
       {plannedTrips.length ? plannedTrips.map((trip) => (
@@ -92,13 +117,15 @@ const Dashboard = () => {
           {trip.street ? <Text style={styles.eventText}>{trip.street}</Text> : null}
         </GlassCard>
       )) : (
-        <GlassCard style={styles.eventCard}>
-          <Text style={styles.eventText}>Noch keine Dienstreisen oder Urlaube geplant.</Text>
-        </GlassCard>
+        <EmptyState
+          title="Noch keine Reisen geplant"
+          detail="Lege dein nächstes Dienstreise- oder Urlaubsfenster an, damit Matching und Events passend gefiltert werden."
+          action={<AccentButton label="Reise planen" variant="secondary" onPress={() => navigation.navigate('TravelPlanner', { mode: 'business' })} />}
+        />
       )}
 
       <SectionTitle title="Jetzt sichtbar" aside="Radar" />
-      <View style={styles.radarList}>
+      {visibleProfiles.length ? <View style={styles.radarList}>
         {visibleProfiles.slice(0, 3).map((profile) => {
           const travelSummary = getProfileTravelSummary(profile);
           return (
@@ -122,7 +149,15 @@ const Dashboard = () => {
             </GlassCard>
           );
         })}
-      </View>
+      </View> : (
+        <EmptyState
+          title={EMPTY_STATE_COPY.matches.title}
+          detail={EMPTY_STATE_COPY.matches.detail}
+          action={<AccentButton label="Matching Map öffnen" variant="secondary" onPress={() => navigation.navigate('MatchingMap')} />}
+        />
+      )}
+
+      <InfoBanner title="Profilstatus" detail={membershipStatusLabel} tone={currentUser.membership === 'gold' ? 'warning' : 'info'} style={styles.dashboardBanner} />
     </AppBackground>
   );
 };
@@ -168,6 +203,19 @@ const styles = StyleSheet.create({
     color: affairGoTheme.colors.success,
     marginTop: 6,
     fontWeight: '700',
+  },
+  signalGrid: {
+    marginBottom: 16,
+  },
+  signalCard: {
+    marginBottom: 10,
+  },
+  signalPill: {
+    marginBottom: 10,
+  },
+  signalDetail: {
+    color: affairGoTheme.colors.textMuted,
+    lineHeight: 22,
   },
   grid: {
     flexDirection: 'row',
@@ -233,6 +281,10 @@ const styles = StyleSheet.create({
   },
   radarTag: {
     fontWeight: '700',
+  },
+  dashboardBanner: {
+    marginTop: 10,
+    marginBottom: 10,
   },
 });
 

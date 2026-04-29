@@ -1,11 +1,11 @@
 import * as ImagePicker from 'expo-image-picker';
 import { useMemo, useState } from 'react';
 import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
+import { AccentButton, AppBackground, EmptyState, FormField, GlassCard, InfoBanner, ScreenHeader, StatusPill, ToggleChip } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
-import { RADIUS_OPTIONS } from '../data/mockData';
+import { EMPTY_STATE_COPY, RADIUS_OPTIONS } from '../data/mockData';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
 
 const EMPTY_EVENT_FORM = {
@@ -130,13 +130,9 @@ const EventScreen = () => {
         ))}
       </View>
 
-      {!canJoinEvents ? (
-        <GlassCard style={styles.card}>
-          <Text style={styles.lockHint}>Für jede Event-Teilnahme musst du verifiziert sein und deine Suche aktiv geschaltet haben.</Text>
-        </GlassCard>
-      ) : null}
+      {!canJoinEvents ? <InfoBanner title="Teilnahme gesperrt" detail="Für jede Event-Teilnahme musst du verifiziert sein und deine Suche aktiv geschaltet haben." tone="warning" style={styles.card} /> : null}
 
-      {visibleEvents.map((event) => (
+      {visibleEvents.length ? visibleEvents.map((event) => (
         <GlassCard key={event.id} strong style={styles.card}>
           <View style={styles.eventImage}>
             {event.imageUri ? (
@@ -149,6 +145,7 @@ const EventScreen = () => {
             )}
           </View>
           <Text style={styles.title}>{event.title}</Text>
+          {event.category ? <StatusPill label={event.category} tone="info" style={styles.categoryPill} /> : null}
           <Text style={styles.meta}>{event.date}, {event.time}</Text>
           <Text style={styles.meta}>{event.address}</Text>
           <Text style={styles.meta}>{event.distanceKm} km von dir entfernt</Text>
@@ -167,7 +164,7 @@ const EventScreen = () => {
             </View>
           ) : null}
         </GlassCard>
-      ))}
+      )) : <EmptyState title={EMPTY_STATE_COPY.events.title} detail={EMPTY_STATE_COPY.events.detail} />}
 
       <GlassCard style={styles.card}>
         <Text style={styles.title}>Eigenes Event erstellen</Text>
@@ -243,6 +240,9 @@ const styles = StyleSheet.create({
   },
   card: {
     marginBottom: 14,
+  },
+  categoryPill: {
+    marginBottom: 10,
   },
   eventImage: {
     height: 160,

@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Modal, Platform, StyleSheet, Text, View } from 'react-native';
-import { AccentButton, AppBackground, BulletRow, GlassCard, InlineStat, SectionTitle } from '../components/AffairGoUI';
+import { AccentButton, AppBackground, BulletRow, GlassCard, InfoBanner, InlineStat, SectionTitle, StatusPill } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
-import { affairGoTheme, membershipColors } from '../constants/affairGoTheme';
+import { affairGoTheme, membershipColors, membershipLabels } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
 import { PRICING_PLANS, WEBSITE_SECTIONS } from '../data/mockData';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
@@ -64,6 +64,10 @@ const LandingScreen = () => {
             <InlineStat label="Demo-Profil" value={currentUser.nickname} accent={membershipColors[currentUser.membership]} />
             <InlineStat label="Sichtbare Matches" value={String(visibleProfiles.length)} />
             <InlineStat label="Events im Radius" value={String(events.length)} />
+          </View>
+          <View style={styles.statusRow}>
+            <StatusPill label={membershipLabels[currentUser.membership]} tone={currentUser.membership === 'gold' ? 'warning' : currentUser.membership === 'premium' ? 'info' : 'default'} />
+            <StatusPill label={isAuthenticated ? 'Angemeldet' : 'Gastmodus'} tone={isAuthenticated ? 'success' : 'default'} style={styles.statusPill} />
           </View>
           <Text style={styles.membershipStatus}>{membershipStatusLabel}</Text>
         </View>
@@ -138,6 +142,12 @@ const LandingScreen = () => {
           <AccentButton label="Jetzt einloggen" onPress={() => navigation.navigate('Login')} />
         </GlassCard>
       </View>
+
+      <InfoBanner
+        title="Demo-Hinweis"
+        detail="Website, Webapp und App-Flows greifen bewusst auf gemeinsame Mockdaten und denselben Produktzustand zu. So lassen sich Features konsistent testen, bevor Backend-Details vollständig produktiv angebunden werden."
+        style={styles.demoBanner}
+      />
     </AppBackground>
   );
 };
@@ -213,6 +223,15 @@ const styles = StyleSheet.create({
     color: affairGoTheme.colors.textMuted,
     marginTop: 12,
     lineHeight: 22,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 14,
+  },
+  statusPill: {
+    marginLeft: 0,
   },
   previewCard: {
     flex: Platform.OS === 'web' ? 0.8 : undefined,
@@ -301,6 +320,10 @@ const styles = StyleSheet.create({
   communityCard: {
     width: Platform.OS === 'web' ? '49%' : '100%',
     marginBottom: 14,
+  },
+  demoBanner: {
+    marginTop: 4,
+    marginBottom: 20,
   },
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,

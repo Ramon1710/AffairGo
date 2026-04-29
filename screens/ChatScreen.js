@@ -1,11 +1,11 @@
 import { allowScreenCaptureAsync, preventScreenCaptureAsync } from 'expo-screen-capture';
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
+import { AccentButton, AppBackground, EmptyState, FormField, GlassCard, InfoBanner, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
-import { GAME_OPTIONS, ICEBREAKER_SUGGESTIONS } from '../data/mockData';
+import { EMPTY_STATE_COPY, GAME_OPTIONS, ICEBREAKER_SUGGESTIONS } from '../data/mockData';
 import { useNavigation, useRoute } from '../naviagtion/SimpleNavigation';
 
 const ChatScreen = () => {
@@ -89,18 +89,20 @@ const ChatScreen = () => {
         leftAction={<Pressable onPress={() => navigation.goBack()}><Ionicons name="arrow-back" size={28} color={affairGoTheme.colors.text} /></Pressable>}
       />
 
-      <GlassCard style={styles.securityCard}>
-        <Text style={styles.securityTitle}>Screenshot-Schutz</Text>
-        <Text style={styles.securityText}>
+      <InfoBanner
+        title="Screenshot-Schutz"
+        detail={
           {Platform.OS === 'web'
             ? 'Im Web wird der Schutz als Hinweis modelliert. In nativen Builds wird dieser Bereich für Screenshot-Sperren vorbereitet.'
             : 'Dieser Bereich ist für nativen Screenshot-Schutz vorbereitet, damit Chat-Inhalte nicht unbemerkt gespeichert werden.'}
-        </Text>
-      </GlassCard>
+        }
+        tone="warning"
+        style={styles.securityCard}
+      />
 
       <View style={styles.layout}>
         <GlassCard style={styles.sidebar}>
-          {chats.map((chat) => {
+          {chats.length ? chats.map((chat) => {
             const partner = users.find((user) => user.id === chat.userId);
             return (
               <Pressable key={chat.id} onPress={() => setSelectedChatId(chat.id)} style={[styles.chatItem, selectedChat?.id === chat.id && styles.chatItemActive]}>
@@ -108,7 +110,7 @@ const ChatScreen = () => {
                 <Text style={styles.chatMeta}>{chat.inactivityDays > 7 ? 'Ghost-Warnung' : chat.match ? 'Match aktiv' : 'Vor Match'}</Text>
               </Pressable>
             );
-          })}
+          }) : <EmptyState title={EMPTY_STATE_COPY.chats.title} detail={EMPTY_STATE_COPY.chats.detail} />}
         </GlassCard>
 
         <GlassCard strong style={styles.mainPanel}>
@@ -148,9 +150,7 @@ const ChatScreen = () => {
                 </View>
               ) : <Text style={styles.partnerMeta}>Spiele sind ab Premium verfügbar.</Text>}
             </>
-          ) : (
-            <Text style={styles.partnerMeta}>Noch keine aktiven Chats vorhanden.</Text>
-          )}
+          ) : <EmptyState title={EMPTY_STATE_COPY.chats.title} detail={EMPTY_STATE_COPY.chats.detail} action={<AccentButton label="Zum Swipe" variant="secondary" onPress={() => navigation.navigate('Swipe')} />} />}
         </GlassCard>
       </View>
     </AppBackground>
@@ -160,16 +160,6 @@ const ChatScreen = () => {
 const styles = StyleSheet.create({
   securityCard: {
     marginBottom: 12,
-  },
-  securityTitle: {
-    color: affairGoTheme.colors.text,
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 6,
-  },
-  securityText: {
-    color: affairGoTheme.colors.textMuted,
-    lineHeight: 22,
   },
   layout: {
     flexDirection: 'row',
