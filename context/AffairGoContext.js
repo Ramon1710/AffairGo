@@ -43,6 +43,7 @@ import {
     INITIAL_EVENTS,
     INITIAL_USERS,
     PREFERENCE_OPTIONS,
+    SEARCH_GENDER_OPTIONS,
     SKIN_OPTIONS,
     TABOO_OPTIONS,
     VISIBILITY_OPTIONS,
@@ -115,6 +116,7 @@ const createDefaultCurrentUser = () => ({
   forcePasswordChange: false,
   role: 'member',
   isAdmin: false,
+  searchGenders: [...SEARCH_GENDER_OPTIONS],
   dismissedProfileIds: [],
   membership: 'basic',
   premiumTrialActive: false,
@@ -192,6 +194,33 @@ const normalizeOptionList = (values, options, fallback = []) => {
   }
 
   return values.map((value) => normalizeOptionValue(value, options, value));
+};
+
+const normalizeSearchAgeValue = (value, fallback) => {
+  const parsedValue = Number.parseInt(value, 10);
+
+  if (!Number.isFinite(parsedValue)) {
+    return fallback;
+  }
+
+  return Math.min(99, Math.max(18, parsedValue));
+};
+
+const normalizeSearchAgeRange = (profile = {}, defaults = {}) => {
+  const fallbackMin = Number.isFinite(Number(defaults.searchAgeMin)) ? Number(defaults.searchAgeMin) : 18;
+  const fallbackMax = Number.isFinite(Number(defaults.searchAgeMax)) ? Number(defaults.searchAgeMax) : 99;
+  const searchAgeMin = normalizeSearchAgeValue(profile.searchAgeMin, fallbackMin);
+  const searchAgeMax = normalizeSearchAgeValue(profile.searchAgeMax, fallbackMax);
+
+  return {
+    searchAgeMin: Math.min(searchAgeMin, searchAgeMax),
+    searchAgeMax: Math.max(searchAgeMin, searchAgeMax),
+  };
+};
+
+const getSearchGenders = (profile = {}, fallback = SEARCH_GENDER_OPTIONS) => {
+  const normalizedSearchGenders = normalizeOptionList(profile.searchGenders, SEARCH_GENDER_OPTIONS, []);
+  return normalizedSearchGenders.length ? normalizedSearchGenders : [...fallback];
 };
 
 const hasTravelPlanContent = (travelPlan = {}) => (
@@ -380,6 +409,7 @@ const normalizeUserProfile = (profile = {}, firebaseUser = null) => {
   const resolvedTravelPlans = normalizeTravelPlans(profile.travelPlans);
   const resolvedEmail = profile.email || firebaseUser?.email || defaults.email;
   const fixedAdmin = Boolean(profile.isAdmin) || profile.role === 'admin' || isFixedAdminEmail(resolvedEmail);
+  const { searchAgeMin, searchAgeMax } = normalizeSearchAgeRange(profile, defaults);
 
   return {
     ...defaults,
@@ -426,6 +456,9 @@ const normalizeUserProfile = (profile = {}, firebaseUser = null) => {
     dataExportRequestedAt: profile.dataExportRequestedAt || '',
     latitude: Number.isFinite(Number(profile.latitude)) ? Number(profile.latitude) : defaults.latitude,
     longitude: Number.isFinite(Number(profile.longitude)) ? Number(profile.longitude) : defaults.longitude,
+    searchAgeMin,
+    searchAgeMax,
+    searchGenders: getSearchGenders(profile, defaults.searchGenders),
     preferences: normalizeOptionList(profile.preferences, PREFERENCE_OPTIONS, defaults.preferences),
     taboos: normalizeOptionList(profile.taboos, TABOO_OPTIONS, defaults.taboos),
     travelPlans: resolvedTravelPlans,
@@ -440,6 +473,7 @@ const normalizeUserProfile = (profile = {}, firebaseUser = null) => {
 
 const toStoredProfile = (profile) => {
   const sanitized = { ...profile };
+  const { searchAgeMin, searchAgeMax } = normalizeSearchAgeRange(profile, createDefaultCurrentUser());
   delete sanitized.password;
   delete sanitized.repeatPassword;
 
@@ -484,6 +518,9 @@ const toStoredProfile = (profile) => {
     dataExportRequestedAt: profile.dataExportRequestedAt || '',
     latitude: Number.isFinite(Number(profile.latitude)) ? Number(profile.latitude) : null,
     longitude: Number.isFinite(Number(profile.longitude)) ? Number(profile.longitude) : null,
+    searchAgeMin,
+    searchAgeMax,
+    searchGenders: getSearchGenders(profile),
     nicknameLower: profile.nickname?.trim().toLowerCase() || '',
     updatedAt: serverTimestamp(),
   };
@@ -542,6 +579,7 @@ const buildRegistrationProfile = (payload, uid) => ({
   purchaseHistory: [],
   searchAgeMin: 25,
   searchAgeMax: 55,
+  searchGenders: [...SEARCH_GENDER_OPTIONS],
   radius: 25,
   searchActive: false,
   online: true,
@@ -1053,6 +1091,22 @@ const isMutualAgeMatch = (currentUser, targetUser) => {
   return userLikesTarget && targetLikesUser;
 };
 
+const isMutualGenderMatch = (currentUser, targetUser) => {
+  const currentUserSearchGenders = getSearchGenders(currentUser);
+  const targetUserSearchGenders = getSearchGenders(targetUser);
+  const normalizedCurrentGender = normalizeOptionValue(currentUser.gender, SEARCH_GENDER_OPTIONS, currentUser.gender);
+  const normalizedTargetGender = normalizeOptionValue(targetUser.gender, SEARCH_GENDER_OPTIONS, targetUser.gender);
+
+  const currentUserLikesTarget = currentUserSearchGenders.includes(normalizedTargetGender);
+  const targetUserLikesCurrentUser = targetUserSearchGenders.includes(normalizedCurrentGender);
+
+  return currentUserLikesTarget && targetUserLikesCurrentUser;
+};
+
+const isMutualSearchMatch = (currentUser, targetUser) => (
+  isMutualAgeMatch(currentUser, targetUser) && isMutualGenderMatch(currentUser, targetUser)
+);
+
 export const AffairGoProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(createDefaultCurrentUser());
   const [users, setUsers] = useState(clone(INITIAL_USERS));
@@ -1469,6 +1523,9 @@ export const AffairGoProvider = ({ children }) => {
       if (!currentUser.searchActive) {
         return false;
       }
+      if (!user.searchActive) {
+        return false;
+      }
       if (dismissedProfiles.includes(user.id)) {
         return false;
       }
@@ -1484,7 +1541,7 @@ export const AffairGoProvider = ({ children }) => {
       if (photoAgeFilter && user.profilePhotoAgeMonths < photoAgeFilter) {
         return false;
       }
-      if (!isMutualAgeMatch(currentUser, user)) {
+      if (!isMutualSearchMatch(currentUser, user)) {
         return false;
       }
       return getCompatibility(currentUser, user) >= 30;
@@ -1785,6 +1842,19 @@ export const AffairGoProvider = ({ children }) => {
     delete nextPatch.password;
     delete nextPatch.repeatPassword;
     delete nextPatch.forcePasswordChange;
+
+    if ('searchAgeMin' in nextPatch || 'searchAgeMax' in nextPatch) {
+      const normalizedAgeRange = normalizeSearchAgeRange({
+        searchAgeMin: nextPatch.searchAgeMin ?? currentUser.searchAgeMin,
+        searchAgeMax: nextPatch.searchAgeMax ?? currentUser.searchAgeMax,
+      }, currentUser);
+      nextPatch.searchAgeMin = normalizedAgeRange.searchAgeMin;
+      nextPatch.searchAgeMax = normalizedAgeRange.searchAgeMax;
+    }
+
+    if ('searchGenders' in nextPatch) {
+      nextPatch.searchGenders = getSearchGenders(nextPatch, currentUser.searchGenders);
+    }
 
     const requestedEmail = typeof nextPatch.email === 'string' ? nextPatch.email.trim().toLowerCase() : null;
     delete nextPatch.email;

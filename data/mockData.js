@@ -18,6 +18,7 @@ export const HAIR_OPTIONS = ['Blond', 'Braun', 'Schwarz', 'Rot', 'Grau', 'Glatze
 export const EYE_OPTIONS = ['Blau', 'Braun', 'Grün', 'Grau', 'Schwarz', 'Gemischt'];
 export const SKIN_OPTIONS = ['Sehr hell', 'Hell', 'Mittel', 'Oliv', 'Dunkel', 'Sehr dunkel'];
 export const GENDER_OPTIONS = ['männlich', 'weiblich', 'divers'];
+export const SEARCH_GENDER_OPTIONS = ['männlich', 'weiblich', 'divers', 'paare'];
 export const VISIBILITY_OPTIONS = ['Ab sofort sichtbar', '2 Wochen vorher sichtbar', 'Ab Stichtag sichtbar'];
 export const RADIUS_OPTIONS = [5, 10, 20, 25, 50, 100, 150];
 export const PHOTO_AGE_FILTERS = [1, 2, 3, 6, 12];
@@ -231,6 +232,7 @@ export const INITIAL_CURRENT_USER = {
   taboos: ['Kein BDSM', 'Kein Dreier'],
   searchAgeMin: 28,
   searchAgeMax: 48,
+  searchGenders: ['männlich'],
   radius: 25,
   membership: 'premium',
   searchActive: true,
@@ -301,6 +303,8 @@ export const INITIAL_USERS = [
     taboos: ['Kein BDSM', 'Kein Dreier'],
     searchAgeMin: 30,
     searchAgeMax: 48,
+    searchGenders: ['männlich'],
+    searchActive: true,
     online: true,
     travelPlans: {
       business: [],
@@ -350,6 +354,8 @@ export const INITIAL_USERS = [
     taboos: ['Kein Kuscheln danach'],
     searchAgeMin: 30,
     searchAgeMax: 45,
+    searchGenders: ['weiblich'],
+    searchActive: true,
     online: true,
     travelPlans: {
       business: [
@@ -400,6 +406,8 @@ export const INITIAL_USERS = [
     taboos: ['Kein ungeschützter Sex', 'Kein emotionaler Kontakt'],
     searchAgeMin: 28,
     searchAgeMax: 55,
+    searchGenders: ['weiblich', 'männlich', 'divers'],
+    searchActive: true,
     online: false,
     gallery: [
       { id: 'u3g1', label: 'Night', ageLabel: 'Vor 8 Monaten' },
@@ -432,6 +440,8 @@ export const INITIAL_USERS = [
     taboos: ['Kein Sex beim ersten Treffen'],
     searchAgeMin: 32,
     searchAgeMax: 46,
+    searchGenders: ['männlich', 'divers'],
+    searchActive: true,
     online: true,
     travelPlans: {
       business: [],

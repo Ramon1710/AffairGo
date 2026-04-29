@@ -6,7 +6,7 @@ import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader, Status
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
-import { EYE_OPTIONS, FIGURE_OPTIONS, HAIR_OPTIONS, SKIN_OPTIONS } from '../data/mockData';
+import { EYE_OPTIONS, FIGURE_OPTIONS, HAIR_OPTIONS, SEARCH_GENDER_OPTIONS, SKIN_OPTIONS } from '../data/mockData';
 import { useNavigation, useRoute } from '../naviagtion/SimpleNavigation';
 import { allowScreenCaptureAsync, preventScreenCaptureAsync } from '../untils/screenCapture';
 
@@ -45,6 +45,14 @@ const ProfilScreen = () => {
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
 
   const updateField = (key, value) => setDraft((previous) => ({ ...previous, [key]: value }));
+  const updateSearchAgeField = (key, value) => {
+    const numericValue = Number.parseInt(String(value).replace(/\D/g, ''), 10);
+
+    setDraft((previous) => ({
+      ...previous,
+      [key]: Number.isFinite(numericValue) ? numericValue : '',
+    }));
+  };
   const toggleListValue = (key, value) => {
     setDraft((previous) => ({
       ...previous,
@@ -388,6 +396,36 @@ const ProfilScreen = () => {
             ) : (
               <Text style={styles.visibilityHint}>Unsichtbar suchen ist im Gold-Paket verfügbar.</Text>
             )}
+            <View style={styles.visibilityBox}>
+              <Text style={styles.visibilityTitle}>Matchingvoraussetzungen</Text>
+              <Text style={styles.visibilityText}>Du siehst nur Profile, deren Alter und Suchziel zu dir passen. Gleichzeitig bist du auch nur für diese Personen sichtbar.</Text>
+              <View style={styles.row}>
+                <View style={styles.half}>
+                  <FormField
+                    label="Suche Alter von"
+                    value={String(profile.searchAgeMin ?? '')}
+                    onChangeText={(value) => updateSearchAgeField('searchAgeMin', value)}
+                    keyboardType="number-pad"
+                  />
+                </View>
+                <View style={styles.half}>
+                  <FormField
+                    label="Suche Alter bis"
+                    value={String(profile.searchAgeMax ?? '')}
+                    onChangeText={(value) => updateSearchAgeField('searchAgeMax', value)}
+                    keyboardType="number-pad"
+                  />
+                </View>
+              </View>
+              <Text style={styles.pickerLabel}>Ich suche nach</Text>
+              <View style={styles.chipsCompact}>
+                {SEARCH_GENDER_OPTIONS.map((item) => (
+                  <View key={item} style={styles.chipItem}>
+                    <ToggleChip label={item} active={profile.searchGenders.includes(item)} onPress={() => toggleListValue('searchGenders', item)} />
+                  </View>
+                ))}
+              </View>
+            </View>
             <View style={styles.sectionSpacer} />
           </>
         ) : null}
