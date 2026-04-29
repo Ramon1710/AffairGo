@@ -1,4 +1,3 @@
-import { allowScreenCaptureAsync, preventScreenCaptureAsync } from 'expo-screen-capture';
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, EmptyState, FormField, GlassCard, InfoBanner, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
@@ -7,6 +6,7 @@ import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
 import { EMPTY_STATE_COPY, GAME_OPTIONS, ICEBREAKER_SUGGESTIONS } from '../data/mockData';
 import { useNavigation, useRoute } from '../naviagtion/SimpleNavigation';
+import { allowScreenCaptureAsync, preventScreenCaptureAsync } from '../untils/screenCapture';
 
 const ChatScreen = () => {
   const navigation = useNavigation();

@@ -1,6 +1,5 @@
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
-import { allowScreenCaptureAsync, preventScreenCaptureAsync } from 'expo-screen-capture';
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader, StatusPill, ToggleChip } from '../components/AffairGoUI';
@@ -9,6 +8,7 @@ import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
 import { EYE_OPTIONS, FIGURE_OPTIONS, HAIR_OPTIONS, SKIN_OPTIONS } from '../data/mockData';
 import { useNavigation, useRoute } from '../naviagtion/SimpleNavigation';
+import { allowScreenCaptureAsync, preventScreenCaptureAsync } from '../untils/screenCapture';
 
 const REPORT_REASONS = [
   { value: 'spam', label: 'Spam oder Scam' },
