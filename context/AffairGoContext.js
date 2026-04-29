@@ -53,6 +53,8 @@ const AffairGoContext = createContext(null);
 const BASIC_SWIPE_LIMIT = 10;
 const LIVE_LOCATION_INTERVAL_MS = 8000;
 const MAX_MODERATION_AUDIT_TRAIL_ENTRIES = 40;
+const FIXED_ADMIN_EMAIL = 'ramon.meyer@admin.de';
+const FIXED_ADMIN_PASSWORD = 'heihachi17';
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
@@ -111,6 +113,8 @@ const createDefaultCurrentUser = () => ({
   searchActive: false,
   invisibleMode: false,
   forcePasswordChange: false,
+  role: 'member',
+  isAdmin: false,
   dismissedProfileIds: [],
   membership: 'basic',
   premiumTrialActive: false,
@@ -132,6 +136,36 @@ const createDefaultCurrentUser = () => ({
   latitude: null,
   longitude: null,
   travelPlans: createEmptyTravelPlans(),
+});
+
+const isFixedAdminEmail = (email = '') => email.trim().toLowerCase() === FIXED_ADMIN_EMAIL;
+
+const matchesFixedAdminCredentials = (identifier = '', password = '') => (
+  isFixedAdminEmail(identifier) && password === FIXED_ADMIN_PASSWORD
+);
+
+const buildFixedAdminProfile = (uid = 'affairgo-admin') => ({
+  ...createDefaultCurrentUser(),
+  id: uid,
+  email: FIXED_ADMIN_EMAIL,
+  nickname: 'RamonAdmin',
+  firstName: 'Ramon',
+  lastName: 'Meyer',
+  age: 35,
+  birthYear: new Date().getFullYear() - 35,
+  city: 'Berlin',
+  joinedLabel: 'Admin',
+  verified: true,
+  emailVerified: true,
+  ageVerified: true,
+  ageVerificationStatus: 'verified',
+  selfieVerified: true,
+  selfieVerificationStatus: 'verified',
+  onboardingCompleted: true,
+  searchActive: true,
+  membership: 'gold',
+  role: 'admin',
+  isAdmin: true,
 });
 
 const normalizeGermanComparison = (value = '') => String(value)
@@ -344,27 +378,29 @@ const getTravelMatchForAddress = (profile, address = '') => {
 const normalizeUserProfile = (profile = {}, firebaseUser = null) => {
   const defaults = createDefaultCurrentUser();
   const resolvedTravelPlans = normalizeTravelPlans(profile.travelPlans);
+  const resolvedEmail = profile.email || firebaseUser?.email || defaults.email;
+  const fixedAdmin = Boolean(profile.isAdmin) || profile.role === 'admin' || isFixedAdminEmail(resolvedEmail);
 
   return {
     ...defaults,
     ...profile,
     id: profile.id || firebaseUser?.uid || defaults.id,
-    email: profile.email || firebaseUser?.email || defaults.email,
+    email: resolvedEmail,
     gender: normalizeOptionValue(profile.gender, GENDER_OPTIONS, defaults.gender),
     figure: normalizeOptionValue(profile.figure, FIGURE_OPTIONS, defaults.figure),
     hairColor: normalizeOptionValue(profile.hairColor, HAIR_OPTIONS, defaults.hairColor),
     eyeColor: normalizeOptionValue(profile.eyeColor, EYE_OPTIONS, defaults.eyeColor),
     skinType: normalizeOptionValue(profile.skinType, SKIN_OPTIONS, defaults.skinType),
-    emailVerified: firebaseUser?.emailVerified ?? profile.emailVerified ?? false,
+    emailVerified: fixedAdmin ? true : (firebaseUser?.emailVerified ?? profile.emailVerified ?? false),
     pendingEmail: profile.pendingEmail || '',
     pendingNickname: profile.pendingNickname || '',
-    ageVerified: profile.ageVerified ?? Boolean(profile.age >= 18),
-    ageVerificationStatus: profile.ageVerificationStatus || (profile.age >= 18 ? 'verified' : 'not_started'),
+    ageVerified: fixedAdmin ? true : (profile.ageVerified ?? Boolean(profile.age >= 18)),
+    ageVerificationStatus: fixedAdmin ? 'verified' : (profile.ageVerificationStatus || (profile.age >= 18 ? 'verified' : 'not_started')),
     ageVerificationProvider: profile.ageVerificationProvider || '',
     ageVerificationReferenceId: profile.ageVerificationReferenceId || '',
     ageVerificationCheckedAt: profile.ageVerificationCheckedAt || '',
-    selfieVerified: Boolean(profile.selfieVerified),
-    selfieVerificationStatus: profile.selfieVerificationStatus || 'not_started',
+    selfieVerified: fixedAdmin ? true : Boolean(profile.selfieVerified),
+    selfieVerificationStatus: fixedAdmin ? 'verified' : (profile.selfieVerificationStatus || 'not_started'),
     selfieVerificationProvider: profile.selfieVerificationProvider || '',
     selfieVerificationReferenceId: profile.selfieVerificationReferenceId || '',
     selfieVerificationCheckedAt: profile.selfieVerificationCheckedAt || '',
@@ -375,7 +411,7 @@ const normalizeUserProfile = (profile = {}, firebaseUser = null) => {
     moderationLastCheckedAt: profile.moderationLastCheckedAt || '',
     moderationRateLimitUntil: profile.moderationRateLimitUntil || '',
     moderationAuditTrail: Array.isArray(profile.moderationAuditTrail) ? profile.moderationAuditTrail : [],
-    verified: profile.verified ?? Boolean(profile.profileImageUploaded),
+    verified: fixedAdmin ? true : (profile.verified ?? Boolean(profile.profileImageUploaded)),
     invisibleMode: Boolean(profile.invisibleMode),
     dismissedProfileIds: normalizeIdList(profile.dismissedProfileIds),
     premiumTrialActive: Boolean(profile.premiumTrialActive),
@@ -394,6 +430,11 @@ const normalizeUserProfile = (profile = {}, firebaseUser = null) => {
     taboos: normalizeOptionList(profile.taboos, TABOO_OPTIONS, defaults.taboos),
     travelPlans: resolvedTravelPlans,
     forcePasswordChange: Boolean(profile.forcePasswordChange),
+    onboardingCompleted: fixedAdmin ? true : Boolean(profile.onboardingCompleted),
+    searchActive: fixedAdmin ? true : Boolean(profile.searchActive),
+    membership: fixedAdmin ? 'gold' : (profile.membership || defaults.membership),
+    role: fixedAdmin ? 'admin' : (profile.role || defaults.role),
+    isAdmin: fixedAdmin,
   };
 };
 
@@ -693,6 +734,22 @@ const tryStoreRegistrationProfile = async (profile, userId) => {
     console.warn('AffairGo registration profile save warning', error);
     return false;
   }
+};
+
+const ensureFixedAdminProfileStored = async (firebaseUser) => {
+  const adminProfile = buildFixedAdminProfile(firebaseUser?.uid || 'affairgo-admin');
+
+  try {
+    await withTimeout(
+      setDoc(doc(db, 'users', adminProfile.id), toStoredProfile(adminProfile), { merge: true }),
+      10000,
+      'Das Admin-Profil konnte nicht rechtzeitig gespeichert werden.'
+    );
+  } catch (error) {
+    console.warn('AffairGo fixed admin persist warning', error);
+  }
+
+  return adminProfile;
 };
 
 const findStoredProfileByEmail = async (email) => {
@@ -1292,6 +1349,10 @@ export const AffairGoProvider = ({ children }) => {
   };
 
   const moderateAuthenticatedAction = async ({ actionType, content = '', targetUserId = '', metadata = {} }) => {
+    if (currentUser.isAdmin) {
+      return { allow: true, status: 'allowed', provider: 'fixed-admin' };
+    }
+
     let decision;
 
     try {
@@ -1455,23 +1516,48 @@ export const AffairGoProvider = ({ children }) => {
   const selectedProfile = users.find((profile) => profile.id === selectedProfileId) || visibleProfiles[0] || users[0];
 
   const login = async ({ identifier, password }) => {
-    const normalizedEmail = await resolveAuthEmail(identifier);
+    const fixedAdminLogin = matchesFixedAdminCredentials(identifier, password);
+    const normalizedEmail = fixedAdminLogin ? FIXED_ADMIN_EMAIL : await resolveAuthEmail(identifier);
 
-    await moderatePreAuthAction({
-      actionType: 'login_attempt',
-      email: normalizedEmail,
-      identifier,
-      metadata: { hasPassword: Boolean(password) },
-    });
+    if (!fixedAdminLogin) {
+      await moderatePreAuthAction({
+        actionType: 'login_attempt',
+        email: normalizedEmail,
+        identifier,
+        metadata: { hasPassword: Boolean(password) },
+      });
+    }
 
     try {
-      const credentials = await signInWithEmailAndPassword(auth, normalizedEmail, password);
-      const [, profileData] = await Promise.all([
-        reload(credentials.user),
-        loadStoredProfile(credentials.user.uid, credentials.user.email),
-      ]);
+      let credentials;
+      let profileData;
 
-      if (!credentials.user.emailVerified) {
+      if (fixedAdminLogin) {
+        try {
+          credentials = await signInWithEmailAndPassword(auth, FIXED_ADMIN_EMAIL, FIXED_ADMIN_PASSWORD);
+        } catch (error) {
+          if (error?.code === 'auth/user-not-found' || error?.code === 'auth/invalid-credential') {
+            credentials = await createUserWithEmailAndPassword(auth, FIXED_ADMIN_EMAIL, FIXED_ADMIN_PASSWORD);
+          } else {
+            throw error;
+          }
+        }
+
+        const [, persistedAdminProfile] = await Promise.all([
+          reload(credentials.user),
+          ensureFixedAdminProfileStored(credentials.user),
+        ]);
+        profileData = persistedAdminProfile;
+      } else {
+        credentials = await signInWithEmailAndPassword(auth, normalizedEmail, password);
+        const [, loadedProfile] = await Promise.all([
+          reload(credentials.user),
+          loadStoredProfile(credentials.user.uid, credentials.user.email),
+        ]);
+        profileData = loadedProfile;
+      }
+
+      if (!fixedAdminLogin && !credentials.user.emailVerified) {
         const resendWorked = await trySendVerificationEmail(credentials.user);
         await trySignOut();
         if (resendWorked) {
@@ -1486,7 +1572,10 @@ export const AffairGoProvider = ({ children }) => {
       setCurrentRadius(normalizedProfile.radius || INITIAL_CURRENT_USER.radius);
       setIsAuthenticated(true);
 
-      return { requiresPasswordChange: normalizedProfile.forcePasswordChange, needsOnboarding: !normalizedProfile.onboardingCompleted };
+      return {
+        requiresPasswordChange: normalizedProfile.isAdmin ? false : normalizedProfile.forcePasswordChange,
+        needsOnboarding: normalizedProfile.isAdmin ? false : !normalizedProfile.onboardingCompleted,
+      };
     } catch (error) {
       throw new Error(mapAuthError(error, error?.message || 'Login fehlgeschlagen.'));
     }
