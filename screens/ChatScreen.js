@@ -92,9 +92,9 @@ const ChatScreen = () => {
       <InfoBanner
         title="Screenshot-Schutz"
         detail={
-          {Platform.OS === 'web'
+          Platform.OS === 'web'
             ? 'Im Web wird der Schutz als Hinweis modelliert. In nativen Builds wird dieser Bereich für Screenshot-Sperren vorbereitet.'
-            : 'Dieser Bereich ist für nativen Screenshot-Schutz vorbereitet, damit Chat-Inhalte nicht unbemerkt gespeichert werden.'}
+            : 'Dieser Bereich ist für nativen Screenshot-Schutz vorbereitet, damit Chat-Inhalte nicht unbemerkt gespeichert werden.'
         }
         tone="warning"
         style={styles.securityCard}
