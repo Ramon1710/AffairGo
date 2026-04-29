@@ -624,11 +624,23 @@ const mapAuthError = (error, fallbackMessage) => {
       return 'Zu viele Versuche in kurzer Zeit. Bitte warte kurz und versuche es erneut.';
     case 'auth/network-request-failed':
       return 'Netzwerkfehler. Bitte prüfe deine Verbindung und versuche es erneut.';
+    case 'unavailable':
+    case 'failed-precondition':
+      return 'Die Verbindung zur Datenbank ist gerade nicht verfügbar. Bitte versuche es in wenigen Sekunden erneut.';
     case 'auth/user-disabled':
       return 'Dieses Konto wurde deaktiviert.';
     default:
       return fallbackMessage;
   }
+};
+
+const isFirestoreReadOfflineError = (error) => {
+  const normalizedMessage = error?.message?.toLowerCase() || '';
+
+  return error?.code === 'unavailable'
+    || error?.code === 'failed-precondition'
+    || normalizedMessage.includes('client is offline')
+    || normalizedMessage.includes('because the client is offline');
 };
 
 const trySendVerificationEmail = async (user) => {
@@ -817,7 +829,18 @@ const uploadMediaAsset = async (folder, assetOrUri, ownerId) => {
 };
 
 const ensureNicknameAvailable = async (nickname, excludedUserId = null) => {
-  const storedProfile = await findStoredProfileByNickname(nickname);
+  let storedProfile = null;
+
+  try {
+    storedProfile = await findStoredProfileByNickname(nickname);
+  } catch (error) {
+    if (isFirestoreReadOfflineError(error)) {
+      console.warn('AffairGo nickname availability fallback', error);
+      return;
+    }
+
+    throw error;
+  }
 
   if (storedProfile && storedProfile.id !== excludedUserId) {
     throw new Error('Dieser Spitzname ist bereits vergeben. Bitte wähle einen anderen.');
@@ -849,7 +872,17 @@ const parseSizeToNumber = (value) => {
 };
 
 const resolveAuthEmail = async (identifier) => {
-  const resolvedProfile = await findStoredProfileByIdentifier(identifier);
+  const trimmedIdentifier = identifier.trim();
+
+  if (!trimmedIdentifier) {
+    throw new Error('Bitte eine gültige E-Mail-Adresse oder einen vorhandenen Spitznamen eingeben.');
+  }
+
+  if (trimmedIdentifier.includes('@')) {
+    return trimmedIdentifier.toLowerCase();
+  }
+
+  const resolvedProfile = await findStoredProfileByIdentifier(trimmedIdentifier);
 
   if (resolvedProfile?.email) {
     return resolvedProfile.email;
@@ -1433,7 +1466,10 @@ export const AffairGoProvider = ({ children }) => {
 
     try {
       const credentials = await signInWithEmailAndPassword(auth, normalizedEmail, password);
-      await reload(credentials.user);
+      const [, profileData] = await Promise.all([
+        reload(credentials.user),
+        loadStoredProfile(credentials.user.uid, credentials.user.email),
+      ]);
 
       if (!credentials.user.emailVerified) {
         const resendWorked = await trySendVerificationEmail(credentials.user);
@@ -1444,8 +1480,6 @@ export const AffairGoProvider = ({ children }) => {
         throw new Error('Dein Konto wurde angelegt, aber die Verifizierungs-Mail konnte nicht gesendet werden. Bitte prüfe die Firebase-E-Mail-Vorlagen und versuche es erneut.');
       }
 
-      const profileSnapshot = await getDoc(doc(db, 'users', credentials.user.uid));
-      const profileData = profileSnapshot.exists() ? profileSnapshot.data() : { id: credentials.user.uid, email: credentials.user.email };
       const normalizedProfile = normalizeUserProfile(profileData, credentials.user);
 
       setCurrentUser(normalizedProfile);
