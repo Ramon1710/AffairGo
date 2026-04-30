@@ -15,14 +15,15 @@ const quickActions = [
 const Dashboard = () => {
   const navigation = useNavigation();
   const { currentUser, visibleProfiles, events, nearbyOnlineProfiles, getProfileTravelSummary, membershipStatusLabel } = useAffairGo();
-  const toTripList = (trip, mode) => {
-    if (!trip || typeof trip !== 'object' || Array.isArray(trip)) {
+  const toTripList = (trips, mode) => {
+    if (!Array.isArray(trips)) {
       return [];
     }
-    if (!trip.startDate && !trip.endDate && !trip.city && !trip.street) {
-      return [];
-    }
-    return [{ ...trip, mode, id: `${mode}-${trip.startDate || 'draft'}-${trip.city || 'unknown'}` }];
+
+    return trips
+      .filter((trip) => trip && typeof trip === 'object')
+      .filter((trip) => trip.startDate || trip.endDate || trip.city || trip.street)
+      .map((trip) => ({ ...trip, mode, id: trip.id || `${mode}-${trip.startDate || 'draft'}-${trip.city || 'unknown'}` }));
   };
   const plannedTrips = [
     ...toTripList(currentUser.travelPlans?.business, 'business'),
@@ -67,7 +68,6 @@ const Dashboard = () => {
           <InlineStat label="Premium" value={currentUser.membership.toUpperCase()} accent={membershipColors[currentUser.membership]} />
         </View>
         <Text style={styles.membershipText}>{membershipStatusLabel}</Text>
-        {currentUser.membership === 'gold' && currentUser.invisibleMode ? <Text style={styles.membershipHint}>Unsichtbar-Modus ist aktiv.</Text> : null}
       </View>
 
       <View style={styles.signalGrid}>

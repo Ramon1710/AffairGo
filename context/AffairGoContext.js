@@ -32,6 +32,7 @@ import {
     useState,
 } from 'react';
 import { getModerationProviderLabel, hasConfiguredModerationBackend, submitModerationDecision, submitModerationReport } from '../constants/moderationProvider';
+import { getPaymentProviderLabel, getPaymentSetupInstructions, hasConfiguredPaymentBackend, startPurchaseFlow } from '../constants/paymentProvider';
 import {
     EXPLORE_CITIES,
     EYE_OPTIONS,
@@ -56,6 +57,7 @@ const LIVE_LOCATION_INTERVAL_MS = 8000;
 const MAX_MODERATION_AUDIT_TRAIL_ENTRIES = 40;
 const FIXED_ADMIN_EMAIL = 'ramon.meyer@admin.de';
 const FIXED_ADMIN_PASSWORD = 'heihachi17';
+const LIVE_LOCATION_BACKEND_BASE_URL = (process.env.EXPO_PUBLIC_LIVE_LOCATION_BASE_URL || '/api/location').trim().replace(/\/$/, '');
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
@@ -110,9 +112,12 @@ const createDefaultCurrentUser = () => ({
   selfieVerificationCheckedAt: '',
   selfieLivenessScore: 0,
   selfieFakeScore: 0,
+  selfieDeletionStatus: 'not_requested',
+  selfieDeletionConfirmedAt: '',
+  selfieDeletionReceiptId: '',
+  selfieRetentionPolicy: '',
   onboardingCompleted: false,
   searchActive: false,
-  invisibleMode: false,
   forcePasswordChange: false,
   role: 'member',
   isAdmin: false,
@@ -343,8 +348,61 @@ const parseTravelDate = (value) => {
   return new Date(year, month - 1, day);
 };
 
-const getProfileTravelSummary = (profile) => {
+const getTravelPlanVisibilityStart = (travelPlan, referenceDate = new Date()) => {
+  const startDate = parseTravelDate(travelPlan.startDate);
+
+  if (!startDate) {
+    return referenceDate;
+  }
+
+  if (travelPlan.visibility?.includes('2 Wochen vorher sichtbar')) {
+    const visibleFrom = new Date(startDate);
+    visibleFrom.setDate(visibleFrom.getDate() - 14);
+    return visibleFrom;
+  }
+
+  if (travelPlan.visibility?.includes('Ab Stichtag sichtbar')) {
+    return startDate;
+  }
+
+  return referenceDate;
+};
+
+const getTravelPlanVisibilityEnd = (travelPlan) => {
+  const endDate = parseTravelDate(travelPlan.endDate) || parseTravelDate(travelPlan.startDate);
+
+  if (!endDate) {
+    return null;
+  }
+
+  const visibleUntil = new Date(endDate);
+  visibleUntil.setHours(23, 59, 59, 999);
+  return visibleUntil;
+};
+
+const isTravelPlanVisible = (travelPlan, referenceDate = new Date()) => {
+  const now = referenceDate;
+  const visibleFrom = getTravelPlanVisibilityStart(travelPlan, referenceDate);
+  const visibleUntil = getTravelPlanVisibilityEnd(travelPlan);
+
+  if (visibleUntil && now > visibleUntil) {
+    return false;
+  }
+
+  return now >= visibleFrom;
+};
+
+const getVisibleTravelPlans = (profile, referenceDate = new Date()) => {
   const normalizedTravelPlans = normalizeTravelPlans(profile.travelPlans);
+
+  return {
+    business: normalizedTravelPlans.business.filter((entry) => isTravelPlanVisible(entry, referenceDate)),
+    vacation: normalizedTravelPlans.vacation.filter((entry) => isTravelPlanVisible(entry, referenceDate)),
+  };
+};
+
+const getProfileTravelSummary = (profile) => {
+  const normalizedTravelPlans = getVisibleTravelPlans(profile);
   const allPlans = [
     ...normalizedTravelPlans.business.map((entry) => ({ ...entry, mode: 'business' })),
     ...normalizedTravelPlans.vacation.map((entry) => ({ ...entry, mode: 'vacation' })),
@@ -375,7 +433,7 @@ const getProfileTravelSummary = (profile) => {
 };
 
 const getProfileTravelCities = (profile) => {
-  const normalizedTravelPlans = normalizeTravelPlans(profile.travelPlans);
+  const normalizedTravelPlans = getVisibleTravelPlans(profile);
 
   return Array.from(new Set([
     profile.city,
@@ -436,13 +494,16 @@ const normalizeUserProfile = (profile = {}, firebaseUser = null) => {
     selfieVerificationCheckedAt: profile.selfieVerificationCheckedAt || '',
     selfieLivenessScore: Number.isFinite(Number(profile.selfieLivenessScore)) ? Number(profile.selfieLivenessScore) : 0,
     selfieFakeScore: Number.isFinite(Number(profile.selfieFakeScore)) ? Number(profile.selfieFakeScore) : 0,
+    selfieDeletionStatus: profile.selfieDeletionStatus || 'not_requested',
+    selfieDeletionConfirmedAt: profile.selfieDeletionConfirmedAt || '',
+    selfieDeletionReceiptId: profile.selfieDeletionReceiptId || '',
+    selfieRetentionPolicy: profile.selfieRetentionPolicy || '',
     moderationState: profile.moderationState || defaults.moderationState,
     moderationFlags: normalizeTextList(profile.moderationFlags),
     moderationLastCheckedAt: profile.moderationLastCheckedAt || '',
     moderationRateLimitUntil: profile.moderationRateLimitUntil || '',
     moderationAuditTrail: Array.isArray(profile.moderationAuditTrail) ? profile.moderationAuditTrail : [],
     verified: fixedAdmin ? true : (profile.verified ?? Boolean(profile.profileImageUploaded)),
-    invisibleMode: Boolean(profile.invisibleMode),
     dismissedProfileIds: normalizeIdList(profile.dismissedProfileIds),
     premiumTrialActive: Boolean(profile.premiumTrialActive),
     premiumTrialEndsAt: profile.premiumTrialEndsAt || '',
@@ -488,7 +549,6 @@ const toStoredProfile = (profile) => {
     taboos: normalizeOptionList(profile.taboos, TABOO_OPTIONS, []),
     travelPlans: normalizeTravelPlans(profile.travelPlans),
     dismissedProfileIds: normalizeIdList(profile.dismissedProfileIds),
-    invisibleMode: Boolean(profile.invisibleMode),
     premiumTrialActive: Boolean(profile.premiumTrialActive),
     premiumTrialEndsAt: profile.premiumTrialEndsAt || '',
     billingCycle: profile.billingCycle || 'monthly',
@@ -509,6 +569,10 @@ const toStoredProfile = (profile) => {
     selfieVerificationCheckedAt: profile.selfieVerificationCheckedAt || '',
     selfieLivenessScore: Number.isFinite(Number(profile.selfieLivenessScore)) ? Number(profile.selfieLivenessScore) : 0,
     selfieFakeScore: Number.isFinite(Number(profile.selfieFakeScore)) ? Number(profile.selfieFakeScore) : 0,
+    selfieDeletionStatus: profile.selfieDeletionStatus || 'not_requested',
+    selfieDeletionConfirmedAt: profile.selfieDeletionConfirmedAt || '',
+    selfieDeletionReceiptId: profile.selfieDeletionReceiptId || '',
+    selfieRetentionPolicy: profile.selfieRetentionPolicy || '',
     moderationState: profile.moderationState || 'clear',
     moderationFlags: normalizeTextList(profile.moderationFlags),
     moderationLastCheckedAt: profile.moderationLastCheckedAt || '',
@@ -543,6 +607,10 @@ const buildRegistrationProfile = (payload, uid) => ({
   selfieVerificationCheckedAt: payload.selfieVerificationCheckedAt || '',
   selfieLivenessScore: Number.isFinite(Number(payload.selfieLivenessScore)) ? Number(payload.selfieLivenessScore) : 0,
   selfieFakeScore: Number.isFinite(Number(payload.selfieFakeScore)) ? Number(payload.selfieFakeScore) : 0,
+  selfieDeletionStatus: payload.selfieDeletionStatus || 'not_requested',
+  selfieDeletionConfirmedAt: payload.selfieDeletionConfirmedAt || '',
+  selfieDeletionReceiptId: payload.selfieDeletionReceiptId || '',
+  selfieRetentionPolicy: payload.selfieRetentionPolicy || '',
   moderationState: 'clear',
   moderationFlags: [],
   moderationLastCheckedAt: '',
@@ -570,7 +638,6 @@ const buildRegistrationProfile = (payload, uid) => ({
   joinedLabel: 'Heute',
   onboardingCompleted: false,
   membership: 'basic',
-  invisibleMode: false,
   premiumTrialActive: false,
   premiumTrialEndsAt: '',
   billingCycle: 'monthly',
@@ -677,6 +744,71 @@ const simulateProfileLocation = (profile, pulse, observerLocation) => {
   };
 };
 
+const syncLiveLocationSnapshot = async ({ profile, location }) => {
+  if (!LIVE_LOCATION_BACKEND_BASE_URL || !profile?.id) {
+    return [];
+  }
+
+  const response = await fetch(`${LIVE_LOCATION_BACKEND_BASE_URL}/sync`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      userId: profile.id,
+      nickname: profile.nickname || '',
+      membership: profile.membership || 'basic',
+      searchActive: Boolean(profile.searchActive),
+      online: true,
+      latitude: Number(location?.latitude),
+      longitude: Number(location?.longitude),
+    }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(payload?.message || 'Live-Standorte konnten nicht synchronisiert werden.');
+  }
+
+  return Array.isArray(payload.locations) ? payload.locations : [];
+};
+
+const mergeRemoteLiveLocations = (profiles, remoteLocations, observerLocation) => {
+  if (!Array.isArray(remoteLocations) || !remoteLocations.length) {
+    return profiles;
+  }
+
+  const remoteLocationMap = new Map(
+    remoteLocations
+      .filter((entry) => entry && entry.userId)
+      .map((entry) => [entry.userId, entry])
+  );
+
+  return profiles.map((profile) => {
+    const remoteProfile = remoteLocationMap.get(profile.id);
+
+    if (!remoteProfile) {
+      return profile;
+    }
+
+    const latitude = Number(remoteProfile.latitude);
+    const longitude = Number(remoteProfile.longitude);
+
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      return profile;
+    }
+
+    const nextCoordinates = { latitude, longitude };
+    return {
+      ...profile,
+      latitude,
+      longitude,
+      online: remoteProfile.online !== false,
+      distanceKm: Math.max(1, Math.round(calculateDistanceKm(observerLocation, nextCoordinates))),
+      lastLiveSyncAt: remoteProfile.syncedAt || profile.lastLiveSyncAt || '',
+    };
+  });
+};
+
 const createPurchaseEntry = ({ membership, paymentMethod, priceLabel, billingCycle }) => ({
   id: `purchase-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   membership,
@@ -685,6 +817,18 @@ const createPurchaseEntry = ({ membership, paymentMethod, priceLabel, billingCyc
   billingCycle: billingCycle || 'monthly',
   purchasedAt: new Date().toLocaleString('de-DE'),
   status: 'aktiv',
+});
+
+const createFeatureIdeaEntry = ({ title, submitterId, submitterNickname }) => ({
+  id: `idea-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  title: title.trim(),
+  submitterId: submitterId || '',
+  submitterNickname: submitterNickname || 'Anonym',
+  reward: '1 Premium-Tag',
+  status: 'review',
+  createdAt: new Date().toISOString(),
+  approvedAt: '',
+  approvedBy: '',
 });
 
 const mapAuthError = (error, fallbackMessage) => {
@@ -893,6 +1037,25 @@ const loadStoredEvents = async () => {
     console.warn('AffairGo event bootstrap warning', error);
     return [];
   }
+};
+
+const loadStoredFeatureIdeas = async () => {
+  try {
+    const ideaSnapshot = await getDocs(collection(db, 'featureIdeas'));
+    return ideaSnapshot.docs
+      .map((ideaDoc) => ({ id: ideaDoc.id, ...ideaDoc.data() }))
+      .sort((left, right) => (right.createdAt || '').localeCompare(left.createdAt || ''));
+  } catch (error) {
+    console.warn('AffairGo feature idea bootstrap warning', error);
+    return [];
+  }
+};
+
+const persistStoredFeatureIdea = async (idea) => {
+  await setDoc(doc(db, 'featureIdeas', idea.id), {
+    ...idea,
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
 };
 
 const persistStoredEvent = async (event) => {
@@ -1126,8 +1289,25 @@ export const AffairGoProvider = ({ children }) => {
   const [deviceLocation, setDeviceLocation] = useState(null);
   const [locationPermissionGranted, setLocationPermissionGranted] = useState(false);
   const [locationError, setLocationError] = useState('');
+  const [remoteLiveLocations, setRemoteLiveLocations] = useState([]);
 
   const mapCenterCoordinates = useMemo(() => deviceLocation || getFallbackLiveLocation(currentUser), [currentUser, deviceLocation]);
+
+  const publishLiveLocation = async (location) => {
+    if (!Number.isFinite(Number(location?.latitude)) || !Number.isFinite(Number(location?.longitude))) {
+      return [];
+    }
+
+    try {
+      const syncedLocations = await syncLiveLocationSnapshot({ profile: currentUser, location });
+      setRemoteLiveLocations(syncedLocations);
+      setUsers((existingUsers) => mergeRemoteLiveLocations(existingUsers, syncedLocations, location));
+      return syncedLocations;
+    } catch (error) {
+      console.warn('AffairGo live location sync warning', error);
+      return [];
+    }
+  };
 
   const syncCurrentUserFromFirebase = async (firebaseUser) => {
     const profileData = await loadStoredProfile(firebaseUser.uid, firebaseUser.email);
@@ -1155,7 +1335,6 @@ export const AffairGoProvider = ({ children }) => {
 
     setCurrentUser(normalizedProfile);
     setChats(Array.isArray(profileData.chats) ? profileData.chats : []);
-    setFeatureIdeas(Array.isArray(profileData.featureIdeas) ? profileData.featureIdeas : []);
     setSwipeHistory(Array.isArray(profileData.swipeHistory) ? profileData.swipeHistory : []);
     setDismissedProfiles(normalizeIdList(profileData.dismissedProfileIds));
     setCurrentRadius(normalizedProfile.radius || INITIAL_CURRENT_USER.radius);
@@ -1174,6 +1353,7 @@ export const AffairGoProvider = ({ children }) => {
         setDeviceLocation(null);
         setLocationPermissionGranted(false);
         setLocationError('');
+        setRemoteLiveLocations([]);
         setIsAuthReady(true);
         return;
       }
@@ -1183,6 +1363,20 @@ export const AffairGoProvider = ({ children }) => {
     });
 
     return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    loadStoredFeatureIdeas().then((storedIdeas) => {
+      if (active) {
+        setFeatureIdeas(storedIdeas);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -1225,6 +1419,7 @@ export const AffairGoProvider = ({ children }) => {
       setLocationPermissionGranted(true);
       setLocationError('');
       setLastLocationSyncLabel(`GPS aktiv • ${new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`);
+      await publishLiveLocation(nextDeviceLocation);
       return true;
     } catch (error) {
       setLocationPermissionGranted(false);
@@ -1257,13 +1452,16 @@ export const AffairGoProvider = ({ children }) => {
           distanceInterval: 30,
         },
         (position) => {
-          setDeviceLocation({
+          const nextDeviceLocation = {
             latitude: roundCoordinate(position.coords.latitude),
             longitude: roundCoordinate(position.coords.longitude),
-          });
+          };
+
+          setDeviceLocation(nextDeviceLocation);
           setLocationPermissionGranted(true);
           setLocationError('');
           setLastLocationSyncLabel(`GPS aktualisiert • ${new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`);
+          publishLiveLocation(nextDeviceLocation).catch(() => undefined);
         }
       );
     };
@@ -1283,19 +1481,27 @@ export const AffairGoProvider = ({ children }) => {
 
     const observerLocation = mapCenterCoordinates || DEFAULT_MAP_LOCATION;
 
-    setUsers((existingUsers) => existingUsers.map((profile) => simulateProfileLocation(profile, locationPulse + 1, observerLocation)));
+    setUsers((existingUsers) => mergeRemoteLiveLocations(
+      existingUsers.map((profile) => simulateProfileLocation(profile, locationPulse + 1, observerLocation)),
+      remoteLiveLocations,
+      observerLocation
+    ));
 
     const intervalId = setInterval(() => {
       setLocationPulse((previous) => {
         const nextPulse = previous + 1;
-        setUsers((existingUsers) => existingUsers.map((profile) => simulateProfileLocation(profile, nextPulse, observerLocation)));
+        setUsers((existingUsers) => mergeRemoteLiveLocations(
+          existingUsers.map((profile) => simulateProfileLocation(profile, nextPulse, observerLocation)),
+          remoteLiveLocations,
+          observerLocation
+        ));
         setLastLocationSyncLabel(`Live aktualisiert • ${new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`);
         return nextPulse;
       });
     }, LIVE_LOCATION_INTERVAL_MS);
 
     return () => clearInterval(intervalId);
-  }, [currentUser.searchActive, mapCenterCoordinates]);
+  }, [currentUser.searchActive, mapCenterCoordinates, remoteLiveLocations]);
 
   const persistCurrentUserPatch = async (patch) => {
     const userId = auth.currentUser?.uid || currentUser.id;
@@ -1527,9 +1733,6 @@ export const AffairGoProvider = ({ children }) => {
         return false;
       }
       if (dismissedProfiles.includes(user.id)) {
-        return false;
-      }
-      if (user.invisibleMode) {
         return false;
       }
       if (hasMutualDismiss(user)) {
@@ -1867,10 +2070,6 @@ export const AffairGoProvider = ({ children }) => {
       nextPatch.pendingNickname = requestedNickname;
     }
 
-    if ('invisibleMode' in nextPatch) {
-      nextPatch.invisibleMode = currentUser.membership === 'gold' ? Boolean(nextPatch.invisibleMode) : false;
-    }
-
     setCurrentUser((previous) => ({ ...previous, ...nextPatch }));
     await persistCurrentUserPatch(nextPatch);
 
@@ -1940,7 +2139,6 @@ export const AffairGoProvider = ({ children }) => {
     const nextPatch = {
       accountDeletionRequestedAt: requestedAt,
       searchActive: false,
-      invisibleMode: true,
     };
 
     setCurrentUser((previous) => ({ ...previous, ...nextPatch }));
@@ -2251,14 +2449,76 @@ export const AffairGoProvider = ({ children }) => {
       metadata: { textLength: title.trim().length, reviewOnly: true },
     });
 
-    const nextIdea = { id: `idea-${Date.now()}`, title: title.trim(), reward: '1 Premium-Tag' };
+    const nextIdea = createFeatureIdeaEntry({
+      title,
+      submitterId: auth.currentUser?.uid || currentUser.id,
+      submitterNickname: currentUser.nickname,
+    });
     const nextFeatureIdeas = [nextIdea, ...featureIdeas];
-    const nextPoints = currentUser.points + 5;
     setFeatureIdeas(nextFeatureIdeas);
-    setCurrentUser((previous) => ({ ...previous, points: nextPoints }));
-    persistCurrentUserPatch({ featureIdeas: nextFeatureIdeas, points: nextPoints }).catch((error) => {
+    persistStoredFeatureIdea(nextIdea).catch((error) => {
       console.warn('AffairGo feature idea persist warning', error);
     });
+  };
+
+  const approveFeatureIdea = async (ideaId) => {
+    if (!currentUser.isAdmin) {
+      throw new Error('Nur Admins können Feature-Ideen freigeben.');
+    }
+
+    const targetIdea = featureIdeas.find((idea) => idea.id === ideaId);
+
+    if (!targetIdea) {
+      throw new Error('Die Idee wurde nicht gefunden.');
+    }
+
+    if (targetIdea.status === 'approved') {
+      return targetIdea;
+    }
+
+    const approvedIdea = {
+      ...targetIdea,
+      status: 'approved',
+      approvedAt: new Date().toISOString(),
+      approvedBy: currentUser.nickname || currentUser.id,
+    };
+
+    const nextFeatureIdeas = featureIdeas.map((idea) => (idea.id === ideaId ? approvedIdea : idea));
+    setFeatureIdeas(nextFeatureIdeas);
+    await persistStoredFeatureIdea(approvedIdea);
+
+    if (targetIdea.submitterId) {
+      const submitterRef = doc(db, 'users', targetIdea.submitterId);
+      const submitterSnapshot = await getDoc(submitterRef);
+      const submitterData = submitterSnapshot.exists() ? submitterSnapshot.data() : { id: targetIdea.submitterId };
+      const rewardLog = Array.isArray(submitterData.rewardLog) ? submitterData.rewardLog : [];
+      const nextPoints = Number.isFinite(Number(submitterData.points)) ? Number(submitterData.points) + 25 : 25;
+      const rewardEntry = {
+        id: `reward-${ideaId}`,
+        label: targetIdea.reward,
+        type: 'feature_idea_approved',
+        grantedAt: approvedIdea.approvedAt,
+      };
+
+      await setDoc(submitterRef, {
+        points: nextPoints,
+        rewardLog: [rewardEntry, ...rewardLog],
+        premiumTrialActive: true,
+        premiumTrialEndsAt: buildFutureDateLabel(1),
+      }, { merge: true });
+
+      if (targetIdea.submitterId === (auth.currentUser?.uid || currentUser.id)) {
+        setCurrentUser((previous) => ({
+          ...previous,
+          points: nextPoints,
+          rewardLog: [rewardEntry, ...(Array.isArray(previous.rewardLog) ? previous.rewardLog : [])],
+          premiumTrialActive: true,
+          premiumTrialEndsAt: buildFutureDateLabel(1),
+        }));
+      }
+    }
+
+    return approvedIdea;
   };
 
   const activatePlan = async (planConfig) => {
@@ -2266,7 +2526,6 @@ export const AffairGoProvider = ({ children }) => {
     const membership = resolvedPlan.membership || 'basic';
     const nextPatch = {
       membership,
-      invisibleMode: membership === 'gold' ? currentUser.invisibleMode : false,
       premiumTrialActive: membership === 'premium' && Boolean(resolvedPlan.trialDays),
       premiumTrialEndsAt: membership === 'premium' && resolvedPlan.trialDays ? buildFutureDateLabel(resolvedPlan.trialDays) : '',
       billingCycle: resolvedPlan.billingCycle || 'monthly',
@@ -2289,16 +2548,29 @@ export const AffairGoProvider = ({ children }) => {
       throw new Error('Bitte wähle Apple, Google oder Stripe als Bezahlweg.');
     }
 
+    const checkoutResult = await startPurchaseFlow({
+      plan: resolvedPlan,
+      paymentMethod,
+      customer: {
+        id: auth.currentUser?.uid || currentUser.id,
+        email: currentUser.email,
+        nickname: currentUser.nickname,
+      },
+    });
+
     const purchaseEntry = createPurchaseEntry({
       membership: resolvedPlan.membership,
       paymentMethod,
       priceLabel: resolvedPlan.priceLabel,
       billingCycle: resolvedPlan.billingCycle,
     });
+    purchaseEntry.status = checkoutResult.status || purchaseEntry.status;
+    purchaseEntry.provider = checkoutResult.provider || '';
+    purchaseEntry.checkoutUrl = checkoutResult.checkoutUrl || '';
+    purchaseEntry.purchaseId = checkoutResult.purchaseId || '';
     const nextPurchaseHistory = [purchaseEntry, ...(currentUser.purchaseHistory || [])];
     const nextPatch = {
       membership: resolvedPlan.membership,
-      invisibleMode: resolvedPlan.membership === 'gold' ? currentUser.invisibleMode : false,
       premiumTrialActive: resolvedPlan.membership === 'premium' && Boolean(resolvedPlan.trialDays),
       premiumTrialEndsAt: resolvedPlan.membership === 'premium' && resolvedPlan.trialDays ? buildFutureDateLabel(resolvedPlan.trialDays) : '',
       billingCycle: resolvedPlan.billingCycle || 'monthly',
@@ -2309,7 +2581,10 @@ export const AffairGoProvider = ({ children }) => {
 
     setCurrentUser((previous) => ({ ...previous, ...nextPatch }));
     await persistCurrentUserPatch(nextPatch);
-    return purchaseEntry;
+    return {
+      purchaseEntry,
+      checkoutResult,
+    };
   };
 
   const membershipStatusLabel = useMemo(() => {
@@ -2408,6 +2683,9 @@ export const AffairGoProvider = ({ children }) => {
     membershipStatusLabel,
     lastLocationSyncLabel,
     moderationBackendConfigured: hasConfiguredModerationBackend(),
+    paymentBackendConfigured: hasConfiguredPaymentBackend(),
+    paymentProviderLabel: getPaymentProviderLabel(),
+    paymentSetupInstructions: getPaymentSetupInstructions(),
     moderationAuditTrail: currentUser.moderationAuditTrail,
     moderationFlags: currentUser.moderationFlags,
     locationPulse,
@@ -2444,6 +2722,7 @@ export const AffairGoProvider = ({ children }) => {
     registerForEvent,
     reportUser,
     submitFeatureIdea,
+    approveFeatureIdea,
     activatePlan,
     purchasePlan,
     playGame,

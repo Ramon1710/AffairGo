@@ -1,5 +1,5 @@
 const MODERATION_PROVIDER = (process.env.EXPO_PUBLIC_MODERATION_PROVIDER || 'custom').trim();
-const MODERATION_BASE_URL = (process.env.EXPO_PUBLIC_MODERATION_BASE_URL || '').trim().replace(/\/$/, '');
+const MODERATION_BASE_URL = (process.env.EXPO_PUBLIC_MODERATION_BASE_URL || '/api/moderation').trim().replace(/\/$/, '');
 const MODERATION_PUBLIC_TOKEN = (process.env.EXPO_PUBLIC_MODERATION_PUBLIC_TOKEN || '').trim();
 
 const looksLikePlaceholder = (value) => !value || /your_|paste_|placeholder/i.test(value);

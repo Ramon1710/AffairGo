@@ -17,7 +17,7 @@ export const FIGURE_OPTIONS = ['Mager', 'Schlank', 'Sportlich', 'Normal', 'Pumme
 export const HAIR_OPTIONS = ['Blond', 'Braun', 'Schwarz', 'Rot', 'Grau', 'Glatze', 'Gefärbt'];
 export const EYE_OPTIONS = ['Blau', 'Braun', 'Grün', 'Grau', 'Schwarz', 'Gemischt'];
 export const SKIN_OPTIONS = ['Sehr hell', 'Hell', 'Mittel', 'Oliv', 'Dunkel', 'Sehr dunkel'];
-export const GENDER_OPTIONS = ['männlich', 'weiblich', 'divers'];
+export const GENDER_OPTIONS = ['männlich', 'weiblich', 'divers', 'paare'];
 export const SEARCH_GENDER_OPTIONS = ['männlich', 'weiblich', 'divers', 'paare'];
 export const VISIBILITY_OPTIONS = ['Ab sofort sichtbar', '2 Wochen vorher sichtbar', 'Ab Stichtag sichtbar'];
 export const RADIUS_OPTIONS = [5, 10, 20, 25, 50, 100, 150];
@@ -161,7 +161,7 @@ export const PRICING_PLANS = [
     title: 'Gold',
     price: '19,99 EUR',
     accent: '#ffe17c',
-    features: ['Swipe zurück', 'Vor Match schreiben', 'Unsichtbar-Modus', 'Explore-Modus mit fiktiven Städten'],
+    features: ['Swipe zurück', 'Vor Match schreiben', 'Priorisierte Explore-Ansicht', 'Explore-Modus mit fiktiven Städten'],
     promoLabel: '6 Monate mit Rabatt',
     detailPrice: '99,99 EUR für 6 Monate statt 119,94 EUR',
     activation: {

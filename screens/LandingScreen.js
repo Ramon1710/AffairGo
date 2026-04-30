@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal, Platform, StyleSheet, Text, View } from 'react-native';
+import { Alert, Modal, Platform, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, BulletRow, GlassCard, InfoBanner, InlineStat, SectionTitle, StatusPill } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme, membershipColors, membershipLabels } from '../constants/affairGoTheme';
@@ -9,9 +9,10 @@ import { useNavigation } from '../naviagtion/SimpleNavigation';
 
 const LandingScreen = () => {
   const navigation = useNavigation();
-  const { currentUser, events, visibleProfiles, isAuthenticated, activatePlan, purchasePlan, featureIdeas, membershipStatusLabel } = useAffairGo();
+  const { currentUser, events, visibleProfiles, isAuthenticated, activatePlan, purchasePlan, featureIdeas, membershipStatusLabel, paymentBackendConfigured, paymentProviderLabel, paymentSetupInstructions } = useAffairGo();
   const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(null);
+  const [isPurchasing, setIsPurchasing] = useState(false);
 
   const openPurchaseModal = (plan) => {
     if (plan.key === 'basic') {
@@ -28,9 +29,23 @@ const LandingScreen = () => {
       return;
     }
 
-    await purchasePlan({ plan: selectedPlan.activation, paymentMethod });
-    setPurchaseModalOpen(false);
-    setSelectedPlan(null);
+    try {
+      setIsPurchasing(true);
+      const result = await purchasePlan({ plan: selectedPlan.activation, paymentMethod });
+      setPurchaseModalOpen(false);
+      setSelectedPlan(null);
+
+      if (result.checkoutResult?.mode === 'demo') {
+        Alert.alert('Demo-Kauf aktiviert', `${selectedPlan.title} wurde lokal aktiviert. Für echte Käufe hinterlege jetzt dein Billing-Backend oder eine Hosted-Checkout-URL.`);
+        return;
+      }
+
+      Alert.alert('Checkout gestartet', `${selectedPlan.title} wurde über ${result.checkoutResult?.provider || paymentProviderLabel} gestartet.${result.checkoutResult?.checkoutUrl ? ' Das Checkout-Fenster wurde geöffnet.' : ''}`);
+    } catch (error) {
+      Alert.alert('Kauf konnte nicht gestartet werden', error.message || 'Bitte prüfe die Zahlungs-Konfiguration.');
+    } finally {
+      setIsPurchasing(false);
+    }
   };
 
   return (
@@ -117,12 +132,17 @@ const LandingScreen = () => {
       <Modal transparent visible={purchaseModalOpen} animationType="fade" onRequestClose={() => setPurchaseModalOpen(false)}>
         <View style={styles.modalBackdrop}>
           <GlassCard strong style={styles.modalCard}>
-            <Text style={styles.cardTitle}>Demo-In-App-Kauf</Text>
-            <Text style={styles.modalText}>{selectedPlan?.title} wird jetzt als Demo-Kauf aktiviert. Wähle den simulierten Bezahlweg.</Text>
-            <AccentButton label="Mit Apple kaufen" onPress={() => handlePurchase('Apple In-App Purchase')} style={styles.planButton} />
-            <AccentButton label="Mit Google kaufen" onPress={() => handlePurchase('Google Play Billing')} variant="secondary" style={styles.planButton} />
-            <AccentButton label="Mit Stripe kaufen" onPress={() => handlePurchase('Stripe Checkout')} variant="secondary" style={styles.planButton} />
-            <AccentButton label="Abbrechen" variant="ghost" onPress={() => { setPurchaseModalOpen(false); setSelectedPlan(null); }} />
+            <Text style={styles.cardTitle}>AffairGo Checkout</Text>
+            <Text style={styles.modalText}>
+              {paymentBackendConfigured
+                ? `${selectedPlan?.title} wird über ${paymentProviderLabel} gestartet. Wähle jetzt deinen Zahlungsweg.`
+                : `${selectedPlan?.title} nutzt aktuell den Demo-Fallback. Hinterlege für produktive Käufe dein Billing-Backend oder Hosted-Checkout-Links.`}
+            </Text>
+            {!paymentBackendConfigured ? <Text style={styles.setupHint}>{paymentSetupInstructions}</Text> : null}
+            <AccentButton label={isPurchasing ? 'Apple wird vorbereitet...' : 'Mit Apple kaufen'} onPress={() => handlePurchase('Apple In-App Purchase')} style={styles.planButton} disabled={isPurchasing} />
+            <AccentButton label={isPurchasing ? 'Google wird vorbereitet...' : 'Mit Google kaufen'} onPress={() => handlePurchase('Google Play Billing')} variant="secondary" style={styles.planButton} disabled={isPurchasing} />
+            <AccentButton label={isPurchasing ? 'Stripe wird vorbereitet...' : 'Mit Stripe kaufen'} onPress={() => handlePurchase('Stripe Checkout')} variant="secondary" style={styles.planButton} disabled={isPurchasing} />
+            <AccentButton label="Abbrechen" variant="ghost" onPress={() => { setPurchaseModalOpen(false); setSelectedPlan(null); }} disabled={isPurchasing} />
           </GlassCard>
         </View>
       </Modal>
@@ -132,8 +152,8 @@ const LandingScreen = () => {
         <GlassCard style={styles.communityCard}>
           <Text style={styles.cardTitle}>Sicherheitslogik</Text>
           <BulletRow icon="warning-outline" label="Alte Fotos markieren" detail="6 Monate = Hinweis, 12 Monate = rote Warnung im Profil und auf Karten." />
-          <BulletRow icon="eye-off-outline" label="Gold kann unsichtbar bleiben" detail="Mit Gold bleibt die Suche aktiv, ohne dass dein Profil in fremden Trefferlisten auftaucht." />
-          <BulletRow icon="camera-outline" label="Screenshot-Schutz" detail="Im Web als Hinweis modelliert, in nativen Builds für Chat und Profil als Plattform-Feature gedacht." />
+          <BulletRow icon="sparkles-outline" label="Gold priorisiert Treffer" detail="Gold schaltet Vorab-Chats, Explore und priorisierte Trefferflächen frei, ohne versteckte Suchmodi." />
+          <BulletRow icon="camera-outline" label="Screenshot-Schutz" detail="Im Web werden Druck, Copy/Cut, Kontextmenü und Sichtwechsel zusätzlich gehärtet; nativ bleibt der Plattformschutz vorbereitet." />
         </GlassCard>
         <GlassCard style={styles.communityCard}>
           <Text style={styles.cardTitle}>Community-Ideenbox</Text>
@@ -341,6 +361,11 @@ const styles = StyleSheet.create({
     color: affairGoTheme.colors.textMuted,
     lineHeight: 22,
     marginBottom: 16,
+  },
+  setupHint: {
+    color: affairGoTheme.colors.accentSoft,
+    lineHeight: 20,
+    marginBottom: 14,
   },
   ideaLead: {
     color: affairGoTheme.colors.text,

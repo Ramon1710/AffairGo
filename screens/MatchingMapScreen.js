@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, GlassCard, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme, travelModeColors } from '../constants/affairGoTheme';
-import { buildStaticMapUrl, getMapProviderLabel, getMapSetupInstructions, hasConfiguredMapApiKey } from '../constants/mapProvider';
+import { buildExternalMapUrl, buildInteractiveMapUrl, buildStaticMapUrl, getMapProviderLabel, getMapSetupInstructions, hasConfiguredMapApiKey } from '../constants/mapProvider';
 import { useAffairGo } from '../context/AffairGoContext';
 import { PHOTO_AGE_FILTERS, RADIUS_OPTIONS } from '../data/mockData';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
@@ -86,6 +86,17 @@ const MatchingMapScreen = () => {
     longitude: mapCenterCoordinates.longitude,
     zoom: mapZoom,
   });
+  const interactiveMapUrl = buildInteractiveMapUrl({
+    bounds: mapBounds,
+    latitude: mapCenterCoordinates.latitude,
+    longitude: mapCenterCoordinates.longitude,
+  });
+  const externalMapUrl = buildExternalMapUrl({
+    latitude: mapCenterCoordinates.latitude,
+    longitude: mapCenterCoordinates.longitude,
+    zoom: mapZoom,
+  });
+  const hasInteractiveWebMap = Platform.OS === 'web' && Boolean(interactiveMapUrl);
 
   const openProfile = (profile) => {
     if (filteredSelectedProfile?.id === profile.id) {
@@ -140,11 +151,17 @@ const MatchingMapScreen = () => {
           <AccentButton label="Standort aktivieren" onPress={requestLiveLocationAccess} style={styles.permissionButton} />
         </GlassCard>
       ) : null}
-      {!hasMapApiKey ? (
+      {!hasMapApiKey && !hasInteractiveWebMap ? (
         <GlassCard style={styles.permissionCard}>
           <Text style={styles.permissionTitle}>Karten-API vorbereiten</Text>
           <Text style={styles.selectedMeta}>{getMapProviderLabel()} ist vorbereitet, aber noch ohne API-Key konfiguriert.</Text>
           <Text style={styles.selectedMeta}>{getMapSetupInstructions()}</Text>
+        </GlassCard>
+      ) : null}
+      {hasInteractiveWebMap ? (
+        <GlassCard style={styles.permissionCard}>
+          <Text style={styles.permissionTitle}>Interaktive Web-Karte aktiv</Text>
+          <Text style={styles.selectedMeta}>Auf Web nutzt AffairGo jetzt eine echte OSM-Karte mit Live-Zentrum statt nur eines statischen Hintergrundbilds.</Text>
         </GlassCard>
       ) : null}
 
@@ -182,7 +199,11 @@ const MatchingMapScreen = () => {
       {viewMode === 'map' ? (
         <GlassCard strong style={styles.mapCard}>
           <View style={styles.mapArea}>
-            {providerMapUrl ? <Image source={{ uri: providerMapUrl }} style={styles.mapImage} resizeMode="cover" /> : null}
+            {hasInteractiveWebMap ? (
+              <iframe title="AffairGo Matching Map" src={interactiveMapUrl} style={{ border: 0, width: '100%', height: '100%' }} />
+            ) : providerMapUrl ? (
+              <Image source={{ uri: providerMapUrl }} style={styles.mapImage} resizeMode="cover" />
+            ) : null}
             <View style={styles.centerPin}>
               <Ionicons name="location" size={54} color={affairGoTheme.colors.accent} />
             </View>
@@ -210,9 +231,10 @@ const MatchingMapScreen = () => {
               );
             })}
             <View style={styles.osmBadge}>
-              <Text style={styles.osmBadgeText}>{hasMapApiKey ? `${getMapProviderLabel()} live` : `${getMapProviderLabel()} bereit`}</Text>
+              <Text style={styles.osmBadgeText}>{hasInteractiveWebMap ? 'OpenStreetMap live' : hasMapApiKey ? `${getMapProviderLabel()} live` : `${getMapProviderLabel()} bereit`}</Text>
             </View>
           </View>
+          {Platform.OS === 'web' ? <AccentButton label="Große Karte öffnen" variant="secondary" onPress={() => Linking.openURL(externalMapUrl)} style={styles.openMapButton} /> : null}
         </GlassCard>
       ) : null}
 

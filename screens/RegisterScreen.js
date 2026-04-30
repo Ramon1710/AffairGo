@@ -30,9 +30,16 @@ const createEmptySelfieVerificationState = () => ({
   selfieVerificationProvider: '',
   selfieVerificationReferenceId: '',
   selfieVerificationCheckedAt: '',
+  selfieDeletionStatus: 'not_requested',
+  selfieDeletionConfirmedAt: '',
+  selfieDeletionReceiptId: '',
+  selfieRetentionPolicy: '',
   selfieLivenessScore: 0,
   selfieFakeScore: 0,
 });
+
+const shouldShowPenisSizeField = (gender) => gender === 'männlich' || gender === 'divers' || gender === 'paare';
+const shouldShowBraSizeField = (gender) => gender === 'weiblich' || gender === 'divers' || gender === 'paare';
 
 const RegisterScreen = () => {
   const navigation = useNavigation();
@@ -223,6 +230,8 @@ const RegisterScreen = () => {
         ageVerificationProvider: verification.provider || '',
         ageVerificationReferenceId: verification.referenceId || '',
         ageVerificationCheckedAt: verification.checkedAt || '',
+        documentAsset: verified && previous.selfieVerified ? null : previous.documentAsset,
+        selfieAsset: verified && previous.selfieVerified ? null : previous.selfieAsset,
       }));
 
       if (!verified) {
@@ -267,15 +276,21 @@ const RegisterScreen = () => {
         selfieVerificationProvider: verification.provider || '',
         selfieVerificationReferenceId: verification.referenceId || '',
         selfieVerificationCheckedAt: verification.checkedAt || '',
+        selfieDeletionStatus: verification.assetsDeleted ? 'deleted' : 'pending',
+        selfieDeletionConfirmedAt: verification.deletionConfirmedAt || '',
+        selfieDeletionReceiptId: verification.deletionReceiptId || '',
+        selfieRetentionPolicy: verification.retentionPolicy || '',
         selfieLivenessScore: verification.livenessScore || 0,
         selfieFakeScore: verification.fakeScore || 0,
+        documentAsset: verified && previous.ageVerified ? null : previous.documentAsset,
+        selfieAsset: verified && previous.ageVerified ? null : previous.selfieAsset,
       }));
 
       if (!verified) {
         throw new Error('Der Live-Selfie- oder KI-Fake-Check ist noch nicht freigegeben. Bitte warte auf die Bestätigung deines Anbieters.');
       }
 
-      Alert.alert('Selfie-Check abgeschlossen', `Dein Live-Selfie wurde über ${verification.provider || getSelfieVerificationProviderLabel()} erfolgreich bestätigt.`);
+      Alert.alert('Selfie-Check abgeschlossen', `Dein Live-Selfie wurde über ${verification.provider || getSelfieVerificationProviderLabel()} erfolgreich bestätigt. Löschbeleg: ${verification.deletionReceiptId || 'wird erstellt'}`);
     } catch (verificationError) {
       setError(verificationError.message || 'Der Selfie- und KI-Fake-Check konnte nicht abgeschlossen werden.');
     } finally {
@@ -441,6 +456,9 @@ const RegisterScreen = () => {
           {form.selfieVerificationCheckedAt ? <Text style={styles.scoreText}>Geprüft am: {form.selfieVerificationCheckedAt}</Text> : null}
           {form.selfieVerified || form.selfieVerificationStatus === 'pending' ? <Text style={styles.scoreText}>Liveness-Score: {form.selfieLivenessScore}</Text> : null}
           {form.selfieVerified || form.selfieVerificationStatus === 'pending' ? <Text style={styles.scoreText}>Fake-Score: {form.selfieFakeScore}</Text> : null}
+          {form.selfieDeletionReceiptId ? <Text style={styles.referenceText}>Löschbeleg: {form.selfieDeletionReceiptId}</Text> : null}
+          {form.selfieDeletionConfirmedAt ? <Text style={styles.scoreText}>Selfie gelöscht am: {new Date(form.selfieDeletionConfirmedAt).toLocaleString('de-DE')}</Text> : null}
+          {form.selfieRetentionPolicy ? <Text style={styles.scoreText}>Retention: {form.selfieRetentionPolicy}</Text> : null}
 
           <AccentButton
             label={isVerifyingSelfie ? 'Selfie-Check läuft...' : 'Selfie-Check starten'}
@@ -483,8 +501,8 @@ const RegisterScreen = () => {
           <View style={styles.half}><Text style={styles.pickerLabel}>Figur</Text><View style={styles.pickerWrap}><Picker selectedValue={form.figure} onValueChange={(value) => updateField('figure', value)} dropdownIconColor={affairGoTheme.colors.text}>{FIGURE_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View></View>
         </View>
 
-        {(form.gender === 'männlich' || form.gender === 'divers') ? <FormField label="Penisgröße" value={form.penisSize} onChangeText={(value) => updateField('penisSize', value)} hint="Angabe im erigierten Zustand" placeholder="16 cm" /> : null}
-        {(form.gender === 'weiblich' || form.gender === 'divers') ? <FormField label="BH-Größe" value={form.braSize} onChangeText={(value) => updateField('braSize', value)} placeholder="75B" /> : null}
+        {shouldShowPenisSizeField(form.gender) ? <FormField label="Penisgröße" value={form.penisSize} onChangeText={(value) => updateField('penisSize', value)} hint="Angabe im erigierten Zustand" placeholder="16 cm" /> : null}
+        {shouldShowBraSizeField(form.gender) ? <FormField label="BH-Größe" value={form.braSize} onChangeText={(value) => updateField('braSize', value)} placeholder="75B" /> : null}
 
         <View style={styles.row}>
           <View style={styles.half}><Text style={styles.pickerLabel}>Haarfarbe</Text><View style={styles.pickerWrap}><Picker selectedValue={form.hairColor} onValueChange={(value) => updateField('hairColor', value)} dropdownIconColor={affairGoTheme.colors.text}>{HAIR_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View></View>

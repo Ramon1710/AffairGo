@@ -1,5 +1,5 @@
 const AGE_VERIFICATION_PROVIDER = (process.env.EXPO_PUBLIC_AGE_VERIFICATION_PROVIDER || 'custom').trim();
-const AGE_VERIFICATION_BASE_URL = (process.env.EXPO_PUBLIC_AGE_VERIFICATION_BASE_URL || '').trim().replace(/\/$/, '');
+const AGE_VERIFICATION_BASE_URL = (process.env.EXPO_PUBLIC_AGE_VERIFICATION_BASE_URL || '/api/kyc').trim().replace(/\/$/, '');
 const AGE_VERIFICATION_PUBLIC_TOKEN = (process.env.EXPO_PUBLIC_AGE_VERIFICATION_PUBLIC_TOKEN || '').trim();
 
 const looksLikePlaceholder = (value) => !value || /your_|paste_|placeholder/i.test(value);

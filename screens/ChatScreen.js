@@ -31,10 +31,6 @@ const ChatScreen = () => {
   const availableIcebreakers = currentUser.membership === 'basic' ? [] : ICEBREAKER_SUGGESTIONS.slice(0, currentUser.membership === 'gold' ? 4 : 2);
 
   useEffect(() => {
-    if (Platform.OS === 'web') {
-      return undefined;
-    }
-
     preventScreenCaptureAsync().catch(() => undefined);
 
     return () => {
@@ -93,7 +89,7 @@ const ChatScreen = () => {
         title="Screenshot-Schutz"
         detail={
           Platform.OS === 'web'
-            ? 'Im Web wird der Schutz als Hinweis modelliert. In nativen Builds wird dieser Bereich für Screenshot-Sperren vorbereitet.'
+            ? 'Im Web blockiert AffairGo hier zusätzlich Drucken, Copy/Cut, Kontextmenü und blendet den Bereich bei Sichtwechsel geschützt aus.'
             : 'Dieser Bereich ist für nativen Screenshot-Schutz vorbereitet, damit Chat-Inhalte nicht unbemerkt gespeichert werden.'
         }
         tone="warning"

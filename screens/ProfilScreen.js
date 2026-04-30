@@ -20,10 +20,37 @@ const REPORT_REASONS = [
   { value: 'other', label: 'Sonstiges' },
 ];
 
+const shouldShowPenisSizeField = (gender) => gender === 'männlich' || gender === 'divers' || gender === 'paare';
+const shouldShowBraSizeField = (gender) => gender === 'weiblich' || gender === 'divers' || gender === 'paare';
+
+const formatBirthDetails = (profile) => {
+  if (profile?.birthLabel) {
+    return profile.birthLabel;
+  }
+
+  const hasBirthDate = Number.isFinite(Number(profile?.birthDay))
+    && Number.isFinite(Number(profile?.birthMonth))
+    && Number.isFinite(Number(profile?.birthYear));
+
+  if (hasBirthDate) {
+    const birthDay = Number(profile.birthDay);
+    const birthMonth = Number(profile.birthMonth) + 1;
+    const birthYear = Number(profile.birthYear);
+    const ageSuffix = Number.isFinite(Number(profile?.age)) ? ` (${profile.age} Jahre)` : '';
+    return `${birthDay}. ${birthMonth}. ${birthYear}${ageSuffix}`;
+  }
+
+  if (Number.isFinite(Number(profile?.age))) {
+    return `Alter ${profile.age} Jahre`;
+  }
+
+  return 'Geburtsdatum nicht hinterlegt';
+};
+
 const ProfilScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
-  const { currentUser, users, updateCurrentUser, addGalleryItem, logout, preferenceOptions, tabooOptions, getCompatibility, changePassword, getProfileTravelSummary, verifyPendingEmail, membershipStatusLabel, confirmPendingNickname, exportMyData, requestAccountDeletion, updateProfilePhoto, reportUser, moderationBackendConfigured, moderationAuditTrail, moderationFlags } = useAffairGo();
+  const { currentUser, users, chats, updateCurrentUser, addGalleryItem, logout, preferenceOptions, tabooOptions, getCompatibility, changePassword, getProfileTravelSummary, verifyPendingEmail, membershipStatusLabel, confirmPendingNickname, exportMyData, requestAccountDeletion, updateProfilePhoto, reportUser, moderationBackendConfigured, moderationAuditTrail, moderationFlags } = useAffairGo();
   const viewedProfile = useMemo(() => (route.params?.profileId ? users.find((entry) => entry.id === route.params.profileId) : currentUser), [currentUser, route.params?.profileId, users]);
   const isOwnProfile = !route.params?.profileId || route.params.profileId === currentUser.id;
   const [draft, setDraft] = useState(currentUser);
@@ -151,7 +178,7 @@ const ProfilScreen = () => {
   const handleRequestDeletion = () => {
     Alert.alert(
       'Löschanfrage starten',
-      'Dein Profil wird unsichtbar geschaltet und die Löschung zur weiteren Bearbeitung markiert. Fortfahren?',
+      'Dein Profil wird aus der aktiven Suche genommen und die Löschung zur weiteren Bearbeitung markiert. Fortfahren?',
       [
         { text: 'Abbrechen', style: 'cancel' },
         {
@@ -161,7 +188,7 @@ const ProfilScreen = () => {
             try {
               setIsRequestingDeletion(true);
               const requestedAt = await requestAccountDeletion();
-              setDraft((previous) => ({ ...previous, accountDeletionRequestedAt: requestedAt, searchActive: false, invisibleMode: true }));
+              setDraft((previous) => ({ ...previous, accountDeletionRequestedAt: requestedAt, searchActive: false }));
               Alert.alert('Löschanfrage gespeichert', 'Dein Konto wurde als Löschanfrage markiert und aus der aktiven Sichtbarkeit genommen.');
             } catch (error) {
               Alert.alert('Löschanfrage fehlgeschlagen', error.message || 'Die Löschanfrage konnte nicht gespeichert werden.');
@@ -265,6 +292,7 @@ const ProfilScreen = () => {
   };
 
   const profile = isOwnProfile ? draft : viewedProfile;
+  const canSeeSensitiveMatchDetails = isOwnProfile || chats.some((chat) => chat.userId === profile?.id && chat.match);
   const moderationProfile = isOwnProfile ? currentUser : profile;
   const travelSummary = getProfileTravelSummary(profile);
   const verificationTone = profile.verificationState === 'expired' ? 'danger' : profile.verificationState === 'review' ? 'warning' : 'success';
@@ -280,10 +308,6 @@ const ProfilScreen = () => {
   const recentModerationEntries = (moderationAuditTrail || []).slice(0, 5);
 
   useEffect(() => {
-    if (Platform.OS === 'web') {
-      return undefined;
-    }
-
     preventScreenCaptureAsync().catch(() => undefined);
 
     return () => {
@@ -318,7 +342,7 @@ const ProfilScreen = () => {
         </View>
         {isOwnProfile ? <AccentButton label={isUploadingMedia ? 'Bild wird hochgeladen...' : 'Profilbild ändern'} variant="secondary" onPress={handleUploadProfilePhoto} disabled={isUploadingMedia} style={styles.avatarButton} /> : null}
         <Text style={styles.nameLine}>{isOwnProfile ? `${profile.firstName} ${profile.lastName}` : profile.nickname}</Text>
-        <Text style={styles.metaLine}>{profile.birthLabel || `${profile.birthDay}. ${profile.birthMonth + 1}. ${profile.birthYear} (${profile.age} Jahre)`}</Text>
+        <Text style={styles.metaLine}>{formatBirthDetails(profile)}</Text>
         <Text style={styles.metaLine}>{profile.gender}</Text>
         <StatusPill label={verificationLabel} tone={verificationTone} style={styles.statusPill} />
         <StatusPill label={ageVerificationLabel} tone={ageVerificationTone} style={styles.statusPill} />
@@ -348,7 +372,7 @@ const ProfilScreen = () => {
         <Text style={styles.securityTitle}>Screenshot-Schutz</Text>
         <Text style={styles.securityText}>
           {Platform.OS === 'web'
-            ? 'Im Web ist der Schutz als deutlicher Hinweis modelliert. In nativen Builds kann dieser Screen für Screenshot-Sperren abgesichert werden.'
+            ? 'Im Web sind Drucken, Copy/Cut, Kontextmenü und Sichtwechsel hier zusätzlich gehärtet. Ein absoluter Browser-Schutz ist technisch trotzdem nie garantiert.'
             : 'Dieser Profilbereich ist für nativen Screenshot-Schutz vorbereitet, um Bilder und persönliche Daten besser zu schützen.'}
         </Text>
       </GlassCard>
@@ -387,15 +411,6 @@ const ProfilScreen = () => {
           <>
             <Text style={styles.groupTitle}>Tarif und Sichtbarkeit</Text>
             <Text style={styles.readonlyLine}>Aktiver Tarif: {membershipStatusLabel}</Text>
-            {currentUser.membership === 'gold' ? (
-              <View style={styles.visibilityBox}>
-                <Text style={styles.visibilityTitle}>Gold Unsichtbar-Modus</Text>
-                <Text style={styles.visibilityText}>Deine Suche bleibt aktiv, aber dein Profil erscheint nicht mehr in fremden Trefferlisten.</Text>
-                <ToggleChip label="Unsichtbar suchen" active={Boolean(profile.invisibleMode)} onPress={() => updateField('invisibleMode', !profile.invisibleMode)} />
-              </View>
-            ) : (
-              <Text style={styles.visibilityHint}>Unsichtbar suchen ist im Gold-Paket verfügbar.</Text>
-            )}
             <View style={styles.visibilityBox}>
               <Text style={styles.visibilityTitle}>Matchingvoraussetzungen</Text>
               <Text style={styles.visibilityText}>Du siehst nur Profile, deren Alter und Suchziel zu dir passen. Gleichzeitig bist du auch nur für diese Personen sichtbar.</Text>
@@ -477,8 +492,8 @@ const ProfilScreen = () => {
               <View style={styles.half}><Text style={styles.pickerLabel}>Figur</Text><View style={styles.pickerWrap}><Picker selectedValue={profile.figure} onValueChange={(value) => updateField('figure', value)}>{FIGURE_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View></View>
             </View>
             <AccentButton label="Passwort ändern" variant="secondary" onPress={() => setPasswordModalOpen(true)} style={styles.passwordButton} />
-            {(profile.gender === 'männlich' || profile.gender === 'divers') ? <FormField label="Penisgröße" value={profile.penisSize} onChangeText={(value) => updateField('penisSize', value)} /> : null}
-            {(profile.gender === 'weiblich' || profile.gender === 'divers') ? <FormField label="BH-Größe" value={profile.braSize} onChangeText={(value) => updateField('braSize', value)} /> : null}
+            {shouldShowPenisSizeField(profile.gender) ? <FormField label="Penisgröße" value={profile.penisSize} onChangeText={(value) => updateField('penisSize', value)} /> : null}
+            {shouldShowBraSizeField(profile.gender) ? <FormField label="BH-Größe" value={profile.braSize} onChangeText={(value) => updateField('braSize', value)} /> : null}
             <View style={styles.row}>
               <View style={styles.half}><Text style={styles.pickerLabel}>Haarfarbe</Text><View style={styles.pickerWrap}><Picker selectedValue={profile.hairColor} onValueChange={(value) => updateField('hairColor', value)}>{HAIR_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View></View>
               <View style={styles.half}><Text style={styles.pickerLabel}>Augenfarbe</Text><View style={styles.pickerWrap}><Picker selectedValue={profile.eyeColor} onValueChange={(value) => updateField('eyeColor', value)}>{EYE_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View></View>
@@ -512,21 +527,27 @@ const ProfilScreen = () => {
 
       <GlassCard style={styles.infoCard}>
         <Text style={styles.groupTitle}>Vorlieben</Text>
-        <View style={styles.chips}>
-          {preferenceOptions.map((item) => (
-            <View key={item} style={styles.chipItem}>
-              <ToggleChip label={item} active={profile.preferences.includes(item)} onPress={() => isOwnProfile && toggleListValue('preferences', item)} />
+        {canSeeSensitiveMatchDetails ? (
+          <>
+            <View style={styles.chips}>
+              {preferenceOptions.map((item) => (
+                <View key={item} style={styles.chipItem}>
+                  <ToggleChip label={item} active={profile.preferences.includes(item)} onPress={() => isOwnProfile && toggleListValue('preferences', item)} />
+                </View>
+              ))}
             </View>
-          ))}
-        </View>
-        <Text style={styles.groupTitle}>Tabus</Text>
-        <View style={styles.chips}>
-          {tabooOptions.map((item) => (
-            <View key={item} style={styles.chipItem}>
-              <ToggleChip label={item} active={profile.taboos.includes(item)} onPress={() => isOwnProfile && toggleListValue('taboos', item)} />
+            <Text style={styles.groupTitle}>Tabus</Text>
+            <View style={styles.chips}>
+              {tabooOptions.map((item) => (
+                <View key={item} style={styles.chipItem}>
+                  <ToggleChip label={item} active={profile.taboos.includes(item)} onPress={() => isOwnProfile && toggleListValue('taboos', item)} />
+                </View>
+              ))}
             </View>
-          ))}
-        </View>
+          </>
+        ) : (
+          <Text style={styles.copyLine}>Vorlieben und Tabus werden erst sichtbar, wenn zwischen euch ein Match besteht.</Text>
+        )}
       </GlassCard>
 
       <GlassCard style={styles.infoCard}>
