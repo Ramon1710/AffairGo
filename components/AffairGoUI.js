@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { ImageBackground, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import { Ionicons } from './SimpleIcons';
@@ -5,8 +6,48 @@ import { Ionicons } from './SimpleIcons';
 export const backgroundSource = require('../assets/login-bg.png');
 
 export const AppBackground = ({ children, scroll = true, contentContainerStyle, style }) => {
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') {
+      return undefined;
+    }
+
+    const html = document.documentElement;
+    const body = document.body;
+    const root = document.getElementById('root');
+    const previous = {
+      htmlBackground: html.style.backgroundColor,
+      bodyBackground: body.style.backgroundColor,
+      rootBackground: root?.style.backgroundColor || '',
+      bodyMargin: body.style.margin,
+      bodyMinHeight: body.style.minHeight,
+      rootMinHeight: root?.style.minHeight || '',
+    };
+
+    html.style.backgroundColor = affairGoTheme.colors.background;
+    body.style.backgroundColor = affairGoTheme.colors.background;
+    body.style.margin = '0';
+    body.style.minHeight = '100vh';
+
+    if (root) {
+      root.style.backgroundColor = affairGoTheme.colors.background;
+      root.style.minHeight = '100vh';
+    }
+
+    return () => {
+      html.style.backgroundColor = previous.htmlBackground;
+      body.style.backgroundColor = previous.bodyBackground;
+      body.style.margin = previous.bodyMargin;
+      body.style.minHeight = previous.bodyMinHeight;
+
+      if (root) {
+        root.style.backgroundColor = previous.rootBackground;
+        root.style.minHeight = previous.rootMinHeight;
+      }
+    };
+  }, []);
+
   const content = scroll ? (
-    <ScrollView contentContainerStyle={[styles.scrollContent, contentContainerStyle]} style={style}>
+    <ScrollView contentContainerStyle={[styles.scrollContent, contentContainerStyle]} style={[styles.scrollView, style]}>
       {children}
     </ScrollView>
   ) : (
@@ -134,22 +175,29 @@ const styles = StyleSheet.create({
   background: {
     flex: 1,
     backgroundColor: affairGoTheme.colors.background,
+    minHeight: Platform.OS === 'web' ? '100vh' : undefined,
   },
   scrim: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: affairGoTheme.colors.overlay,
+  },
+  scrollView: {
+    flex: 1,
+    backgroundColor: 'transparent',
   },
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 18,
     paddingTop: Platform.OS === 'web' ? 28 : 48,
     paddingBottom: 36,
+    backgroundColor: 'transparent',
   },
   fixedContent: {
     flex: 1,
     paddingHorizontal: 18,
     paddingTop: Platform.OS === 'web' ? 28 : 48,
     paddingBottom: 24,
+    backgroundColor: 'transparent',
   },
   card: {
     backgroundColor: affairGoTheme.colors.card,

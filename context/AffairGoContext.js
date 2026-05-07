@@ -49,7 +49,7 @@ import {
     TABOO_OPTIONS,
     VISIBILITY_OPTIONS,
 } from '../data/mockData';
-import { auth, db, storage } from '../firebase';
+import { auth, authReady, db, storage } from '../firebase';
 
 const AffairGoContext = createContext(null);
 const BASIC_SWIPE_LIMIT = 10;
@@ -1344,25 +1344,37 @@ export const AffairGoProvider = ({ children }) => {
   };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (!firebaseUser) {
-        setIsAuthenticated(false);
-        setCurrentUser(createDefaultCurrentUser());
-        setPendingVerificationId(null);
-        setCurrentRadius(INITIAL_CURRENT_USER.radius);
-        setDeviceLocation(null);
-        setLocationPermissionGranted(false);
-        setLocationError('');
-        setRemoteLiveLocations([]);
-        setIsAuthReady(true);
+    let unsubscribe = () => undefined;
+    let active = true;
+
+    authReady.finally(() => {
+      if (!active) {
         return;
       }
 
-      await syncCurrentUserFromFirebase(firebaseUser);
-      setIsAuthReady(true);
+      unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+        if (!firebaseUser) {
+          setIsAuthenticated(false);
+          setCurrentUser(createDefaultCurrentUser());
+          setPendingVerificationId(null);
+          setCurrentRadius(INITIAL_CURRENT_USER.radius);
+          setDeviceLocation(null);
+          setLocationPermissionGranted(false);
+          setLocationError('');
+          setRemoteLiveLocations([]);
+          setIsAuthReady(true);
+          return;
+        }
+
+        await syncCurrentUserFromFirebase(firebaseUser);
+        setIsAuthReady(true);
+      });
     });
 
-    return unsubscribe;
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -2350,6 +2362,7 @@ export const AffairGoProvider = ({ children }) => {
       actionType: 'create_event',
       content: `${payload.title || ''}\n${payload.description || ''}\n${payload.address || ''}`,
       metadata: {
+        category: payload.category || '',
         verifiedOnly: Boolean(payload.verifiedOnly),
         maxParticipants: Number(payload.maxParticipants) || 20,
       },
@@ -2361,6 +2374,7 @@ export const AffairGoProvider = ({ children }) => {
     const nextEvent = {
       id: `e${Date.now()}`,
       title: payload.title,
+      category: payload.category || '',
       date: payload.date,
       time: payload.time,
       address: payload.address,
@@ -2404,6 +2418,10 @@ export const AffairGoProvider = ({ children }) => {
 
     if ((targetEvent.attendeeIds || []).includes(currentUser.id)) {
       return false;
+    }
+
+    if (Number(targetEvent.participants?.total || 0) >= Number(targetEvent.maxParticipants || 0)) {
+      throw new Error('Dieses Event ist bereits ausgebucht.');
     }
 
     await moderateAuthenticatedAction({
