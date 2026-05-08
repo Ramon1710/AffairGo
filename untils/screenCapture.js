@@ -1,3 +1,9 @@
+import {
+	allowScreenCaptureAsync as allowNativeScreenCaptureAsync,
+	preventScreenCaptureAsync as preventNativeScreenCaptureAsync,
+} from 'expo-screen-capture';
+import { Platform } from 'react-native';
+
 let activeProtectionCount = 0;
 let removeWebProtection = null;
 let blurResetTimer = null;
@@ -127,27 +133,42 @@ const installWebProtection = () => {
 };
 
 export const preventScreenCaptureAsync = async () => {
-	if (typeof document === 'undefined') {
+	activeProtectionCount += 1;
+
+	if (Platform.OS === 'web') {
+		if (typeof document === 'undefined') {
+			return;
+		}
+
+		installWebProtection();
 		return;
 	}
 
-	activeProtectionCount += 1;
-	installWebProtection();
+	if (activeProtectionCount === 1) {
+		await preventNativeScreenCaptureAsync();
+	}
 };
 
 export const allowScreenCaptureAsync = async () => {
-	if (typeof document === 'undefined') {
+	activeProtectionCount = Math.max(0, activeProtectionCount - 1);
+
+	if (activeProtectionCount !== 0) {
 		return;
 	}
 
-	activeProtectionCount = Math.max(0, activeProtectionCount - 1);
+	if (Platform.OS === 'web') {
+		if (typeof document === 'undefined') {
+			return;
+		}
 
-	if (activeProtectionCount === 0) {
 		if (blurResetTimer) {
 			clearTimeout(blurResetTimer);
 			blurResetTimer = null;
 		}
 
 		removeWebProtection?.();
+		return;
 	}
+
+	await allowNativeScreenCaptureAsync();
 };

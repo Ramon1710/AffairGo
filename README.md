@@ -1,8 +1,8 @@
-# AffairGo
+# Night-Whisper
 
-AffairGo ist hier als gemeinsame Expo-Webapp und Mobile-App umgesetzt. Ziel ist eine produktionsreife Anwendung fuer Web und Mobilgeraete. Die Landingpage bildet die Website ab, die restlichen Screens die verbundene Webapp. Beide greifen auf denselben zentralen App-Zustand zu.
+Night-Whisper ist hier als gemeinsame Expo-Webapp und Mobile-App umgesetzt. Ziel ist eine produktionsreife Anwendung fuer Web und Mobilgeraete. Die Landingpage bildet die Website ab, die restlichen Screens die verbundene Webapp. Beide greifen auf denselben zentralen App-Zustand zu.
 
-Geplante Domain: https://www.affair-go.com
+Produktive Domain: https://night-whisper.com
 
 ## Pflicht-Hinweis Fuer Produktivreife
 
@@ -12,11 +12,12 @@ Diese Anwendung ist noch nicht voll produktionsreif. Vor dem echten Livegang mue
 
 ## Aktueller Funktionsstand
 
-- Landingpage als Website mit Funktionsschema, Preisen und Sicherheitslogik
+- Landingpage als Website mit Funktionsschema, kostenfreiem Zugang und Sicherheitslogik
 - Login mit Spitzname oder E-Mail, Passwort-Reset-Flow und Passwortwechsel
 - Registrierung mit 18+-Logik und erstem Onboarding
 - Dashboard, Profil, Matching Map, Swipe, Chat, Events, Urlaub und Dienstreise
-- Premium-, Gold- und Community-Ideenbox-Logik
+- Screenshot-Schutz fuer sensible Screens auf Web und nativ
+- Kostenfrei freigeschaltete Vollfunktionen und Community-Ideenbox-Logik
 
 ## Starten
 
@@ -57,31 +58,26 @@ Benötigt fuer: Kartenkacheln, Geodaten, produktionsfaehige Matching-Map
 Noch einzutragen: Karten-API-Key / Access Token
 Empfohlene Env-Variablen: `EXPO_PUBLIC_MAP_PROVIDER=mapbox`, `EXPO_PUBLIC_MAP_API_KEY=...`
 
-3. Stripe
-Registrierung: https://dashboard.stripe.com/register
-Benötigt fuer: Web-Zahlungen und Abo-Abrechnung
-Noch einzutragen: Publishable Key, Secret Key, Webhook Secret
-
-4. Apple Developer Program und App Store Connect
+3. Apple Developer Program und App Store Connect
 Registrierung: https://developer.apple.com/programs/ und https://appstoreconnect.apple.com/
 Benötigt fuer: iOS-Release, In-App-Kaeufe auf iOS, Store-Deployment
 Noch einzutragen: Produkt-IDs, Store-Konfiguration, serverseitige Kaufpruefung
 
-5. Google Play Console
+4. Google Play Console
 Registrierung: https://play.google.com/console/
 Benötigt fuer: Android-Release, In-App-Kaeufe auf Android, Store-Deployment
 Noch einzutragen: Produkt-IDs, Billing-Konfiguration, serverseitige Kaufpruefung
 
-6. Vercel
+5. Vercel
 Registrierung: https://vercel.com/signup
 Benötigt fuer: produktives Web-Hosting, Environment Variables, Deployment-Management
 Noch einzutragen: Produktions-Domain, Build- und Runtime-Variablen, Deployment-Schutz
 
-7. Domain-Provider und DNS
+6. Domain-Provider und DNS
 Benötigt fuer: produktive Domain, SSL, Subdomains, Mail-Setup
 Noch einzurichten: DNS fuer Web, API, Verifizierungs-Mails und ggf. Deep Links
 
-8. Verifizierungs- und Sicherheitsdienste
+7. Verifizierungs- und Sicherheitsdienste
 Noch auszuwählen und zu integrieren: echte Altersverifizierung, Selfie-/Fake-Check, Missbrauchs- und Moderationslogik
 
 Konkreter Registrierungsbedarf fuer die jetzt vorbereitete 18+-Pruefung:
@@ -100,8 +96,31 @@ Konkreter Registrierungsbedarf fuer das jetzt vorbereitete Abuse-, Moderations- 
 - Der Client ruft anschliessend `POST {BASE_URL}/moderate-action` fuer Login, Registrierung, Chats, Swipes, Events und Ideen sowie `POST {BASE_URL}/reports` fuer Nutzer-Meldungen auf.
 - Ohne diesen Dienst greift nur ein lokaler Fallback fuer einfache Spam- und Fraud-Muster. Das ersetzt kein belastbares Moderations-Backend.
 
-9. Datenschutz und Betrieb
+8. Datenschutz und Betrieb
 Noch umzusetzen: DSGVO-konforme Speicherung, Loesch- und Exportprozesse, Logging, Monitoring, Backup- und Incident-Prozesse
+
+## Kostenfreier Betrieb bis Anfang 2027
+
+Night-Whisper ist aktuell bewusst ohne Bezahlfunktion konfiguriert. Registrierung, Login und alle eingebauten Webapp-Funktionen bleiben bis Anfang 2027 kostenfrei verfügbar.
+
+Wichtig:
+
+- Stripe und sonstige Checkout-Flows sind derzeit deaktiviert.
+- Neue und bestehende Nutzer erhalten aktuell Vollzugang ohne Tarif-Upgrade.
+- Für einen späteren Bezahlstart müssten Stripe oder alternative Store-/Billing-Konten erst wieder bewusst integriert werden.
+
+## Wiedereinstieg in Bezahlung ab Anfang 2027
+
+Wenn Night-Whisper Anfang 2027 wieder monetarisiert werden soll, müssen die externen Voraussetzungen vor der Umsetzung verbindlich vorliegen.
+
+Mindestens erforderlich:
+
+- ein Zahlungsanbieter oder eigenes Billing-Backend
+- falls Web-Checkout geplant ist: Stripe-Konto, API-Keys und Webhook-Setup
+- falls native Käufe geplant sind: Apple Developer Program und Google Play Console mit Produkt-IDs
+- Produktentscheidungen zu Preisstruktur, Probephase, Zugangsstufen und rechtlichen Pflichttexten
+
+Erst danach sollten Zahlungs-UI, Checkout-Flows und serverseitige Kaufvalidierung wieder aktiviert werden.
 
 ## Karten-API lokal vorbereiten
 
@@ -151,16 +170,22 @@ Fuer Abuse-, Moderations- und Fraud-Checks muessen zusaetzlich diese Werte in `.
 - `EXPO_PUBLIC_MODERATION_BASE_URL`
 - `EXPO_PUBLIC_MODERATION_PUBLIC_TOKEN`
 
+Fuer den verwalteten Passwort-Reset muessen zusaetzlich diese Werte gesetzt werden:
+
+- `EXPO_PUBLIC_PASSWORD_RESET_BASE_URL`
+- `NIGHT_WHISPER_PASSWORD_RESET_WEBHOOK_URL`
+
+Der Client ruft anschliessend `POST {BASE_URL}/password-reset` mit der E-Mail-Adresse auf. Wenn kein Webhook hinterlegt ist, faellt Night-Whisper automatisch auf den Firebase-Reset-Link zurueck. Fuer das im Produkttext gewuenschte temporaere Passwort per E-Mail muss serverseitig ein Mail-Workflow am Webhook haengen.
+
 ## Vor dem echten Launch noch offen
 
 Fuer einen echten Onlinegang reicht der aktuelle Stand noch nicht aus. Vor dem Launch muessen mindestens diese Punkte produktiv abgeschlossen werden:
 
 - Firebase auf produktive Regeln, Storage und ggf. Functions umstellen
 - Mapbox statt Platzhalter-/Vorbereitungslogik final integrieren
-- Reale In-App-Kaeufe fuer Apple, Google und Stripe produktiv anschliessen
+- Reale In-App-Kaeufe nur dann produktiv anschliessen, wenn Night-Whisper nach der kostenfreien Phase wieder monetarisiert werden soll
 - Echte Altersverifizierung und Selfie-/Fake-Check mit finalem Anbieter produktiv anschliessen
 - Abuse-, Moderations-, Fraud- und Audit-Backend produktiv anschliessen und Fallbearbeitung serverseitig umsetzen
-- Screenshot-Schutz auf nativen Plattformen real aktivieren
 - Live-Standorte serverseitig speichern, filtern und absichern
 - DSGVO-Prozesse fuer Datenexport, Kontoloeschung und Einwilligungen umsetzen
 - Backend-Haertung, Abuse-Prevention, Monitoring und Firestore-Sicherheitsregeln finalisieren
@@ -173,7 +198,7 @@ Wenn das Projekt bereits mit Vercel und dem GitHub-Repo verbunden ist, reicht ei
 
 ```bash
 git add .
-git commit -m "Update AffairGo"
+git commit -m "Update Night-Whisper"
 ```
 
 2. Nach GitHub pushen
@@ -190,7 +215,7 @@ Falls das Repo noch nicht in Vercel importiert wurde:
 
 ```bash
 git add .
-git commit -m "Initial AffairGo deploy"
+git commit -m "Initial Night-Whisper deploy"
 git push origin main
 ```
 
@@ -198,6 +223,7 @@ git push origin main
 
 - `Add New -> Project`
 - GitHub-Repo `Ramon1710/AffairGo` auswaehlen
+- nach einem späteren GitHub-Rename entsprechend `Ramon1710/Night-Whisper` oder `Ramon1710/night-whisper` wählen
 - Root Project unveraendert lassen
 - Build Command: `npm run build:web`
 - Output Directory: `dist`
@@ -212,7 +238,7 @@ vercel --prod
 
 ## Hinweis
 
-Der Code ist auf produktive Weiterentwicklung ausgerichtet, aber noch nicht vollstaendig livegangsbereit. Externe Anbieter wie Mapbox, Stripe, Apple und Google sowie Sicherheits-, Datenschutz- und Verifizierungsdienste muessen noch final integriert und technisch abgesichert werden. Die Matching Map nutzt bereits echte Geraete-Location; fuer den produktiven Betrieb soll sie auf Mapbox mit gueltigem Access Token umgestellt werden.
+Der Code ist auf produktive Weiterentwicklung ausgerichtet, aber noch nicht vollstaendig livegangsbereit. Externe Anbieter wie Mapbox sowie Sicherheits-, Datenschutz- und Verifizierungsdienste muessen noch final integriert und technisch abgesichert werden. Die Matching Map nutzt bereits echte Geraete-Location; fuer den produktiven Betrieb soll sie auf Mapbox mit gueltigem Access Token umgestellt werden.
 
 Arbeitsregel fuer die weitere Entwicklung:
 

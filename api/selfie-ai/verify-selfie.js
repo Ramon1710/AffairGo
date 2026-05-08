@@ -24,7 +24,7 @@ module.exports = async (req, res) => {
   res.status(200).json({
     verified: true,
     status: 'verified',
-    provider: 'AffairGo Selfie AI',
+    provider: 'Night-Whisper Selfie AI',
     referenceId: `selfie-${Date.now()}`,
     checkedAt: new Date().toISOString(),
     livenessPassed: true,

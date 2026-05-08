@@ -44,7 +44,7 @@ module.exports = async (req, res) => {
       allow: false,
       blocked: true,
       status: 'blocked',
-      provider: 'AffairGo Moderation Backend',
+      provider: 'Night-Whisper Moderation Backend',
       message: 'Die Anfrage wurde durch die Sicherheitsprüfung blockiert.',
       auditId: `moderation-${Date.now()}`,
       flags: ['policy_match'],
@@ -58,7 +58,7 @@ module.exports = async (req, res) => {
   res.status(200).json({
     allow: true,
     status: payload.metadata?.reviewOnly ? 'review' : 'allowed',
-    provider: 'AffairGo Moderation Backend',
+    provider: 'Night-Whisper Moderation Backend',
     message: payload.metadata?.reviewOnly ? 'Die Anfrage wurde zur Prüfung vorgemerkt.' : 'Anfrage erlaubt.',
     auditId: `moderation-${Date.now()}`,
     flags: payload.metadata?.reviewOnly ? ['review_only'] : [],

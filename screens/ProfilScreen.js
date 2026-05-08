@@ -6,7 +6,7 @@ import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader, Status
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
-import { EYE_OPTIONS, FIGURE_OPTIONS, HAIR_OPTIONS, SEARCH_GENDER_OPTIONS, SKIN_OPTIONS } from '../data/mockData';
+import { EYE_OPTIONS, FIGURE_OPTIONS, HAIR_OPTIONS, MONTH_OPTIONS, SEARCH_GENDER_OPTIONS, SKIN_OPTIONS } from '../data/mockData';
 import { useNavigation, useRoute } from '../naviagtion/SimpleNavigation';
 import { allowScreenCaptureAsync, preventScreenCaptureAsync } from '../untils/screenCapture';
 
@@ -34,10 +34,10 @@ const formatBirthDetails = (profile) => {
 
   if (hasBirthDate) {
     const birthDay = Number(profile.birthDay);
-    const birthMonth = Number(profile.birthMonth) + 1;
+    const birthMonth = MONTH_OPTIONS[Number(profile.birthMonth)] || String(Number(profile.birthMonth) + 1);
     const birthYear = Number(profile.birthYear);
     const ageSuffix = Number.isFinite(Number(profile?.age)) ? ` (${profile.age} Jahre)` : '';
-    return `${birthDay}. ${birthMonth}. ${birthYear}${ageSuffix}`;
+    return `${birthDay}, ${birthMonth} ${birthYear}${ageSuffix}`;
   }
 
   if (Number.isFinite(Number(profile?.age))) {
@@ -50,7 +50,7 @@ const formatBirthDetails = (profile) => {
 const ProfilScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
-  const { currentUser, users, chats, updateCurrentUser, addGalleryItem, logout, preferenceOptions, tabooOptions, getCompatibility, changePassword, getProfileTravelSummary, verifyPendingEmail, membershipStatusLabel, confirmPendingNickname, exportMyData, requestAccountDeletion, updateProfilePhoto, reportUser, moderationBackendConfigured, moderationAuditTrail, moderationFlags } = useAffairGo();
+  const { currentUser, users, chats, updateCurrentUser, addGalleryItem, logout, preferenceOptions, tabooOptions, getCompatibility, changePassword, getProfileTravelSummary, verifyPendingEmail, accessStatusLabel, confirmPendingNickname, exportMyData, requestAccountDeletion, updateProfilePhoto, reportUser, moderationBackendConfigured, moderationAuditTrail, moderationFlags } = useAffairGo();
   const viewedProfile = useMemo(() => (route.params?.profileId ? users.find((entry) => entry.id === route.params.profileId) : currentUser), [currentUser, route.params?.profileId, users]);
   const isOwnProfile = !route.params?.profileId || route.params.profileId === currentUser.id;
   const [draft, setDraft] = useState(currentUser);
@@ -409,11 +409,15 @@ const ProfilScreen = () => {
       <GlassCard style={styles.infoCard}>
         {isOwnProfile ? (
           <>
-            <Text style={styles.groupTitle}>Tarif und Sichtbarkeit</Text>
-            <Text style={styles.readonlyLine}>Aktiver Tarif: {membershipStatusLabel}</Text>
+            <Text style={styles.groupTitle}>Zugang und Sichtbarkeit</Text>
+            <Text style={styles.readonlyLine}>Aktueller Zugang: {accessStatusLabel}</Text>
             <View style={styles.visibilityBox}>
               <Text style={styles.visibilityTitle}>Matchingvoraussetzungen</Text>
               <Text style={styles.visibilityText}>Du siehst nur Profile, deren Alter und Suchziel zu dir passen. Gleichzeitig bist du auch nur für diese Personen sichtbar.</Text>
+              <View style={styles.filterToggleRow}>
+                <Text style={styles.filterToggleText}>Nur verifizierte Matches anzeigen</Text>
+                <ToggleChip label="Nur verifiziert" active={Boolean(profile.verifiedMatchesOnly)} onPress={() => updateField('verifiedMatchesOnly', !profile.verifiedMatchesOnly)} />
+              </View>
               <View style={styles.row}>
                 <View style={styles.half}>
                   <FormField
@@ -510,7 +514,7 @@ const ProfilScreen = () => {
             <Text style={styles.readonlyLine}>Figur: {profile.figure}</Text>
             {profile.penisSize ? <Text style={styles.readonlyLine}>Penisgröße: {profile.penisSize}</Text> : null}
             {profile.braSize ? <Text style={styles.readonlyLine}>BH-Größe: {profile.braSize}</Text> : null}
-            {currentUser.membership === 'gold' ? <AccentButton label="Vor dem Match schreiben" variant="secondary" onPress={() => navigation.navigate('Chat', { userId: profile.id })} style={styles.passwordButton} /> : null}
+            <AccentButton label="Direkt schreiben" variant="secondary" onPress={() => navigation.navigate('Chat', { userId: profile.id })} style={styles.passwordButton} />
           </>
         )}
       </GlassCard>
@@ -699,6 +703,18 @@ const styles = StyleSheet.create({
     color: affairGoTheme.colors.textMuted,
     lineHeight: 22,
     marginTop: 10,
+  },
+  filterToggleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 12,
+  },
+  filterToggleText: {
+    color: affairGoTheme.colors.text,
+    flex: 1,
+    lineHeight: 22,
   },
   row: {
     flexDirection: 'row',

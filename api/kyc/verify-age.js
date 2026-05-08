@@ -25,7 +25,7 @@ module.exports = async (req, res) => {
     verified: true,
     minimumAgeVerified: true,
     status: 'verified',
-    provider: 'AffairGo KYC Backend',
+    provider: 'Night-Whisper KYC Backend',
     referenceId: `kyc-${Date.now()}`,
     checkedAt: new Date().toISOString(),
   });

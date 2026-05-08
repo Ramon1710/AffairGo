@@ -29,10 +29,8 @@ export const PROFILE_STATUS_OPTIONS = [
   { key: 'expired', label: 'Foto veraltet', tone: 'expired' },
 ];
 
-export const MEMBERSHIP_OPTIONS = [
-  { key: 'basic', label: 'Basic', pitch: 'Für diskrete Standardsuche' },
-  { key: 'premium', label: 'Premium', pitch: 'Mehr Reichweite und Matching-Kontrolle' },
-  { key: 'gold', label: 'Gold', pitch: 'Maximale Sichtbarkeit und Vorab-Chat' },
+export const ACCESS_OPTIONS = [
+  { key: 'free', label: 'Kostenfrei', pitch: 'Alle Funktionen sind vorübergehend freigeschaltet' },
 ];
 
 export const EVENT_CATEGORIES = ['Lounge', 'Private Party', 'Afterwork', 'Hotel Date', 'Travel Meetup'];
@@ -123,6 +121,46 @@ export const GAME_OPTIONS = [
   { id: 'truth', title: 'Wahrheit oder Pflicht Light', reward: 30 },
 ];
 
+export const GAME_LIBRARY = {
+  connect4: {
+    columns: 4,
+    rows: 4,
+  },
+  rps: {
+    choices: ['Schere', 'Stein', 'Papier'],
+  },
+  quiz: {
+    questions: [
+      {
+        id: 'quiz-1',
+        prompt: 'Was wirkt beim ersten Treffen am offensten?',
+        options: ['Eine klare Erwartungshaltung', 'Ein lockeres Gespräch auf Augenhöhe', 'Direkt intime Details'],
+        correctIndex: 1,
+      },
+      {
+        id: 'quiz-2',
+        prompt: 'Welche Nachricht eignet sich am besten als respektvoller Icebreaker?',
+        options: ['Na, was geht?', 'Sag sofort deine Tabus', 'Welche Art von Date macht dir am meisten Spaß?'],
+        correctIndex: 2,
+      },
+    ],
+  },
+  emoji: {
+    puzzles: [
+      { id: 'emoji-1', prompt: '🍷🌃✨', solution: 'Date Night' },
+      { id: 'emoji-2', prompt: '🏖️😎🍹', solution: 'Urlaub' },
+      { id: 'emoji-3', prompt: '💬❤️🔥', solution: 'Flirt Chat' },
+    ],
+  },
+  truth: {
+    prompts: [
+      'Wahrheit: Welche Eigenschaft macht ein Match sofort sympathisch?',
+      'Pflicht: Schreibe deinem Match einen charmanten Ein-Satz-Icebreaker.',
+      'Wahrheit: Was wäre dein ideales erstes Treffen auf Reisen?',
+    ],
+  },
+};
+
 export const ICEBREAKER_SUGGESTIONS = [
   'Welche drei Dinge machen für dich ein wirklich gutes erstes Treffen aus?',
   'Welchen Wochenendplan würdest du spontan sofort mitnehmen?',
@@ -130,47 +168,15 @@ export const ICEBREAKER_SUGGESTIONS = [
   'Bist du eher Team Reiseplanung oder Team spontanes Abenteuer?',
 ];
 
-export const PRICING_PLANS = [
+export const FREE_ACCESS_PLANS = [
   {
-    key: 'basic',
-    title: 'Basic',
+    key: 'free',
+    title: 'Kostenfrei bis Anfang 2027',
     price: '0 EUR',
     accent: '#b95d5d',
-    features: ['Begrenzte Swipes', 'Nur Chat nach Match', 'Standardprofil', 'Eventansicht'],
-    activation: { membership: 'basic', billingCycle: 'monthly', priceLabel: '0 EUR' },
-    buttonLabel: 'Basic nutzen',
-  },
-  {
-    key: 'premium',
-    title: 'Premium',
-    price: '9,99 EUR',
-    accent: '#f2b85a',
-    features: ['Unbegrenzte Swipes', 'Matching Map', 'Fotoalter-Filter', 'Verifizierte Matches only'],
-    promoLabel: '21 Tage gratis testen',
-    detailPrice: 'Danach 9,99 EUR pro Monat',
-    activation: {
-      membership: 'premium',
-      trialDays: 21,
-      billingCycle: 'trial',
-      priceLabel: '21 Tage gratis, danach 9,99 EUR / Monat',
-    },
-    buttonLabel: '21 Tage Premium testen',
-  },
-  {
-    key: 'gold',
-    title: 'Gold',
-    price: '19,99 EUR',
-    accent: '#ffe17c',
-    features: ['Swipe zurück', 'Vor Match schreiben', 'Priorisierte Explore-Ansicht', 'Explore-Modus mit fiktiven Städten'],
-    promoLabel: '6 Monate mit Rabatt',
-    detailPrice: '99,99 EUR für 6 Monate statt 119,94 EUR',
-    activation: {
-      membership: 'gold',
-      billingCycle: '6m',
-      goldDiscountPackage: true,
-      priceLabel: '99,99 EUR / 6 Monate',
-    },
-    buttonLabel: 'Gold 6 Monate buchen',
+    features: ['Unbegrenzte Swipes', 'Matching Map', 'Fotoalter-Filter', 'Vor dem Match schreiben', 'Explore-Modus', 'Spiele und Icebreaker'],
+    activation: { membership: 'free', billingCycle: 'free', priceLabel: 'Kostenfrei bis Anfang 2027' },
+    buttonLabel: 'Jetzt kostenfrei nutzen',
   },
 ];
 
@@ -206,8 +212,8 @@ export const WEBSITE_SECTIONS = [
 
 export const INITIAL_CURRENT_USER = {
   id: 'me',
-  email: 'demo@affairgo.app',
-  password: 'AffairGo123',
+  email: 'demo@night-whisper.app',
+  password: 'NightWhisper123',
   nickname: 'NightPulse',
   firstName: 'Anna',
   lastName: 'Muster',
@@ -234,7 +240,7 @@ export const INITIAL_CURRENT_USER = {
   searchAgeMax: 48,
   searchGenders: ['männlich'],
   radius: 25,
-  membership: 'premium',
+  membership: 'free',
   searchActive: true,
   online: true,
   verified: true,
@@ -329,7 +335,7 @@ export const INITIAL_USERS = [
   },
   {
     id: 'u2',
-    nickname: 'GoldTrip',
+    nickname: 'NightTrip',
     firstName: 'Lars',
     lastName: 'S',
     age: 48,
@@ -528,7 +534,7 @@ export const EMPTY_STATE_COPY = {
   },
   chats: {
     title: 'Noch keine aktiven Chats',
-    detail: 'Ein Match oder Gold-Nachricht startet hier deinen ersten Verlauf.',
+    detail: 'Ein Match oder eine Direktnachricht startet hier deinen ersten Verlauf.',
   },
   events: {
     title: 'Noch keine Events in Reichweite',

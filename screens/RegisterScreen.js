@@ -85,7 +85,7 @@ const RegisterScreen = () => {
     return value;
   }, [form.birthDay, form.birthMonth, form.birthYear]);
 
-  const birthLabel = `${form.birthDay}. ${MONTH_OPTIONS[form.birthMonth]} ${form.birthYear} (${age} Jahre)`;
+  const birthLabel = `${form.birthDay}, ${MONTH_OPTIONS[form.birthMonth]} ${form.birthYear} (${age} Jahre)`;
 
   const updateField = (key, value) => {
     setForm((previous) => {
@@ -355,7 +355,7 @@ const RegisterScreen = () => {
         }],
       });
     } catch (registerError) {
-      console.warn('AffairGo register failed', registerError);
+      console.warn('Night-Whisper register failed', registerError);
       setError(registerError.message);
     } finally {
       setIsSubmitting(false);
@@ -365,7 +365,7 @@ const RegisterScreen = () => {
   return (
     <AppBackground>
       <ScreenHeader
-        title="Sign Up To AffairGo"
+        title="Sign Up To Night-Whisper"
         subtitle="Selfie-Check, 18+ und Profildaten"
         leftAction={
           <Pressable onPress={() => navigation.goBack()}>

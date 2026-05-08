@@ -11,6 +11,13 @@ import { useNavigation } from '../naviagtion/SimpleNavigation';
 const EVENT_CATEGORY_OPTIONS = ['Private Party', 'Afterwork', 'Reise Meetup', 'Hotelbar', 'Club Night'];
 const EVENT_FILTER_OPTIONS = ['Alle', 'Verifiziert', 'Meine', 'Reisebezug'];
 
+const getParticipantBreakdownLabel = (participants = {}) => {
+  const women = Number(participants.women || 0);
+  const men = Number(participants.men || 0);
+  const divers = Number(participants.divers || 0);
+  return `${women}w, ${men}m, ${divers}div.`;
+};
+
 const EMPTY_EVENT_FORM = {
   title: '',
   category: 'Private Party',
@@ -29,7 +36,7 @@ const EventScreen = () => {
   const [form, setForm] = useState(EMPTY_EVENT_FORM);
   const [activeFilter, setActiveFilter] = useState('Alle');
   const canJoinEvents = currentUser.verified && currentUser.searchActive;
-  const canCreateEvents = currentUser.membership !== 'basic';
+  const canCreateEvents = true;
 
   const travelCities = useMemo(() => Array.from(new Set([
     currentUser.city,
@@ -216,6 +223,7 @@ const EventScreen = () => {
           <View style={styles.eventInfoGrid}>
             <Text style={styles.meta}>{event.distanceKm} km von dir entfernt</Text>
             <Text style={styles.meta}>{event.participants.total} / {event.maxParticipants} Plätze belegt</Text>
+            <Text style={styles.meta}>Verteilung: {getParticipantBreakdownLabel(event.participants)}</Text>
             <Text style={styles.meta}>{event.verifiedOnly ? 'Nur verifizierte Teilnehmer sichtbar' : 'Offen für aktive, verifizierte Suche'}</Text>
             <Text style={[styles.meta, event.remainingSeats === 0 ? styles.warnText : null]}>
               {event.remainingSeats === 0 ? 'Ausgebucht' : `${event.remainingSeats} Plätze frei`}
@@ -246,14 +254,8 @@ const EventScreen = () => {
   const creationPanel = (
     <GlassCard style={styles.card}>
       <Text style={styles.title}>Eigenes Event erstellen</Text>
-      {canCreateEvents ? <Text style={styles.copy}>Lege private Partys, Afterworks oder Reise-Meetups mit echter Kapazität und Bild an.</Text> : null}
-      {!canCreateEvents ? (
-        <>
-          <Text style={styles.copy}>Basic kann Events ansehen und beitreten. Eigene Events sind ab Premium verfügbar.</Text>
-          <AccentButton label="Premium aktivieren" onPress={() => navigation.navigate('Landing')} />
-        </>
-      ) : (
-        <>
+      <Text style={styles.copy}>Lege private Partys, Afterworks oder Reise-Meetups mit echter Kapazität und Bild an.</Text>
+      <>
           <FormField label="Titel" value={form.title} onChangeText={(value) => setForm((previous) => ({ ...previous, title: value }))} placeholder="Private Swingerparty" />
           <Text style={styles.sectionLabel}>Kategorie</Text>
           <View style={styles.travelChipWrap}>
@@ -303,8 +305,7 @@ const EventScreen = () => {
             <Text style={styles.lockHint}>Verifizierte Events kannst du erst mit geprüftem Profil und aktiver Suche anlegen.</Text>
           ) : null}
           <AccentButton label="Event erstellen" onPress={handleCreateEvent} />
-        </>
-      )}
+      </>
     </GlassCard>
   );
 

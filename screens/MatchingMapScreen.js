@@ -8,6 +8,17 @@ import { useAffairGo } from '../context/AffairGoContext';
 import { PHOTO_AGE_FILTERS, RADIUS_OPTIONS } from '../data/mockData';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
 
+const getMatchingPreferenceSummary = (currentUser, profile) => {
+  const currentPreferences = Array.isArray(currentUser?.preferences) ? currentUser.preferences : [];
+  const profilePreferences = Array.isArray(profile?.preferences) ? profile.preferences : [];
+  const matchingPreferences = currentPreferences.filter((item) => profilePreferences.includes(item));
+
+  return {
+    count: matchingPreferences.length,
+    preview: matchingPreferences.slice(0, 3),
+  };
+};
+
 const MatchingMapScreen = () => {
   const navigation = useNavigation();
   const [viewMode, setViewMode] = useState('map');
@@ -32,6 +43,7 @@ const MatchingMapScreen = () => {
   const filteredProfiles = verifiedOnly ? visibleProfiles.filter((profile) => profile.verified) : visibleProfiles;
   const filteredSelectedProfile = filteredProfiles.find((profile) => profile.id === selectedProfile?.id) || filteredProfiles[0] || null;
   const selectedProfileTravel = filteredSelectedProfile ? getProfileTravelSummary(filteredSelectedProfile) : null;
+  const matchingPreferenceSummary = filteredSelectedProfile ? getMatchingPreferenceSummary(currentUser, filteredSelectedProfile) : { count: 0, preview: [] };
   const hasMapApiKey = hasConfiguredMapApiKey();
 
   const getMapZoom = (radius) => {
@@ -106,26 +118,6 @@ const MatchingMapScreen = () => {
     setSelectedProfileId(profile.id);
   };
 
-  if (currentUser.membership === 'basic') {
-    return (
-      <AppBackground>
-        <ScreenHeader
-          title="Matching Map"
-          subtitle="Premium oder Gold erforderlich"
-          leftAction={
-            <Pressable onPress={() => navigation.goBack()}>
-              <Ionicons name="arrow-back" size={28} color={affairGoTheme.colors.text} />
-            </Pressable>
-          }
-        />
-        <GlassCard strong style={styles.mapCard}>
-          <Text style={styles.radarTitle}>Matching Map ist ab Premium verfügbar</Text>
-          <Text style={styles.selectedMeta}>Mit Premium oder Gold bekommst du Kartenansicht, Fotoalter-Filter und den Verifiziert-Filter.</Text>
-        </GlassCard>
-      </AppBackground>
-    );
-  }
-
   return (
     <AppBackground>
       <ScreenHeader
@@ -161,7 +153,7 @@ const MatchingMapScreen = () => {
       {hasInteractiveWebMap ? (
         <GlassCard style={styles.permissionCard}>
           <Text style={styles.permissionTitle}>Interaktive Web-Karte aktiv</Text>
-          <Text style={styles.selectedMeta}>Auf Web nutzt AffairGo jetzt eine echte OSM-Karte mit Live-Zentrum statt nur eines statischen Hintergrundbilds.</Text>
+          <Text style={styles.selectedMeta}>Auf Web nutzt Night-Whisper jetzt eine echte OSM-Karte mit Live-Zentrum statt nur eines statischen Hintergrundbilds.</Text>
         </GlassCard>
       ) : null}
 
@@ -173,22 +165,20 @@ const MatchingMapScreen = () => {
         ))}
       </View>
 
-      {currentUser.membership !== 'basic' ? (
-        <View style={styles.filters}>
-          {PHOTO_AGE_FILTERS.map((months) => (
-            <View key={months} style={styles.filterChip}>
-              <ToggleChip
-                label={`Foto > ${months}M`}
-                active={photoAgeFilter === months}
-                onPress={() => setPhotoAgeFilter(photoAgeFilter === months ? null : months)}
-              />
-            </View>
-          ))}
-          <View style={styles.filterChip}>
-            <ToggleChip label="Nur verifiziert" active={verifiedOnly} onPress={() => setVerifiedOnly((previous) => !previous)} />
+      <View style={styles.filters}>
+        {PHOTO_AGE_FILTERS.map((months) => (
+          <View key={months} style={styles.filterChip}>
+            <ToggleChip
+              label={`Foto > ${months}M`}
+              active={photoAgeFilter === months}
+              onPress={() => setPhotoAgeFilter(photoAgeFilter === months ? null : months)}
+            />
           </View>
+        ))}
+        <View style={styles.filterChip}>
+          <ToggleChip label="Nur verifiziert" active={verifiedOnly} onPress={() => setVerifiedOnly((previous) => !previous)} />
         </View>
-      ) : null}
+      </View>
 
       <View style={styles.filters}>
         <View style={styles.filterChip}><ToggleChip label="Map" active={viewMode === 'map'} onPress={() => setViewMode('map')} /></View>
@@ -200,7 +190,7 @@ const MatchingMapScreen = () => {
         <GlassCard strong style={styles.mapCard}>
           <View style={styles.mapArea}>
             {hasInteractiveWebMap ? (
-              <iframe title="AffairGo Matching Map" src={interactiveMapUrl} style={{ border: 0, width: '100%', height: '100%' }} />
+              <iframe title="Night-Whisper Matching Map" src={interactiveMapUrl} style={{ border: 0, width: '100%', height: '100%' }} />
             ) : providerMapUrl ? (
               <Image source={{ uri: providerMapUrl }} style={styles.mapImage} resizeMode="cover" />
             ) : null}
@@ -226,7 +216,11 @@ const MatchingMapScreen = () => {
                     isSelected && styles.pinSelected,
                   ]}
                 >
-                  <Text style={styles.pinLabel}>{profile.age}</Text>
+                  {profile.profileImageUri ? (
+                    <Image source={{ uri: profile.profileImageUri }} style={styles.pinImage} resizeMode="cover" />
+                  ) : (
+                    <Text style={styles.pinLabel}>{profile.age}</Text>
+                  )}
                 </Pressable>
               );
             })}
@@ -293,6 +287,8 @@ const MatchingMapScreen = () => {
           <Text style={styles.selectedName}>{filteredSelectedProfile.nickname}</Text>
           <Text style={styles.selectedMeta}>{filteredSelectedProfile.age} Jahre, {filteredSelectedProfile.distanceKm} km, {filteredSelectedProfile.figure}</Text>
           <Text style={styles.selectedMeta}>Kompatibilität: {getCompatibility(currentUser, filteredSelectedProfile)}%</Text>
+          <Text style={styles.selectedMeta}>Gemeinsame Vorlieben: {matchingPreferenceSummary.count}</Text>
+          {matchingPreferenceSummary.preview.length ? <Text style={styles.selectedMeta}>Match-Hinweise: {matchingPreferenceSummary.preview.join(', ')}</Text> : null}
           {selectedProfileTravel ? (
             <Text style={styles.selectedMeta}>
               {selectedProfileTravel.label}
@@ -363,9 +359,14 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   pinSelected: {
     transform: [{ scale: 1.15 }],
+  },
+  pinImage: {
+    width: '100%',
+    height: '100%',
   },
   pinLabel: {
     color: affairGoTheme.colors.text,

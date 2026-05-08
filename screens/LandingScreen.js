@@ -1,52 +1,14 @@
-import { useState } from 'react';
-import { Alert, Modal, Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, BulletRow, GlassCard, InfoBanner, InlineStat, SectionTitle, StatusPill } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
-import { affairGoTheme, membershipColors, membershipLabels } from '../constants/affairGoTheme';
+import { accessColors, accessLabels, affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
-import { PRICING_PLANS, WEBSITE_SECTIONS } from '../data/mockData';
+import { WEBSITE_SECTIONS } from '../data/mockData';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
 
 const LandingScreen = () => {
   const navigation = useNavigation();
-  const { currentUser, events, visibleProfiles, isAuthenticated, activatePlan, purchasePlan, featureIdeas, membershipStatusLabel, paymentBackendConfigured, paymentProviderLabel, paymentSetupInstructions } = useAffairGo();
-  const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState(null);
-  const [isPurchasing, setIsPurchasing] = useState(false);
-
-  const openPurchaseModal = (plan) => {
-    if (plan.key === 'basic') {
-      activatePlan(plan.activation || plan.key);
-      return;
-    }
-
-    setSelectedPlan(plan);
-    setPurchaseModalOpen(true);
-  };
-
-  const handlePurchase = async (paymentMethod) => {
-    if (!selectedPlan) {
-      return;
-    }
-
-    try {
-      setIsPurchasing(true);
-      const result = await purchasePlan({ plan: selectedPlan.activation, paymentMethod });
-      setPurchaseModalOpen(false);
-      setSelectedPlan(null);
-
-      if (result.checkoutResult?.mode === 'demo') {
-        Alert.alert('Demo-Kauf aktiviert', `${selectedPlan.title} wurde lokal aktiviert. Für echte Käufe hinterlege jetzt dein Billing-Backend oder eine Hosted-Checkout-URL.`);
-        return;
-      }
-
-      Alert.alert('Checkout gestartet', `${selectedPlan.title} wurde über ${result.checkoutResult?.provider || paymentProviderLabel} gestartet.${result.checkoutResult?.checkoutUrl ? ' Das Checkout-Fenster wurde geöffnet.' : ''}`);
-    } catch (error) {
-      Alert.alert('Kauf konnte nicht gestartet werden', error.message || 'Bitte prüfe die Zahlungs-Konfiguration.');
-    } finally {
-      setIsPurchasing(false);
-    }
-  };
+  const { currentUser, events, visibleProfiles, isAuthenticated, featureIdeas, accessStatusLabel } = useAffairGo();
 
   return (
     <AppBackground contentContainerStyle={styles.content}>
@@ -54,13 +16,12 @@ const LandingScreen = () => {
         <View style={styles.heroCopy}>
           <View style={styles.badge}>
             <Ionicons name="heart" size={18} color={affairGoTheme.colors.accent} />
-            <Text style={styles.badgeText}>AffairGo Website + Webapp</Text>
+            <Text style={styles.badgeText}>Night-Whisper Website + Webapp</Text>
           </View>
-          <Text style={styles.domainText}>www.affair-go.com</Text>
-          <Text style={styles.heroTitle}>Sicheres Matching, Reiseplanung und Community in einem gemeinsamen System.</Text>
+          <Text style={styles.domainText}>night-whisper.com</Text>
+          <Text style={styles.heroTitle}>Kostenloser Frühzugang für Night-Whisper bis Anfang 2027.</Text>
           <Text style={styles.heroText}>
-            Die Website erklärt das Produkt, die Webapp nutzt denselben Zustand für Login, Profil, Matching Map,
-            Events, Reisen, Chat und Premium-Logik.
+            Registrierungen sind bereits geöffnet. Du kannst dein Profil anlegen, die Webapp direkt nutzen und den Community-Aufbau in deiner Stadt von Anfang an mitgestalten.
           </Text>
           <View style={styles.heroActions}>
             <AccentButton
@@ -76,15 +37,15 @@ const LandingScreen = () => {
             />
           </View>
           <View style={styles.statRow}>
-            <InlineStat label="Demo-Profil" value={currentUser.nickname} accent={membershipColors[currentUser.membership]} />
+            <InlineStat label="Demo-Profil" value={currentUser.nickname} accent={accessColors[currentUser.membership] || affairGoTheme.colors.accent} />
             <InlineStat label="Sichtbare Matches" value={String(visibleProfiles.length)} />
             <InlineStat label="Events im Radius" value={String(events.length)} />
           </View>
           <View style={styles.statusRow}>
-            <StatusPill label={membershipLabels[currentUser.membership]} tone={currentUser.membership === 'gold' ? 'warning' : currentUser.membership === 'premium' ? 'info' : 'default'} />
+            <StatusPill label={accessLabels[currentUser.membership] || 'Kostenfrei'} tone="success" />
             <StatusPill label={isAuthenticated ? 'Angemeldet' : 'Gastmodus'} tone={isAuthenticated ? 'success' : 'default'} style={styles.statusPill} />
           </View>
-          <Text style={styles.membershipStatus}>{membershipStatusLabel}</Text>
+          <Text style={styles.membershipStatus}>{accessStatusLabel}</Text>
         </View>
 
         <GlassCard strong style={styles.previewCard}>
@@ -92,7 +53,7 @@ const LandingScreen = () => {
           <Text style={styles.previewTitle}>Direkt verbunden mit der Webapp</Text>
           <BulletRow icon="shield-checkmark-outline" label="18+ und Bildprüfung" detail="Profilfoto-Upload mit KI-Selfie-Check als verifizierter Flow modelliert." />
           <BulletRow icon="navigate-outline" label="Matching Map mit Radius" detail="Aktive Suche, Reise-Modi, Fotoalter-Filter und Radar greifen auf dieselben Mock-Daten zu." />
-          <BulletRow icon="chatbubble-ellipses-outline" label="Chat, Spiele und Icebreaker" detail="Nach Match sofort schreiben, als Gold auch vor Match. Punkte werden direkt dem Profil gutgeschrieben." />
+          <BulletRow icon="chatbubble-ellipses-outline" label="Chat, Spiele und Icebreaker" detail="Direktnachrichten, Spiele und Icebreaker sind aktuell für alle Registrierungen freigeschaltet." />
         </GlassCard>
       </View>
 
@@ -108,58 +69,27 @@ const LandingScreen = () => {
         ))}
       </View>
 
-      <SectionTitle title="Preise" aside="3 Wochen Premium gratis" />
-      <View style={[styles.pricingRow, Platform.OS === 'web' && styles.pricingRowWeb]}>
-        {PRICING_PLANS.map((plan) => (
-          <GlassCard key={plan.key} style={styles.priceCard}>
-            <Text style={[styles.planName, { color: membershipColors[plan.key] }]}>{plan.title}</Text>
-            <Text style={styles.planPrice}>{plan.price}</Text>
-            {plan.promoLabel ? <Text style={styles.planPromo}>{plan.promoLabel}</Text> : null}
-            {plan.detailPrice ? <Text style={styles.planDetail}>{plan.detailPrice}</Text> : null}
-            {plan.features.map((feature) => (
-              <Text key={feature} style={styles.planFeature}>• {feature}</Text>
-            ))}
-            <AccentButton
-              label={plan.buttonLabel || `Demo auf ${plan.title}`}
-              variant={plan.key === 'basic' ? 'secondary' : 'primary'}
-              onPress={() => openPurchaseModal(plan)}
-              style={styles.planButton}
-            />
-          </GlassCard>
-        ))}
-      </View>
-
-      <Modal transparent visible={purchaseModalOpen} animationType="fade" onRequestClose={() => setPurchaseModalOpen(false)}>
-        <View style={styles.modalBackdrop}>
-          <GlassCard strong style={styles.modalCard}>
-            <Text style={styles.cardTitle}>AffairGo Checkout</Text>
-            <Text style={styles.modalText}>
-              {paymentBackendConfigured
-                ? `${selectedPlan?.title} wird über ${paymentProviderLabel} gestartet. Wähle jetzt deinen Zahlungsweg.`
-                : `${selectedPlan?.title} nutzt aktuell den Demo-Fallback. Hinterlege für produktive Käufe dein Billing-Backend oder Hosted-Checkout-Links.`}
-            </Text>
-            {!paymentBackendConfigured ? <Text style={styles.setupHint}>{paymentSetupInstructions}</Text> : null}
-            <AccentButton label={isPurchasing ? 'Apple wird vorbereitet...' : 'Mit Apple kaufen'} onPress={() => handlePurchase('Apple In-App Purchase')} style={styles.planButton} disabled={isPurchasing} />
-            <AccentButton label={isPurchasing ? 'Google wird vorbereitet...' : 'Mit Google kaufen'} onPress={() => handlePurchase('Google Play Billing')} variant="secondary" style={styles.planButton} disabled={isPurchasing} />
-            <AccentButton label={isPurchasing ? 'Stripe wird vorbereitet...' : 'Mit Stripe kaufen'} onPress={() => handlePurchase('Stripe Checkout')} variant="secondary" style={styles.planButton} disabled={isPurchasing} />
-            <AccentButton label="Abbrechen" variant="ghost" onPress={() => { setPurchaseModalOpen(false); setSelectedPlan(null); }} disabled={isPurchasing} />
-          </GlassCard>
-        </View>
-      </Modal>
+      <SectionTitle title="Frühzugang" aside="kostenlos bis Anfang 2027" />
+      <GlassCard strong style={styles.freeAccessCard}>
+        <Text style={styles.cardTitle}>Kostenlos testen, Community aufbauen</Text>
+        <Text style={styles.modalText}>Bis Anfang 2027 bleiben Registrierung, Login und alle aktuellen Webapp-Funktionen ohne Bezahlschranke freigeschaltet.</Text>
+        <Text style={styles.setupHint}>Die frühe Phase dient bewusst dem Community-Aufbau, ersten Profilen, Events und echtem Produktfeedback aus der Nutzerschaft.</Text>
+        <AccentButton label={isAuthenticated ? 'Direkt in die Webapp' : 'Jetzt kostenlos starten'} onPress={() => navigation.navigate(isAuthenticated ? 'Dashboard' : 'Register')} style={styles.planButton} />
+      </GlassCard>
 
       <SectionTitle title="Sicherheit und Community" aside="direkt verknüpft" />
       <View style={[styles.communityRow, Platform.OS === 'web' && styles.communityRowWeb]}>
         <GlassCard style={styles.communityCard}>
           <Text style={styles.cardTitle}>Sicherheitslogik</Text>
           <BulletRow icon="warning-outline" label="Alte Fotos markieren" detail="6 Monate = Hinweis, 12 Monate = rote Warnung im Profil und auf Karten." />
-          <BulletRow icon="sparkles-outline" label="Gold priorisiert Treffer" detail="Gold schaltet Vorab-Chats, Explore und priorisierte Trefferflächen frei, ohne versteckte Suchmodi." />
+          <BulletRow icon="sparkles-outline" label="Alle Kernfunktionen freigeschaltet" detail="Direktnachrichten, Explore, Matching Map und priorisierte Ansichten sind aktuell ohne Tarifgrenze verfügbar." />
           <BulletRow icon="camera-outline" label="Screenshot-Schutz" detail="Im Web werden Druck, Copy/Cut, Kontextmenü und Sichtwechsel zusätzlich gehärtet; nativ bleibt der Plattformschutz vorbereitet." />
         </GlassCard>
         <GlassCard style={styles.communityCard}>
           <Text style={styles.cardTitle}>Community-Ideenbox</Text>
           <Text style={styles.ideaLead}>Bisher eingereichte Ideen: {featureIdeas.length}</Text>
-          <Text style={styles.ideaText}>Nutzer können Features und Spiele vorschlagen. Bei Annahme sind Boosts, Premium-Tage oder Punkte möglich.</Text>
-          <AccentButton label="Jetzt einloggen" onPress={() => navigation.navigate('Login')} />
+          <Text style={styles.ideaText}>Frühe Nutzer helfen beim Aufbau der Community, schlagen Features vor und prägen so die Richtung von Night-Whisper aktiv mit.</Text>
+          <AccentButton label="Frühzugang öffnen" onPress={() => navigation.navigate(isAuthenticated ? 'Dashboard' : 'Login')} />
         </GlassCard>
       </View>
 

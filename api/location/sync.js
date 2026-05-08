@@ -84,7 +84,7 @@ module.exports = async (req, res) => {
     getLocationStore().set(userId, {
       userId,
       nickname: payload.nickname || '',
-      membership: payload.membership || 'basic',
+      membership: payload.membership || 'free',
       searchActive: payload.searchActive !== false,
       online: payload.online !== false,
       latitude,

@@ -15,8 +15,8 @@ export const affairGoTheme = {
     textFaint: '#a98a8a',
     accent: '#ff4343',
     accentSoft: '#ff7a64',
-    premium: '#f3c86c',
-    gold: '#ffe08d',
+    access: '#f3c86c',
+    accessHighlight: '#ffe08d',
     success: '#89d6b2',
     blue: '#4ea6ff',
     yellow: '#ffd24a',
@@ -79,16 +79,12 @@ export const affairGoTheme = {
   },
 };
 
-export const membershipColors = {
-  basic: affairGoTheme.colors.accent,
-  premium: affairGoTheme.colors.premium,
-  gold: affairGoTheme.colors.gold,
+export const accessColors = {
+  free: affairGoTheme.colors.access,
 };
 
-export const membershipLabels = {
-  basic: 'Basic',
-  premium: 'Premium',
-  gold: 'Gold',
+export const accessLabels = {
+  free: 'Kostenfrei',
 };
 
 export const travelModeColors = {

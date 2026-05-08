@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "AffairGo Webapp",
-    "slug": "affair-go",
-    "scheme": "affairgo",
+    "name": "Night-Whisper",
+    "slug": "night-whisper",
+    "scheme": "nightwhisper",
     "version": "1.0.0",
     "orientation": "portrait",
     "platforms": ["ios", "android", "web"],
@@ -18,7 +18,7 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "AffairGo nutzt deinen Standort, um reale Treffer und Live-Entfernungen auf der Matching Map anzuzeigen."
+        "NSLocationWhenInUseUsageDescription": "Night-Whisper nutzt deinen Standort, um reale Treffer und Live-Entfernungen auf der Matching Map anzuzeigen."
       }
     },
     "android": {
@@ -32,7 +32,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "AffairGo nutzt deinen Standort, um reale Treffer und Live-Entfernungen auf der Matching Map anzuzeigen."
+          "locationWhenInUsePermission": "Night-Whisper nutzt deinen Standort, um reale Treffer und Live-Entfernungen auf der Matching Map anzuzeigen."
         }
       ]
     ],
@@ -40,7 +40,7 @@
       "favicon": "./assets/favicon.png"
     },
     "extra": {
-      "websiteUrl": "https://www.affair-go.com",
+      "websiteUrl": "https://night-whisper.com",
       "mapProvider": "geoapify"
     }
   }

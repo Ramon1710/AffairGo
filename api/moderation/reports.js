@@ -28,7 +28,7 @@ module.exports = async (req, res) => {
 
   res.status(200).json({
     status: 'queued',
-    provider: 'AffairGo Moderation Backend',
+    provider: 'Night-Whisper Moderation Backend',
     referenceId: `report-${Date.now()}`,
     message: `Die Meldung gegen ${payload.targetUserId || 'das Profil'} wurde zur Prüfung eingereiht.`,
   });

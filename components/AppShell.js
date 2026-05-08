@@ -11,7 +11,7 @@ export const palette = {
   muted: '#d0b3b7',
   accent: '#ff4d4d',
   accentSoft: '#ff855f',
-  gold: '#f2c76d',
+  access: '#f2c76d',
   blue: '#45a7e8',
   trip: '#f2c94c',
 };
@@ -81,7 +81,7 @@ export const Chip = ({ label, active, onPress, tone = 'default' }) => (
     style={[
       styles.chip,
       active && styles.chipActive,
-      tone === 'gold' && styles.chipGold,
+      tone === 'access' && styles.chipAccess,
       tone === 'blue' && styles.chipBlue,
     ]}
   >
@@ -215,7 +215,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 77, 77, 0.22)',
     borderColor: 'rgba(255, 77, 77, 0.45)',
   },
-  chipGold: {
+  chipAccess: {
     borderColor: 'rgba(242, 199, 109, 0.45)',
   },
   chipBlue: {

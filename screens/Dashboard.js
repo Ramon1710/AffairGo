@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, EmptyState, GlassCard, InfoBanner, InlineStat, ScreenHeader, SectionTitle, StatusPill } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
-import { affairGoTheme, membershipColors, travelModeColors } from '../constants/affairGoTheme';
+import { accessColors, affairGoTheme, travelModeColors } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
 import { DASHBOARD_SIGNAL_CARDS, EMPTY_STATE_COPY } from '../data/mockData';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
@@ -14,7 +14,7 @@ const quickActions = [
 
 const Dashboard = () => {
   const navigation = useNavigation();
-  const { currentUser, visibleProfiles, events, nearbyOnlineProfiles, getProfileTravelSummary, membershipStatusLabel } = useAffairGo();
+  const { currentUser, visibleProfiles, events, nearbyOnlineProfiles, getProfileTravelSummary, accessStatusLabel } = useAffairGo();
   const toTripList = (trips, mode) => {
     if (!Array.isArray(trips)) {
       return [];
@@ -43,8 +43,8 @@ const Dashboard = () => {
           </View>
         }
         rightAction={
-          <Pressable style={[styles.profileButton, { borderColor: membershipColors[currentUser.membership] }]} onPress={() => navigation.navigate('Profil')}>
-            <Ionicons name="person" size={24} color={membershipColors[currentUser.membership]} />
+          <Pressable style={[styles.profileButton, { borderColor: accessColors[currentUser.membership] || affairGoTheme.colors.accent }]} onPress={() => navigation.navigate('Profil')}>
+            <Ionicons name="person" size={24} color={accessColors[currentUser.membership] || affairGoTheme.colors.accent} />
           </Pressable>
         }
       />
@@ -65,9 +65,9 @@ const Dashboard = () => {
         <View style={styles.statCluster}>
           <InlineStat label="Radius" value={`${currentUser.radius} km`} />
           <InlineStat label="Online jetzt" value={String(nearbyOnlineProfiles.length)} accent={affairGoTheme.colors.success} />
-          <InlineStat label="Premium" value={currentUser.membership.toUpperCase()} accent={membershipColors[currentUser.membership]} />
+          <InlineStat label="Zugang" value="Kostenfrei" accent={accessColors[currentUser.membership] || affairGoTheme.colors.accent} />
         </View>
-        <Text style={styles.membershipText}>{membershipStatusLabel}</Text>
+        <Text style={styles.membershipText}>{accessStatusLabel}</Text>
       </View>
 
       <View style={styles.signalGrid}>
@@ -157,7 +157,7 @@ const Dashboard = () => {
         />
       )}
 
-      <InfoBanner title="Profilstatus" detail={membershipStatusLabel} tone={currentUser.membership === 'gold' ? 'warning' : 'info'} style={styles.dashboardBanner} />
+      <InfoBanner title="Profilstatus" detail={accessStatusLabel} tone="success" style={styles.dashboardBanner} />
     </AppBackground>
   );
 };

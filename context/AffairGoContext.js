@@ -32,6 +32,7 @@ import {
     useState,
 } from 'react';
 import { getModerationProviderLabel, hasConfiguredModerationBackend, submitModerationDecision, submitModerationReport } from '../constants/moderationProvider';
+import { requestManagedPasswordReset } from '../constants/passwordResetProvider';
 import { getPaymentProviderLabel, getPaymentSetupInstructions, hasConfiguredPaymentBackend, startPurchaseFlow } from '../constants/paymentProvider';
 import {
     EXPLORE_CITIES,
@@ -52,14 +53,71 @@ import {
 import { auth, authReady, db, storage } from '../firebase';
 
 const AffairGoContext = createContext(null);
-const BASIC_SWIPE_LIMIT = 10;
 const LIVE_LOCATION_INTERVAL_MS = 8000;
 const MAX_MODERATION_AUDIT_TRAIL_ENTRIES = 40;
 const FIXED_ADMIN_EMAIL = 'ramon.meyer@admin.de';
 const FIXED_ADMIN_PASSWORD = 'heihachi17';
 const LIVE_LOCATION_BACKEND_BASE_URL = (process.env.EXPO_PUBLIC_LIVE_LOCATION_BASE_URL || '/api/location').trim().replace(/\/$/, '');
+const SESSION_CACHE_STORAGE_KEY = 'affairgo.session.v1';
+const FREE_ACCESS_MEMBERSHIP = 'free';
+const FREE_ACCESS_STATUS_LABEL = 'Kostenfrei bis Anfang 2027';
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
+
+const canUseBrowserStorage = () => typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+
+const readCachedSession = (uid) => {
+  if (!uid || !canUseBrowserStorage()) {
+    return null;
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(SESSION_CACHE_STORAGE_KEY);
+
+    if (!rawValue) {
+      return null;
+    }
+
+    const parsedValue = JSON.parse(rawValue);
+
+    if (!parsedValue?.profile || parsedValue.uid !== uid) {
+      return null;
+    }
+
+    return parsedValue;
+  } catch (error) {
+    console.warn('AffairGo session cache read warning', error);
+    return null;
+  }
+};
+
+const writeCachedSession = (uid, session) => {
+  if (!uid || !canUseBrowserStorage()) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(SESSION_CACHE_STORAGE_KEY, JSON.stringify({
+      uid,
+      ...session,
+      cachedAt: new Date().toISOString(),
+    }));
+  } catch (error) {
+    console.warn('AffairGo session cache write warning', error);
+  }
+};
+
+const clearCachedSession = () => {
+  if (!canUseBrowserStorage()) {
+    return;
+  }
+
+  try {
+    window.localStorage.removeItem(SESSION_CACHE_STORAGE_KEY);
+  } catch (error) {
+    console.warn('AffairGo session cache clear warning', error);
+  }
+};
 
 const createEmptyTravelPlanEntry = () => ({
   id: '',
@@ -118,19 +176,21 @@ const createDefaultCurrentUser = () => ({
   selfieRetentionPolicy: '',
   onboardingCompleted: false,
   searchActive: false,
+  verifiedMatchesOnly: false,
   forcePasswordChange: false,
   role: 'member',
   isAdmin: false,
   searchGenders: [...SEARCH_GENDER_OPTIONS],
   dismissedProfileIds: [],
-  membership: 'basic',
+  membership: FREE_ACCESS_MEMBERSHIP,
   premiumTrialActive: false,
   premiumTrialEndsAt: '',
-  billingCycle: 'monthly',
-  planPriceLabel: '',
+  billingCycle: 'free',
+  planPriceLabel: FREE_ACCESS_STATUS_LABEL,
   goldDiscountPackage: false,
   purchaseHistory: [],
   points: 0,
+  rewardLog: [],
   joinedLabel: 'Neu',
   profileImageUri: '',
   moderationState: 'clear',
@@ -170,7 +230,7 @@ const buildFixedAdminProfile = (uid = 'affairgo-admin') => ({
   selfieVerificationStatus: 'verified',
   onboardingCompleted: true,
   searchActive: true,
-  membership: 'gold',
+  membership: FREE_ACCESS_MEMBERSHIP,
   role: 'admin',
   isAdmin: true,
 });
@@ -348,6 +408,39 @@ const parseTravelDate = (value) => {
   return new Date(year, month - 1, day);
 };
 
+const startOfDay = (value) => {
+  const nextDate = new Date(value);
+  nextDate.setHours(0, 0, 0, 0);
+  return nextDate;
+};
+
+const validateTravelPlanEntry = (travelPlan) => {
+  const startDate = parseTravelDate(travelPlan.startDate);
+  const endDate = parseTravelDate(travelPlan.endDate);
+
+  if (!startDate || !endDate) {
+    throw new Error('Bitte gib für Reisen ein gültiges Start- und Enddatum im Format TT.MM.JJJJ an.');
+  }
+
+  const normalizedStartDate = startOfDay(startDate);
+  const normalizedEndDate = startOfDay(endDate);
+  const today = startOfDay(new Date());
+  const latestAllowedStart = startOfDay(new Date());
+  latestAllowedStart.setDate(latestAllowedStart.getDate() + 14);
+
+  if (normalizedEndDate < normalizedStartDate) {
+    throw new Error('Das Enddatum darf nicht vor dem Startdatum liegen.');
+  }
+
+  if (normalizedStartDate < today) {
+    throw new Error('Reisen können nur ab dem heutigen Datum geplant werden.');
+  }
+
+  if (normalizedStartDate > latestAllowedStart) {
+    throw new Error('Reisen können maximal 14 Tage im Voraus geplant werden.');
+  }
+};
+
 const getTravelPlanVisibilityStart = (travelPlan, referenceDate = new Date()) => {
   const startDate = parseTravelDate(travelPlan.startDate);
 
@@ -504,12 +597,13 @@ const normalizeUserProfile = (profile = {}, firebaseUser = null) => {
     moderationRateLimitUntil: profile.moderationRateLimitUntil || '',
     moderationAuditTrail: Array.isArray(profile.moderationAuditTrail) ? profile.moderationAuditTrail : [],
     verified: fixedAdmin ? true : (profile.verified ?? Boolean(profile.profileImageUploaded)),
+    verifiedMatchesOnly: fixedAdmin ? true : Boolean(profile.verifiedMatchesOnly),
     dismissedProfileIds: normalizeIdList(profile.dismissedProfileIds),
-    premiumTrialActive: Boolean(profile.premiumTrialActive),
-    premiumTrialEndsAt: profile.premiumTrialEndsAt || '',
+    premiumTrialActive: false,
+    premiumTrialEndsAt: '',
     billingCycle: profile.billingCycle || defaults.billingCycle,
-    planPriceLabel: profile.planPriceLabel || '',
-    goldDiscountPackage: Boolean(profile.goldDiscountPackage),
+    planPriceLabel: FREE_ACCESS_STATUS_LABEL,
+    goldDiscountPackage: false,
     purchaseHistory: Array.isArray(profile.purchaseHistory) ? profile.purchaseHistory : defaults.purchaseHistory,
     gallery: Array.isArray(profile.gallery) ? profile.gallery : defaults.gallery,
     profileImageUri: profile.profileImageUri || '',
@@ -526,7 +620,7 @@ const normalizeUserProfile = (profile = {}, firebaseUser = null) => {
     forcePasswordChange: Boolean(profile.forcePasswordChange),
     onboardingCompleted: fixedAdmin ? true : Boolean(profile.onboardingCompleted),
     searchActive: fixedAdmin ? true : Boolean(profile.searchActive),
-    membership: fixedAdmin ? 'gold' : (profile.membership || defaults.membership),
+    membership: FREE_ACCESS_MEMBERSHIP,
     role: fixedAdmin ? 'admin' : (profile.role || defaults.role),
     isAdmin: fixedAdmin,
   };
@@ -549,11 +643,12 @@ const toStoredProfile = (profile) => {
     taboos: normalizeOptionList(profile.taboos, TABOO_OPTIONS, []),
     travelPlans: normalizeTravelPlans(profile.travelPlans),
     dismissedProfileIds: normalizeIdList(profile.dismissedProfileIds),
-    premiumTrialActive: Boolean(profile.premiumTrialActive),
-    premiumTrialEndsAt: profile.premiumTrialEndsAt || '',
-    billingCycle: profile.billingCycle || 'monthly',
-    planPriceLabel: profile.planPriceLabel || '',
-    goldDiscountPackage: Boolean(profile.goldDiscountPackage),
+    premiumTrialActive: false,
+    premiumTrialEndsAt: '',
+    membership: FREE_ACCESS_MEMBERSHIP,
+    billingCycle: 'free',
+    planPriceLabel: FREE_ACCESS_STATUS_LABEL,
+    goldDiscountPackage: false,
     purchaseHistory: Array.isArray(profile.purchaseHistory) ? profile.purchaseHistory : [],
     profileImageUri: profile.profileImageUri || '',
     pendingNickname: profile.pendingNickname || '',
@@ -578,6 +673,7 @@ const toStoredProfile = (profile) => {
     moderationLastCheckedAt: profile.moderationLastCheckedAt || '',
     moderationRateLimitUntil: profile.moderationRateLimitUntil || '',
     moderationAuditTrail: Array.isArray(profile.moderationAuditTrail) ? profile.moderationAuditTrail : [],
+    verifiedMatchesOnly: Boolean(profile.verifiedMatchesOnly),
     accountDeletionRequestedAt: profile.accountDeletionRequestedAt || '',
     dataExportRequestedAt: profile.dataExportRequestedAt || '',
     latitude: Number.isFinite(Number(profile.latitude)) ? Number(profile.latitude) : null,
@@ -637,11 +733,11 @@ const buildRegistrationProfile = (payload, uid) => ({
   gallery: [],
   joinedLabel: 'Heute',
   onboardingCompleted: false,
-  membership: 'basic',
+  membership: FREE_ACCESS_MEMBERSHIP,
   premiumTrialActive: false,
   premiumTrialEndsAt: '',
-  billingCycle: 'monthly',
-  planPriceLabel: '',
+  billingCycle: 'free',
+  planPriceLabel: FREE_ACCESS_STATUS_LABEL,
   goldDiscountPackage: false,
   purchaseHistory: [],
   searchAgeMin: 25,
@@ -649,8 +745,10 @@ const buildRegistrationProfile = (payload, uid) => ({
   searchGenders: [...SEARCH_GENDER_OPTIONS],
   radius: 25,
   searchActive: false,
+  verifiedMatchesOnly: false,
   online: true,
   points: 0,
+  rewardLog: [],
   accountDeletionRequestedAt: '',
   dataExportRequestedAt: '',
   latitude: null,
@@ -755,7 +853,7 @@ const syncLiveLocationSnapshot = async ({ profile, location }) => {
     body: JSON.stringify({
       userId: profile.id,
       nickname: profile.nickname || '',
-      membership: profile.membership || 'basic',
+      membership: FREE_ACCESS_MEMBERSHIP,
       searchActive: Boolean(profile.searchActive),
       online: true,
       latitude: Number(location?.latitude),
@@ -809,22 +907,12 @@ const mergeRemoteLiveLocations = (profiles, remoteLocations, observerLocation) =
   });
 };
 
-const createPurchaseEntry = ({ membership, paymentMethod, priceLabel, billingCycle }) => ({
-  id: `purchase-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-  membership,
-  paymentMethod,
-  priceLabel: priceLabel || '',
-  billingCycle: billingCycle || 'monthly',
-  purchasedAt: new Date().toLocaleString('de-DE'),
-  status: 'aktiv',
-});
-
 const createFeatureIdeaEntry = ({ title, submitterId, submitterNickname }) => ({
   id: `idea-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   title: title.trim(),
   submitterId: submitterId || '',
   submitterNickname: submitterNickname || 'Anonym',
-  reward: '1 Premium-Tag',
+  reward: 'Community-Boost',
   status: 'review',
   createdAt: new Date().toISOString(),
   approvedAt: '',
@@ -1309,9 +1397,22 @@ export const AffairGoProvider = ({ children }) => {
     }
   };
 
+  const hydrateAuthenticatedSession = (sessionData, firebaseUser = null) => {
+    const normalizedProfile = normalizeUserProfile(sessionData?.profile, firebaseUser);
+
+    setCurrentUser(normalizedProfile);
+    setChats(Array.isArray(sessionData?.chats) ? sessionData.chats : []);
+    setSwipeHistory(Array.isArray(sessionData?.swipeHistory) ? sessionData.swipeHistory : []);
+    setDismissedProfiles(normalizeIdList(sessionData?.dismissedProfileIds));
+    setCurrentRadius(normalizedProfile.radius || INITIAL_CURRENT_USER.radius);
+    setIsAuthenticated(true);
+
+    return normalizedProfile;
+  };
+
   const syncCurrentUserFromFirebase = async (firebaseUser) => {
     const profileData = await loadStoredProfile(firebaseUser.uid, firebaseUser.email);
-    const normalizedProfile = normalizeUserProfile(profileData, firebaseUser);
+    const normalizedProfile = hydrateAuthenticatedSession(profileData, firebaseUser);
     const normalizedAuthEmail = firebaseUser.email?.trim().toLowerCase() || '';
     const normalizedStoredEmail = normalizedProfile.email?.trim().toLowerCase() || '';
     const normalizedPendingEmail = normalizedProfile.pendingEmail?.trim().toLowerCase() || '';
@@ -1333,15 +1434,21 @@ export const AffairGoProvider = ({ children }) => {
       });
     }
 
-    setCurrentUser(normalizedProfile);
-    setChats(Array.isArray(profileData.chats) ? profileData.chats : []);
-    setSwipeHistory(Array.isArray(profileData.swipeHistory) ? profileData.swipeHistory : []);
-    setDismissedProfiles(normalizeIdList(profileData.dismissedProfileIds));
-    setCurrentRadius(normalizedProfile.radius || INITIAL_CURRENT_USER.radius);
-    setIsAuthenticated(true);
-
     return normalizedProfile;
   };
+
+  useEffect(() => {
+    if (!isAuthenticated || !currentUser.id || currentUser.id === 'me') {
+      return;
+    }
+
+    writeCachedSession(currentUser.id, {
+      profile: currentUser,
+      chats,
+      swipeHistory,
+      dismissedProfileIds: dismissedProfiles,
+    });
+  }, [chats, currentUser, dismissedProfiles, isAuthenticated, swipeHistory]);
 
   useEffect(() => {
     let unsubscribe = () => undefined;
@@ -1352,22 +1459,51 @@ export const AffairGoProvider = ({ children }) => {
         return;
       }
 
-      unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
         if (!firebaseUser) {
           setIsAuthenticated(false);
           setCurrentUser(createDefaultCurrentUser());
+          setChats(clone(INITIAL_CHATS));
+          setSwipeHistory([]);
+          setDismissedProfiles([]);
           setPendingVerificationId(null);
           setCurrentRadius(INITIAL_CURRENT_USER.radius);
           setDeviceLocation(null);
           setLocationPermissionGranted(false);
           setLocationError('');
           setRemoteLiveLocations([]);
+          clearCachedSession();
           setIsAuthReady(true);
           return;
         }
 
-        await syncCurrentUserFromFirebase(firebaseUser);
-        setIsAuthReady(true);
+        const cachedSession = readCachedSession(firebaseUser.uid);
+
+        if (cachedSession) {
+          hydrateAuthenticatedSession(cachedSession, firebaseUser);
+          setIsAuthReady(true);
+        }
+
+        syncCurrentUserFromFirebase(firebaseUser)
+          .catch((error) => {
+            console.warn('AffairGo auth bootstrap warning', error);
+
+            if (!active || cachedSession) {
+              return;
+            }
+
+            hydrateAuthenticatedSession({
+              profile: {
+                id: firebaseUser.uid,
+                email: firebaseUser.email || '',
+              },
+            }, firebaseUser);
+          })
+          .finally(() => {
+            if (active) {
+              setIsAuthReady(true);
+            }
+          });
       });
     });
 
@@ -1756,6 +1892,9 @@ export const AffairGoProvider = ({ children }) => {
       if (photoAgeFilter && user.profilePhotoAgeMonths < photoAgeFilter) {
         return false;
       }
+      if (currentUser.verifiedMatchesOnly && !user.verified) {
+        return false;
+      }
       if (!isMutualSearchMatch(currentUser, user)) {
         return false;
       }
@@ -1781,8 +1920,8 @@ export const AffairGoProvider = ({ children }) => {
     .map((chat) => users.find((user) => user.id === chat.userId))
     .filter(Boolean);
   const swipesUsed = swipeHistory.length;
-  const remainingSwipes = currentUser.membership === 'basic' ? Math.max(0, BASIC_SWIPE_LIMIT - swipesUsed) : null;
-  const swipeLimitReached = currentUser.membership === 'basic' && remainingSwipes === 0;
+  const remainingSwipes = null;
+  const swipeLimitReached = false;
 
   const nearbyOnlineProfiles = visibleProfiles.filter((profile) => profile.online).slice(0, 3);
   const selectedProfile = users.find((profile) => profile.id === selectedProfileId) || visibleProfiles[0] || users[0];
@@ -1838,11 +1977,16 @@ export const AffairGoProvider = ({ children }) => {
         throw new Error('Dein Konto wurde angelegt, aber die Verifizierungs-Mail konnte nicht gesendet werden. Bitte prüfe die Firebase-E-Mail-Vorlagen und versuche es erneut.');
       }
 
-      const normalizedProfile = normalizeUserProfile(profileData, credentials.user);
+      const cachedSession = readCachedSession(credentials.user.uid);
+      const normalizedProfile = cachedSession
+        ? hydrateAuthenticatedSession(cachedSession, credentials.user)
+        : hydrateAuthenticatedSession(profileData, credentials.user);
 
-      setCurrentUser(normalizedProfile);
-      setCurrentRadius(normalizedProfile.radius || INITIAL_CURRENT_USER.radius);
-      setIsAuthenticated(true);
+      if (cachedSession) {
+        syncCurrentUserFromFirebase(credentials.user).catch((error) => {
+          console.warn('AffairGo login refresh warning', error);
+        });
+      }
 
       return {
         requiresPasswordChange: normalizedProfile.isAdmin ? false : normalizedProfile.forcePasswordChange,
@@ -1857,20 +2001,28 @@ export const AffairGoProvider = ({ children }) => {
     await trySignOut();
     setIsAuthenticated(false);
     setCurrentUser(createDefaultCurrentUser());
+    setChats(clone(INITIAL_CHATS));
+    setSwipeHistory([]);
+    setDismissedProfiles([]);
+    clearCachedSession();
   };
 
   const requestPasswordReset = async (identifier) => {
     const normalizedEmail = await resolveAuthEmail(identifier);
 
     try {
-      await sendPasswordResetEmail(auth, normalizedEmail);
+      const managedResetResult = await requestManagedPasswordReset({ email: normalizedEmail }).catch(() => null);
+
+      if (!managedResetResult?.handled) {
+        await sendPasswordResetEmail(auth, normalizedEmail);
+      }
 
       const storedProfile = await findStoredProfileByEmail(normalizedEmail);
       if (storedProfile?.id) {
         await setDoc(doc(db, 'users', storedProfile.id), { forcePasswordChange: true }, { merge: true });
       }
 
-      return true;
+      return managedResetResult || { handled: false, mode: 'firebase-reset-link' };
     } catch (error) {
       throw new Error(mapAuthError(error, error?.message || 'Passwort-Reset fehlgeschlagen.'));
     }
@@ -2071,6 +2223,10 @@ export const AffairGoProvider = ({ children }) => {
       nextPatch.searchGenders = getSearchGenders(nextPatch, currentUser.searchGenders);
     }
 
+    if ('verifiedMatchesOnly' in nextPatch) {
+      nextPatch.verifiedMatchesOnly = Boolean(nextPatch.verifiedMatchesOnly);
+    }
+
     const requestedEmail = typeof nextPatch.email === 'string' ? nextPatch.email.trim().toLowerCase() : null;
     delete nextPatch.email;
 
@@ -2194,6 +2350,9 @@ export const AffairGoProvider = ({ children }) => {
       ...payload,
       id: payload.id || `travel-${Date.now()}`,
     });
+
+    validateTravelPlanEntry(nextEntry);
+
     const currentPlansForMode = currentUser.travelPlans[mode] || [];
     const existingIndex = currentPlansForMode.findIndex((entry) => entry.id === nextEntry.id);
     const nextPlansForMode = existingIndex >= 0
@@ -2228,7 +2387,7 @@ export const AffairGoProvider = ({ children }) => {
 
   const respondToSwipe = async (profileId, action) => {
     if (swipeLimitReached) {
-      throw new Error('Dein Basic-Konto hat das Swipe-Limit erreicht. Upgrade auf Premium oder Gold für unbegrenzte Swipes.');
+      throw new Error('Swipes sind derzeit kostenfrei und unbegrenzt freigeschaltet. Bitte versuche es direkt erneut.');
     }
 
     await moderateAuthenticatedAction({
@@ -2274,7 +2433,7 @@ export const AffairGoProvider = ({ children }) => {
   };
 
   const rewindLastSwipe = () => {
-    if (currentUser.membership !== 'gold' || !swipeHistory.length) {
+    if (!swipeHistory.length) {
       return false;
     }
     const lastSwipe = swipeHistory[swipeHistory.length - 1];
@@ -2311,7 +2470,7 @@ export const AffairGoProvider = ({ children }) => {
           {
             id: `c${Date.now()}`,
             userId,
-            match: currentUser.membership === 'gold',
+            match: true,
             inactivityDays: 0,
             messages: [{ id: `m${Date.now()}`, from: 'me', text: text.trim(), time: 'Jetzt' }],
           },
@@ -2350,10 +2509,6 @@ export const AffairGoProvider = ({ children }) => {
   };
 
   const createEvent = async (payload) => {
-    if (currentUser.membership === 'basic') {
-      throw new Error('Eigene Events anlegen ist ab Premium verfügbar.');
-    }
-
     if (payload.verifiedOnly && (!currentUser.verified || !currentUser.searchActive)) {
       throw new Error('Verifizierte Events kannst du erst anlegen, wenn dein Profil geprüft ist und deine Suche aktiv ist.');
     }
@@ -2521,8 +2676,8 @@ export const AffairGoProvider = ({ children }) => {
       await setDoc(submitterRef, {
         points: nextPoints,
         rewardLog: [rewardEntry, ...rewardLog],
-        premiumTrialActive: true,
-        premiumTrialEndsAt: buildFutureDateLabel(1),
+        premiumTrialActive: false,
+        premiumTrialEndsAt: '',
       }, { merge: true });
 
       if (targetIdea.submitterId === (auth.currentUser?.uid || currentUser.id)) {
@@ -2530,8 +2685,8 @@ export const AffairGoProvider = ({ children }) => {
           ...previous,
           points: nextPoints,
           rewardLog: [rewardEntry, ...(Array.isArray(previous.rewardLog) ? previous.rewardLog : [])],
-          premiumTrialActive: true,
-          premiumTrialEndsAt: buildFutureDateLabel(1),
+          premiumTrialActive: false,
+          premiumTrialEndsAt: '',
         }));
       }
     }
@@ -2541,14 +2696,15 @@ export const AffairGoProvider = ({ children }) => {
 
   const activatePlan = async (planConfig) => {
     const resolvedPlan = typeof planConfig === 'string' ? { membership: planConfig } : (planConfig || {});
-    const membership = resolvedPlan.membership || 'basic';
+    const membership = FREE_ACCESS_MEMBERSHIP;
     const nextPatch = {
       membership,
-      premiumTrialActive: membership === 'premium' && Boolean(resolvedPlan.trialDays),
-      premiumTrialEndsAt: membership === 'premium' && resolvedPlan.trialDays ? buildFutureDateLabel(resolvedPlan.trialDays) : '',
-      billingCycle: resolvedPlan.billingCycle || 'monthly',
-      planPriceLabel: resolvedPlan.priceLabel || '',
-      goldDiscountPackage: membership === 'gold' && Boolean(resolvedPlan.goldDiscountPackage),
+      verifiedMatchesOnly: Boolean(currentUser.verifiedMatchesOnly),
+      premiumTrialActive: false,
+      premiumTrialEndsAt: '',
+      billingCycle: 'free',
+      planPriceLabel: FREE_ACCESS_STATUS_LABEL,
+      goldDiscountPackage: false,
     };
 
     setCurrentUser((previous) => ({ ...previous, ...nextPatch }));
@@ -2558,16 +2714,8 @@ export const AffairGoProvider = ({ children }) => {
   const purchasePlan = async ({ plan, paymentMethod }) => {
     const resolvedPlan = typeof plan === 'string' ? { membership: plan } : (plan || {});
 
-    if (!resolvedPlan.membership) {
-      throw new Error('Es wurde kein gültiger Tarif für den Kauf ausgewählt.');
-    }
-
-    if (!paymentMethod) {
-      throw new Error('Bitte wähle Apple, Google oder Stripe als Bezahlweg.');
-    }
-
     const checkoutResult = await startPurchaseFlow({
-      plan: resolvedPlan,
+      plan: { membership: FREE_ACCESS_MEMBERSHIP },
       paymentMethod,
       customer: {
         id: auth.currentUser?.uid || currentUser.id,
@@ -2576,55 +2724,49 @@ export const AffairGoProvider = ({ children }) => {
       },
     });
 
-    const purchaseEntry = createPurchaseEntry({
-      membership: resolvedPlan.membership,
-      paymentMethod,
-      priceLabel: resolvedPlan.priceLabel,
-      billingCycle: resolvedPlan.billingCycle,
-    });
-    purchaseEntry.status = checkoutResult.status || purchaseEntry.status;
-    purchaseEntry.provider = checkoutResult.provider || '';
-    purchaseEntry.checkoutUrl = checkoutResult.checkoutUrl || '';
-    purchaseEntry.purchaseId = checkoutResult.purchaseId || '';
-    const nextPurchaseHistory = [purchaseEntry, ...(currentUser.purchaseHistory || [])];
     const nextPatch = {
-      membership: resolvedPlan.membership,
-      premiumTrialActive: resolvedPlan.membership === 'premium' && Boolean(resolvedPlan.trialDays),
-      premiumTrialEndsAt: resolvedPlan.membership === 'premium' && resolvedPlan.trialDays ? buildFutureDateLabel(resolvedPlan.trialDays) : '',
-      billingCycle: resolvedPlan.billingCycle || 'monthly',
-      planPriceLabel: resolvedPlan.priceLabel || '',
-      goldDiscountPackage: resolvedPlan.membership === 'gold' && Boolean(resolvedPlan.goldDiscountPackage),
-      purchaseHistory: nextPurchaseHistory,
+      membership: FREE_ACCESS_MEMBERSHIP,
+      verifiedMatchesOnly: Boolean(currentUser.verifiedMatchesOnly),
+      premiumTrialActive: false,
+      premiumTrialEndsAt: '',
+      billingCycle: 'free',
+      planPriceLabel: FREE_ACCESS_STATUS_LABEL,
+      goldDiscountPackage: false,
     };
 
     setCurrentUser((previous) => ({ ...previous, ...nextPatch }));
     await persistCurrentUserPatch(nextPatch);
     return {
-      purchaseEntry,
+      purchaseEntry: null,
       checkoutResult,
     };
   };
 
-  const membershipStatusLabel = useMemo(() => {
-    if (currentUser.membership === 'premium' && currentUser.premiumTrialActive && currentUser.premiumTrialEndsAt) {
-      return `Premium-Testphase bis ${currentUser.premiumTrialEndsAt}`;
-    }
+  const accessStatusLabel = useMemo(() => {
+    return FREE_ACCESS_STATUS_LABEL;
+  }, []);
 
-    if (currentUser.membership === 'gold' && currentUser.goldDiscountPackage) {
-      return `Gold 6 Monate${currentUser.planPriceLabel ? ` • ${currentUser.planPriceLabel}` : ''}`;
-    }
+  const playGame = async ({ reward, gameId = '', gameTitle = '', outcome = '' }) => {
+    const normalizedReward = Number.isFinite(Number(reward)) ? Number(reward) : 0;
+    const rewardEntry = {
+      id: `game-${gameId || 'reward'}-${Date.now()}`,
+      type: 'game_reward',
+      gameId,
+      label: gameTitle || 'Spielbelohnung',
+      outcome,
+      points: normalizedReward,
+      grantedAt: new Date().toISOString(),
+    };
 
-    if (currentUser.planPriceLabel) {
-      return `${currentUser.membership.toUpperCase()} • ${currentUser.planPriceLabel}`;
-    }
-
-    return currentUser.membership.toUpperCase();
-  }, [currentUser.goldDiscountPackage, currentUser.membership, currentUser.planPriceLabel, currentUser.premiumTrialActive, currentUser.premiumTrialEndsAt]);
-
-  const playGame = async (reward) => {
-    const nextPoints = currentUser.points + reward;
-    setCurrentUser((previous) => ({ ...previous, points: previous.points + reward }));
-    await persistCurrentUserPatch({ points: nextPoints });
+    const nextPoints = currentUser.points + normalizedReward;
+    const nextRewardLog = [rewardEntry, ...(Array.isArray(currentUser.rewardLog) ? currentUser.rewardLog : [])].slice(0, 25);
+    setCurrentUser((previous) => ({
+      ...previous,
+      points: previous.points + normalizedReward,
+      rewardLog: [rewardEntry, ...(Array.isArray(previous.rewardLog) ? previous.rewardLog : [])].slice(0, 25),
+    }));
+    await persistCurrentUserPatch({ points: nextPoints, rewardLog: nextRewardLog });
+    return rewardEntry;
   };
 
   const reportUser = async ({ targetUserId, reason, description = '', evidence = [] }) => {
@@ -2698,7 +2840,7 @@ export const AffairGoProvider = ({ children }) => {
     selectedProfile,
     remainingSwipes,
     swipeLimitReached,
-    membershipStatusLabel,
+    accessStatusLabel,
     lastLocationSyncLabel,
     moderationBackendConfigured: hasConfiguredModerationBackend(),
     paymentBackendConfigured: hasConfiguredPaymentBackend(),

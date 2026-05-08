@@ -33,23 +33,11 @@ const ExploreScreen = () => {
     }
   };
 
-  if (currentUser.membership !== 'gold') {
-    return (
-      <AppBackground contentContainerStyle={styles.centered}>
-        <GlassCard strong style={styles.lockedCard}>
-          <Text style={styles.title}>Explore-Modus ist Gold-only</Text>
-          <Text style={styles.copy}>Fiktive Städte und freies Erkunden außerhalb des echten Radius sind nur im Gold-Paket verfügbar.</Text>
-          <AccentButton label="Zurück" onPress={() => navigation.goBack()} />
-        </GlassCard>
-      </AppBackground>
-    );
-  }
-
   return (
     <AppBackground>
       <ScreenHeader
         title="Explore"
-        subtitle="Fiktive Städte für Gold"
+        subtitle="Freies Erkunden zusätzlicher Städte"
         leftAction={<Pressable onPress={() => navigation.goBack()}><Ionicons name="arrow-back" size={28} color={affairGoTheme.colors.text} /></Pressable>}
       />
 
@@ -67,7 +55,7 @@ const ExploreScreen = () => {
 
       <GlassCard style={styles.lockedCard}>
         <Text style={styles.title}>Ideenbox</Text>
-        <Text style={styles.copy}>Community-Vorschläge können mit Premium-Tagen oder Boosts belohnt werden.</Text>
+        <Text style={styles.copy}>Community-Vorschläge können mit Punkten oder Community-Belohnungen honoriert werden.</Text>
         <AccentButton label="Feature-Idee einreichen" onPress={handleSubmitIdea} style={styles.ideaButton} />
         <Text style={styles.copy}>Bisherige Ideen: {featureIdeas.length}</Text>
         <View style={styles.ideaList}>

@@ -64,9 +64,14 @@ const LoginScreen = () => {
       setError('');
       setInfo('');
       setIsResetSubmitting(true);
-      await requestPasswordReset(identifier);
+      const result = await requestPasswordReset(identifier);
       setResetOpen(false);
-      setInfo('Eine Passwort-Reset-Mail wurde versendet. Bitte prüfe dein Postfach. Nach dem nächsten Login musst du dein Passwort einmal neu setzen.');
+      if (result?.mode === 'temporary-password-email') {
+        setInfo(result?.message || 'Ein temporäres Passwort wurde per E-Mail vorbereitet. Nach dem Login musst du dein Passwort sofort ändern.');
+        return;
+      }
+
+      setInfo(result?.message || 'Eine Passwort-Reset-Mail wurde versendet. Bitte prüfe dein Postfach. Nach dem nächsten Login musst du dein Passwort einmal neu setzen.');
     } catch (resetError) {
       setError(resetError.message || 'Zu diesem Spitznamen oder dieser E-Mail wurde kein Konto gefunden.');
       setResetOpen(false);
@@ -121,8 +126,8 @@ const LoginScreen = () => {
   return (
     <AppBackground contentContainerStyle={styles.content}>
       <ScreenHeader
-        title="Log In To AffairGo"
-        subtitle="www.affair-go.com"
+        title="Log In To Night-Whisper"
+        subtitle="night-whisper.com"
         leftAction={
           <Pressable onPress={() => navigation.navigate('Landing')}>
             <Ionicons name="arrow-back" size={28} color={affairGoTheme.colors.accent} />
@@ -178,7 +183,7 @@ const LoginScreen = () => {
           <GlassCard strong style={styles.modalCard}>
             <Text style={styles.modalTitle}>Passwort vergessen</Text>
             <Text style={styles.modalText}>
-              Firebase verschickt einen Reset-Link an die hinterlegte E-Mail-Adresse.
+              Night-Whisper nutzt bevorzugt den verwalteten Reset per Mail-Workflow. Wenn dafuer noch kein Backend konfiguriert ist, faellt der Flow automatisch auf den Firebase-Reset-Link zurueck.
             </Text>
             <AccentButton label={isResetSubmitting ? 'Mail wird gesendet...' : 'Mail senden'} onPress={handleReset} disabled={isResetSubmitting} style={styles.modalButton} />
             <AccentButton label="Abbrechen" variant="ghost" onPress={() => setResetOpen(false)} disabled={isResetSubmitting} />
