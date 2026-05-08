@@ -41,7 +41,7 @@
     },
     "extra": {
       "websiteUrl": "https://night-whisper.com",
-      "mapProvider": "geoapify"
+      "mapProvider": "stadia"
     }
   }
 }

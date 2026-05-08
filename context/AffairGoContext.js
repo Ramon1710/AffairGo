@@ -13,17 +13,22 @@ import {
     verifyBeforeUpdateEmail,
 } from 'firebase/auth';
 import {
+    Timestamp,
     collection,
     doc,
+    endAt,
     getDoc,
     getDocs,
     limit,
+    orderBy,
     query,
     serverTimestamp,
     setDoc,
+    startAt,
     where
 } from 'firebase/firestore';
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { geohashForLocation, geohashQueryBounds } from 'geofire-common';
 import {
     createContext,
     useContext,
@@ -34,6 +39,15 @@ import {
 import { getModerationProviderLabel, hasConfiguredModerationBackend, submitModerationDecision, submitModerationReport } from '../constants/moderationProvider';
 import { requestManagedPasswordReset } from '../constants/passwordResetProvider';
 import { getPaymentProviderLabel, getPaymentSetupInstructions, hasConfiguredPaymentBackend, startPurchaseFlow } from '../constants/paymentProvider';
+import {
+    approveProfileImage as approveVerifiedProfileImage,
+    createFaceLivenessSession as createProfilePhotoLivenessSession,
+    getFaceLivenessResultAndCompareProfileImage as getProfilePhotoLivenessResultAndCompare,
+    getProfilePhotoVerificationSetupInstructions,
+    hasConfiguredProfilePhotoVerification,
+    openFaceLivenessFlow,
+    rejectAndDeleteTempProfileImage as rejectTempProfileImage,
+} from '../constants/profilePhotoVerificationProvider';
 import {
     EXPLORE_CITIES,
     EYE_OPTIONS,
@@ -51,18 +65,29 @@ import {
     VISIBILITY_OPTIONS,
 } from '../data/mockData';
 import { auth, authReady, db, storage } from '../firebase';
+import { getCompatibility as getCompatibilityScore, isMutualSearchMatch as isMutualSearchVisibilityMatch } from '../untils/matching';
 
 const AffairGoContext = createContext(null);
 const LIVE_LOCATION_INTERVAL_MS = 8000;
 const MAX_MODERATION_AUDIT_TRAIL_ENTRIES = 40;
 const FIXED_ADMIN_EMAIL = 'ramon.meyer@admin.de';
 const FIXED_ADMIN_PASSWORD = 'heihachi17';
-const LIVE_LOCATION_BACKEND_BASE_URL = (process.env.EXPO_PUBLIC_LIVE_LOCATION_BASE_URL || '/api/location').trim().replace(/\/$/, '');
 const SESSION_CACHE_STORAGE_KEY = 'affairgo.session.v1';
 const FREE_ACCESS_MEMBERSHIP = 'free';
 const FREE_ACCESS_STATUS_LABEL = 'Kostenfrei bis Anfang 2027';
+const MAP_LOCATIONS_COLLECTION = 'mapLocations';
+const LOCATION_PRIVACY_SUBCOLLECTION = 'private';
+const LOCATION_PRIVACY_DOC_ID = 'liveLocation';
+const LOCATION_MAX_ACCURACY_METERS = 150;
+const LOCATION_STALE_AFTER_MS = 10 * 60 * 1000;
+const LOCATION_OBFUSCATION_MAX_METERS = 450;
+const EVENT_FALLBACK_GEOKM = 2;
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
+const PROFILE_VERIFICATION_FAILURE_MESSAGES = {
+  FACE_MISMATCH: 'Das Profilbild passt nicht zum Live-Selfie. Das temporäre Bild wurde verworfen.',
+  LIVENESS_FAILED: 'Die Live-Selfie-Prüfung war nicht erfolgreich. Das temporäre Bild wurde verworfen.',
+};
 
 const canUseBrowserStorage = () => typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 
@@ -193,6 +218,10 @@ const createDefaultCurrentUser = () => ({
   rewardLog: [],
   joinedLabel: 'Neu',
   profileImageUri: '',
+  profilePhotoUrl: '',
+  profilePhotoVerified: false,
+  profilePhotoVerifiedAt: '',
+  faceMatchSimilarity: 0,
   moderationState: 'clear',
   moderationFlags: [],
   moderationLastCheckedAt: '',
@@ -242,6 +271,23 @@ const normalizeGermanComparison = (value = '') => String(value)
   .replaceAll('ö', 'oe')
   .replaceAll('ü', 'ue')
   .replaceAll('ß', 'ss');
+
+const normalizeDateValue = (value) => {
+  if (!value) {
+    return '';
+  }
+
+  if (typeof value?.toDate === 'function') {
+    return value.toDate().toISOString();
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString();
+};
 
 const normalizeOptionValue = (value, options, fallback = value) => {
   if (!value) {
@@ -606,7 +652,11 @@ const normalizeUserProfile = (profile = {}, firebaseUser = null) => {
     goldDiscountPackage: false,
     purchaseHistory: Array.isArray(profile.purchaseHistory) ? profile.purchaseHistory : defaults.purchaseHistory,
     gallery: Array.isArray(profile.gallery) ? profile.gallery : defaults.gallery,
-    profileImageUri: profile.profileImageUri || '',
+    profilePhotoUrl: profile.profilePhotoUrl || profile.profileImageUri || '',
+    profileImageUri: profile.profilePhotoUrl || profile.profileImageUri || '',
+    profilePhotoVerified: fixedAdmin ? true : Boolean(profile.profilePhotoVerified),
+    profilePhotoVerifiedAt: normalizeDateValue(profile.profilePhotoVerifiedAt),
+    faceMatchSimilarity: Number.isFinite(Number(profile.faceMatchSimilarity)) ? Number(profile.faceMatchSimilarity) : 0,
     accountDeletionRequestedAt: profile.accountDeletionRequestedAt || '',
     dataExportRequestedAt: profile.dataExportRequestedAt || '',
     latitude: Number.isFinite(Number(profile.latitude)) ? Number(profile.latitude) : defaults.latitude,
@@ -631,6 +681,11 @@ const toStoredProfile = (profile) => {
   const { searchAgeMin, searchAgeMax } = normalizeSearchAgeRange(profile, createDefaultCurrentUser());
   delete sanitized.password;
   delete sanitized.repeatPassword;
+  delete sanitized.profileImageUri;
+  delete sanitized.profilePhotoUrl;
+  delete sanitized.profilePhotoVerified;
+  delete sanitized.profilePhotoVerifiedAt;
+  delete sanitized.faceMatchSimilarity;
 
   return {
     ...sanitized,
@@ -650,7 +705,6 @@ const toStoredProfile = (profile) => {
     planPriceLabel: FREE_ACCESS_STATUS_LABEL,
     goldDiscountPackage: false,
     purchaseHistory: Array.isArray(profile.purchaseHistory) ? profile.purchaseHistory : [],
-    profileImageUri: profile.profileImageUri || '',
     pendingNickname: profile.pendingNickname || '',
     ageVerified: Boolean(profile.ageVerified),
     ageVerificationStatus: profile.ageVerificationStatus || 'not_started',
@@ -728,7 +782,11 @@ const buildRegistrationProfile = (payload, uid) => ({
   eyeColor: payload.eyeColor,
   skinType: payload.skinType,
   verified: Boolean(payload.profileImageUploaded),
-  profileImageUri: payload.profileImageUri || '',
+  profileImageUri: payload.profilePhotoUrl || payload.profileImageUri || '',
+  profilePhotoUrl: payload.profilePhotoUrl || payload.profileImageUri || '',
+  profilePhotoVerified: Boolean(payload.profilePhotoVerified),
+  profilePhotoVerifiedAt: payload.profilePhotoVerifiedAt || '',
+  faceMatchSimilarity: Number.isFinite(Number(payload.faceMatchSimilarity)) ? Number(payload.faceMatchSimilarity) : 0,
   profilePhotoAgeMonths: 0,
   gallery: [],
   joinedLabel: 'Heute',
@@ -789,6 +847,7 @@ const CITY_COORDINATES = {
 
 const roundCoordinate = (value) => Number(value.toFixed(5));
 const toRadians = (value) => (value * Math.PI) / 180;
+const toDegrees = (value) => (value * 180) / Math.PI;
 
 const calculateDistanceKm = (origin, target) => {
   if (!origin || !target) {
@@ -807,6 +866,199 @@ const calculateDistanceKm = (origin, target) => {
   return earthRadiusKm * (2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine)));
 };
 
+const metersToLatitudeDelta = (meters) => meters / 111320;
+
+const metersToLongitudeDelta = (meters, latitude) => {
+  const safeCosine = Math.max(0.2, Math.cos(toRadians(latitude || 0)));
+  return meters / (111320 * safeCosine);
+};
+
+const offsetCoordinate = (coordinate, latitudeDelta, longitudeDelta) => ({
+  latitude: roundCoordinate(coordinate.latitude + latitudeDelta),
+  longitude: roundCoordinate(coordinate.longitude + longitudeDelta),
+});
+
+const getLocationPrivacySeed = (value = '') => value.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
+
+const anonymizeMarkerPosition = (profile, coordinate) => {
+  if (!coordinate || !profile?.id) {
+    return coordinate;
+  }
+
+  const seed = getLocationPrivacySeed(profile.id);
+  const distanceMeters = 120 + (seed % LOCATION_OBFUSCATION_MAX_METERS);
+  const angleRadians = ((seed * 47) % 360) * (Math.PI / 180);
+  const latitudeDelta = metersToLatitudeDelta(Math.sin(angleRadians) * distanceMeters);
+  const longitudeDelta = metersToLongitudeDelta(Math.cos(angleRadians) * distanceMeters, coordinate.latitude);
+  return offsetCoordinate(coordinate, latitudeDelta, longitudeDelta);
+};
+
+const createLocationGeohash = (coordinate) => {
+  if (!coordinate || !Number.isFinite(Number(coordinate.latitude)) || !Number.isFinite(Number(coordinate.longitude))) {
+    return '';
+  }
+
+  return geohashForLocation([Number(coordinate.latitude), Number(coordinate.longitude)]);
+};
+
+const normalizeMapStatus = (value, fallback = 'active') => {
+  const normalizedValue = String(value || fallback).trim().toLowerCase();
+
+  if (['vacation', 'business', 'event', 'active'].includes(normalizedValue)) {
+    return normalizedValue;
+  }
+
+  return fallback;
+};
+
+const getMapStatusForProfile = (profile) => {
+  const travelSummary = getProfileTravelSummary(profile);
+
+  if (profile?.mapStatus) {
+    return normalizeMapStatus(profile.mapStatus);
+  }
+
+  if (travelSummary?.mode === 'business') {
+    return 'business';
+  }
+
+  if (travelSummary?.mode === 'vacation') {
+    return 'vacation';
+  }
+
+  return 'active';
+};
+
+const isLocationFresh = (updatedAt) => {
+  const updatedTimestamp = typeof updatedAt?.toMillis === 'function'
+    ? updatedAt.toMillis()
+    : new Date(updatedAt || 0).getTime();
+
+  return Number.isFinite(updatedTimestamp) && (Date.now() - updatedTimestamp) <= LOCATION_STALE_AFTER_MS;
+};
+
+const normalizeLocationAccuracy = (value) => {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? Math.max(0, Math.round(numericValue)) : null;
+};
+
+const normalizeLocationCoordinate = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  const latitude = Number(value.latitude);
+  const longitude = Number(value.longitude);
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return null;
+  }
+
+  return {
+    latitude: roundCoordinate(latitude),
+    longitude: roundCoordinate(longitude),
+  };
+};
+
+const buildPublicLocationDocument = ({ profile, exactLocation, accuracyMeters, lastUpdatedAt = Timestamp.now() }) => {
+  const normalizedLocation = normalizeLocationCoordinate(exactLocation);
+
+  if (!normalizedLocation) {
+    return null;
+  }
+
+  const anonymizedCoordinate = anonymizeMarkerPosition(profile, normalizedLocation);
+  const locationStatus = getMapStatusForProfile(profile);
+
+  return {
+    userId: profile.id,
+    nickname: profile.nickname || '',
+    profileImageUri: profile.profilePhotoUrl || profile.profileImageUri || '',
+    age: Number(profile.age) || null,
+    status: locationStatus,
+    searchActive: Boolean(profile.searchActive),
+    visible: Boolean(profile.searchActive) && !profile.accountDeletionRequestedAt,
+    online: true,
+    membership: profile.membership || FREE_ACCESS_MEMBERSHIP,
+    city: profile.city || '',
+    travelMode: profile.travelMode || locationStatus,
+    coordinate: anonymizedCoordinate,
+    geohash: createLocationGeohash(anonymizedCoordinate),
+    accuracyMeters: normalizeLocationAccuracy(accuracyMeters),
+    updatedAt: lastUpdatedAt,
+  };
+};
+
+const buildPrivateLocationDocument = ({ exactLocation, accuracyMeters, lastUpdatedAt = Timestamp.now() }) => {
+  const normalizedLocation = normalizeLocationCoordinate(exactLocation);
+
+  if (!normalizedLocation) {
+    return null;
+  }
+
+  return {
+    coordinate: normalizedLocation,
+    geohash: createLocationGeohash(normalizedLocation),
+    accuracyMeters: normalizeLocationAccuracy(accuracyMeters),
+    updatedAt: lastUpdatedAt,
+  };
+};
+
+const getFirestoreRadiusKm = (value) => {
+  const numericValue = Number(value);
+
+  if ([5, 10, 20, 50, 100, 150].includes(numericValue)) {
+    return numericValue;
+  }
+
+  if (numericValue <= 5) {
+    return 5;
+  }
+  if (numericValue <= 10) {
+    return 10;
+  }
+  if (numericValue <= 20) {
+    return 20;
+  }
+  if (numericValue <= 50) {
+    return 50;
+  }
+  if (numericValue <= 100) {
+    return 100;
+  }
+
+  return 150;
+};
+
+const getEventCoordinate = (event, fallbackLocation) => {
+  const explicitCoordinate = normalizeLocationCoordinate(event?.coordinate);
+
+  if (explicitCoordinate) {
+    return explicitCoordinate;
+  }
+
+  const referencedCity = event?.travelReferenceCity || event?.city || '';
+  const cityCoordinate = getCityCoordinates(referencedCity);
+
+  if (cityCoordinate) {
+    return cityCoordinate;
+  }
+
+  return fallbackLocation || DEFAULT_MAP_LOCATION;
+};
+
+const buildEventMapItem = (event, observerLocation) => {
+  const coordinate = getEventCoordinate(event, observerLocation);
+  return {
+    ...event,
+    mapItemType: 'event',
+    mapStatus: 'event',
+    latitude: coordinate.latitude,
+    longitude: coordinate.longitude,
+    distanceKm: Math.max(1, Math.round(calculateDistanceKm(observerLocation, coordinate))),
+  };
+};
+
 const getCityCoordinates = (city = '') => CITY_COORDINATES[normalizeGermanComparison(city)] || null;
 
 const getFallbackLiveLocation = (profile = {}) => {
@@ -822,89 +1074,134 @@ const getFallbackLiveLocation = (profile = {}) => {
   return getCityCoordinates(travelLocation || profile.city) || DEFAULT_MAP_LOCATION;
 };
 
-const getProfileMotionSeed = (profileId = '') => profileId.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
+const normalizeStoredMapLocation = (entry, observerLocation) => {
+  if (!entry?.userId) {
+    return null;
+  }
 
-const simulateProfileLocation = (profile, pulse, observerLocation) => {
-  const baseCoordinates = getFallbackLiveLocation(profile);
-  const seed = getProfileMotionSeed(profile.id);
-  const latitudeOffset = Math.sin((pulse + seed) / 4) * (0.01 + ((seed % 3) * 0.0025));
-  const longitudeOffset = Math.cos((pulse + seed) / 5) * (0.014 + ((seed % 4) * 0.0025));
-  const nextCoordinates = {
-    latitude: roundCoordinate(baseCoordinates.latitude + latitudeOffset),
-    longitude: roundCoordinate(baseCoordinates.longitude + longitudeOffset),
-  };
+  const coordinate = normalizeLocationCoordinate(entry.coordinate);
+
+  if (!coordinate || !isLocationFresh(entry.updatedAt) || entry.visible === false || entry.searchActive === false) {
+    return null;
+  }
 
   return {
-    ...profile,
-    latitude: nextCoordinates.latitude,
-    longitude: nextCoordinates.longitude,
-    distanceKm: Math.max(1, Math.round(calculateDistanceKm(observerLocation, nextCoordinates))),
+    userId: entry.userId,
+    nickname: entry.nickname || '',
+    profileImageUri: entry.profileImageUri || '',
+    age: Number(entry.age) || null,
+    status: normalizeMapStatus(entry.status),
+    searchActive: entry.searchActive !== false,
+    online: entry.online !== false,
+    coordinate,
+    distanceKm: Math.max(1, Math.round(calculateDistanceKm(observerLocation, coordinate))),
+    updatedAt: entry.updatedAt,
   };
 };
 
-const syncLiveLocationSnapshot = async ({ profile, location }) => {
-  if (!LIVE_LOCATION_BACKEND_BASE_URL || !profile?.id) {
-    return [];
+const mergeMapLocationsIntoProfiles = (profiles, mapLocations, observerLocation) => {
+  if (!Array.isArray(mapLocations) || !mapLocations.length) {
+    return profiles.map((profile) => {
+      const fallbackLocation = getFallbackLiveLocation(profile);
+      return {
+        ...profile,
+        latitude: fallbackLocation.latitude,
+        longitude: fallbackLocation.longitude,
+        mapStatus: getMapStatusForProfile(profile),
+        distanceKm: Math.max(1, Math.round(calculateDistanceKm(observerLocation, fallbackLocation))),
+      };
+    });
   }
 
-  const response = await fetch(`${LIVE_LOCATION_BACKEND_BASE_URL}/sync`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      userId: profile.id,
-      nickname: profile.nickname || '',
-      membership: FREE_ACCESS_MEMBERSHIP,
-      searchActive: Boolean(profile.searchActive),
-      online: true,
-      latitude: Number(location?.latitude),
-      longitude: Number(location?.longitude),
-    }),
-  });
-
-  const payload = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    throw new Error(payload?.message || 'Live-Standorte konnten nicht synchronisiert werden.');
-  }
-
-  return Array.isArray(payload.locations) ? payload.locations : [];
-};
-
-const mergeRemoteLiveLocations = (profiles, remoteLocations, observerLocation) => {
-  if (!Array.isArray(remoteLocations) || !remoteLocations.length) {
-    return profiles;
-  }
-
-  const remoteLocationMap = new Map(
-    remoteLocations
-      .filter((entry) => entry && entry.userId)
+  const locationMap = new Map(
+    mapLocations
+      .map((entry) => normalizeStoredMapLocation(entry, observerLocation))
+      .filter(Boolean)
       .map((entry) => [entry.userId, entry])
   );
 
   return profiles.map((profile) => {
-    const remoteProfile = remoteLocationMap.get(profile.id);
+    const publicLocation = locationMap.get(profile.id);
 
-    if (!remoteProfile) {
-      return profile;
+    if (!publicLocation) {
+      const fallbackLocation = getFallbackLiveLocation(profile);
+      return {
+        ...profile,
+        latitude: fallbackLocation.latitude,
+        longitude: fallbackLocation.longitude,
+        mapStatus: getMapStatusForProfile(profile),
+        distanceKm: Math.max(1, Math.round(calculateDistanceKm(observerLocation, fallbackLocation))),
+      };
     }
 
-    const latitude = Number(remoteProfile.latitude);
-    const longitude = Number(remoteProfile.longitude);
-
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-      return profile;
-    }
-
-    const nextCoordinates = { latitude, longitude };
     return {
       ...profile,
-      latitude,
-      longitude,
-      online: remoteProfile.online !== false,
-      distanceKm: Math.max(1, Math.round(calculateDistanceKm(observerLocation, nextCoordinates))),
-      lastLiveSyncAt: remoteProfile.syncedAt || profile.lastLiveSyncAt || '',
+      latitude: publicLocation.coordinate.latitude,
+      longitude: publicLocation.coordinate.longitude,
+      online: publicLocation.online,
+      profileImageUri: publicLocation.profileImageUri || profile.profileImageUri || '',
+      mapStatus: publicLocation.status,
+      distanceKm: publicLocation.distanceKm,
+      lastLiveSyncAt: normalizeDateValue(publicLocation.updatedAt),
     };
   });
+};
+
+const loadStoredUsers = async (excludedUserId = '') => {
+  try {
+    const snapshot = await getDocs(collection(db, 'users'));
+    const storedUsers = snapshot.docs
+      .map((profileDoc) => ({
+        ...normalizeUserProfile({ id: profileDoc.id, ...profileDoc.data() }),
+        latitude: null,
+        longitude: null,
+      }))
+      .filter((profile) => profile.id && profile.id !== excludedUserId);
+
+    return storedUsers;
+  } catch (error) {
+    console.warn('AffairGo user bootstrap warning', error);
+    return [];
+  }
+};
+
+const loadRadiusMapLocations = async ({ center, radiusKm, excludedUserId = '' }) => {
+  const normalizedCenter = normalizeLocationCoordinate(center);
+
+  if (!normalizedCenter) {
+    return [];
+  }
+
+  const radiusInM = getFirestoreRadiusKm(radiusKm) * 1000;
+  const bounds = geohashQueryBounds([normalizedCenter.latitude, normalizedCenter.longitude], radiusInM);
+  const locationQueries = bounds.map(([startHash, endHash]) => getDocs(query(
+    collection(db, MAP_LOCATIONS_COLLECTION),
+    orderBy('geohash'),
+    startAt(startHash),
+    endAt(endHash)
+  )));
+  const snapshots = await Promise.all(locationQueries);
+  const uniqueEntries = new Map();
+
+  snapshots.forEach((snapshot) => {
+    snapshot.docs.forEach((locationDoc) => {
+      const entry = { id: locationDoc.id, ...locationDoc.data() };
+
+      if (!entry.userId || entry.userId === excludedUserId) {
+        return;
+      }
+
+      const normalizedEntry = normalizeStoredMapLocation(entry, normalizedCenter);
+
+      if (!normalizedEntry || normalizedEntry.distanceKm > getFirestoreRadiusKm(radiusKm)) {
+        return;
+      }
+
+      uniqueEntries.set(entry.userId, entry);
+    });
+  });
+
+  return Array.from(uniqueEntries.values());
 };
 
 const createFeatureIdeaEntry = ({ title, submitterId, submitterNickname }) => ({
@@ -1174,6 +1471,31 @@ const uploadMediaAsset = async (folder, assetOrUri, ownerId) => {
   return getDownloadURL(storageRef);
 };
 
+const uploadMediaAssetToStoragePath = async (folder, assetOrUri, ownerId) => {
+  const assetUri = typeof assetOrUri === 'string' ? assetOrUri : assetOrUri?.uri;
+
+  if (!assetUri) {
+    throw new Error('Es wurde kein Bild zum Hochladen ausgewählt.');
+  }
+
+  if (/^https?:\/\//i.test(assetUri)) {
+    throw new Error('Für die Verifizierung sind nur lokale Bilddateien erlaubt.');
+  }
+
+  const response = await fetch(assetUri);
+  const blob = await response.blob();
+  const extensionMatch = assetUri.match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
+  const extension = extensionMatch?.[1] || 'jpg';
+  const filePath = `${folder}/${ownerId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
+  const storageRef = ref(storage, filePath);
+
+  await uploadBytes(storageRef, blob, { contentType: blob.type || 'image/jpeg' });
+  return {
+    storagePath: filePath,
+    storageRef,
+  };
+};
+
 const ensureNicknameAvailable = async (nickname, excludedUserId = null) => {
   let storedProfile = null;
 
@@ -1191,30 +1513,6 @@ const ensureNicknameAvailable = async (nickname, excludedUserId = null) => {
   if (storedProfile && storedProfile.id !== excludedUserId) {
     throw new Error('Dieser Spitzname ist bereits vergeben. Bitte wähle einen anderen.');
   }
-};
-
-const parseHeightToCentimeters = (value) => {
-  if (!value) {
-    return null;
-  }
-
-  const normalizedValue = String(value).trim().replace(',', '.');
-  const numericValue = Number.parseFloat(normalizedValue);
-
-  if (Number.isNaN(numericValue)) {
-    return null;
-  }
-
-  return numericValue <= 3 ? Math.round(numericValue * 100) : Math.round(numericValue);
-};
-
-const parseSizeToNumber = (value) => {
-  if (!value) {
-    return null;
-  }
-
-  const match = String(value).replace(',', '.').match(/\d+(?:\.\d+)?/);
-  return match ? Number.parseFloat(match[0]) : null;
 };
 
 const resolveAuthEmail = async (identifier) => {
@@ -1237,126 +1535,13 @@ const resolveAuthEmail = async (identifier) => {
   throw new Error('Bitte eine gültige E-Mail-Adresse oder einen vorhandenen Spitznamen eingeben.');
 };
 
-const getPreferenceCompatibility = (sourcePreferences = [], targetPreferences = []) => {
-  const base = sourcePreferences.length || 1;
-  const shared = sourcePreferences.filter((entry) => targetPreferences.includes(entry)).length;
-  return Math.round((shared / base) * 100);
-};
+const getCompatibility = (sourceProfileOrPreferences, targetProfileOrPreferences) => getCompatibilityScore(sourceProfileOrPreferences, targetProfileOrPreferences);
 
-const getBodyDataCompatibility = (sourceProfile = {}, targetProfile = {}) => {
-  let points = 0;
-  let maxPoints = 0;
-
-  const sourceHeight = parseHeightToCentimeters(sourceProfile.height);
-  const targetHeight = parseHeightToCentimeters(targetProfile.height);
-  if (sourceHeight && targetHeight) {
-    maxPoints += 35;
-    const heightDifference = Math.abs(sourceHeight - targetHeight);
-
-    if (heightDifference <= 5) {
-      points += 35;
-    } else if (heightDifference <= 10) {
-      points += 24;
-    } else if (heightDifference <= 15) {
-      points += 14;
-    } else if (heightDifference <= 20) {
-      points += 8;
-    }
-  }
-
-  if (sourceProfile.figure && targetProfile.figure) {
-    maxPoints += 30;
-    if (sourceProfile.figure === targetProfile.figure) {
-      points += 30;
-    }
-  }
-
-  if (sourceProfile.hairColor && targetProfile.hairColor) {
-    maxPoints += 10;
-    if (sourceProfile.hairColor === targetProfile.hairColor) {
-      points += 10;
-    }
-  }
-
-  if (sourceProfile.eyeColor && targetProfile.eyeColor) {
-    maxPoints += 10;
-    if (sourceProfile.eyeColor === targetProfile.eyeColor) {
-      points += 10;
-    }
-  }
-
-  if (sourceProfile.skinType && targetProfile.skinType) {
-    maxPoints += 5;
-    if (sourceProfile.skinType === targetProfile.skinType) {
-      points += 5;
-    }
-  }
-
-  const sourceBraSize = parseSizeToNumber(sourceProfile.braSize);
-  const targetBraSize = parseSizeToNumber(targetProfile.braSize);
-  if (sourceBraSize && targetBraSize) {
-    maxPoints += 5;
-    if (Math.abs(sourceBraSize - targetBraSize) <= 5) {
-      points += 5;
-    }
-  }
-
-  const sourcePenisSize = parseSizeToNumber(sourceProfile.penisSize);
-  const targetPenisSize = parseSizeToNumber(targetProfile.penisSize);
-  if (sourcePenisSize && targetPenisSize) {
-    maxPoints += 5;
-    if (Math.abs(sourcePenisSize - targetPenisSize) <= 2) {
-      points += 5;
-    }
-  }
-
-  if (!maxPoints) {
-    return null;
-  }
-
-  return Math.round((points / maxPoints) * 100);
-};
-
-const getCompatibility = (sourceProfileOrPreferences, targetProfileOrPreferences) => {
-  if (Array.isArray(sourceProfileOrPreferences) && Array.isArray(targetProfileOrPreferences)) {
-    return getPreferenceCompatibility(sourceProfileOrPreferences, targetProfileOrPreferences);
-  }
-
-  const sourceProfile = sourceProfileOrPreferences || {};
-  const targetProfile = targetProfileOrPreferences || {};
-  const preferenceCompatibility = getPreferenceCompatibility(sourceProfile.preferences || [], targetProfile.preferences || []);
-  const bodyCompatibility = getBodyDataCompatibility(sourceProfile, targetProfile);
-
-  if (bodyCompatibility === null) {
-    return preferenceCompatibility;
-  }
-
-  return Math.round((preferenceCompatibility * 0.7) + (bodyCompatibility * 0.3));
-};
-
-const isMutualAgeMatch = (currentUser, targetUser) => {
-  const userLikesTarget =
-    targetUser.age >= currentUser.searchAgeMin && targetUser.age <= currentUser.searchAgeMax;
-  const targetLikesUser =
-    currentUser.age >= targetUser.searchAgeMin && currentUser.age <= targetUser.searchAgeMax;
-  return userLikesTarget && targetLikesUser;
-};
-
-const isMutualGenderMatch = (currentUser, targetUser) => {
-  const currentUserSearchGenders = getSearchGenders(currentUser);
-  const targetUserSearchGenders = getSearchGenders(targetUser);
-  const normalizedCurrentGender = normalizeOptionValue(currentUser.gender, SEARCH_GENDER_OPTIONS, currentUser.gender);
-  const normalizedTargetGender = normalizeOptionValue(targetUser.gender, SEARCH_GENDER_OPTIONS, targetUser.gender);
-
-  const currentUserLikesTarget = currentUserSearchGenders.includes(normalizedTargetGender);
-  const targetUserLikesCurrentUser = targetUserSearchGenders.includes(normalizedCurrentGender);
-
-  return currentUserLikesTarget && targetUserLikesCurrentUser;
-};
-
-const isMutualSearchMatch = (currentUser, targetUser) => (
-  isMutualAgeMatch(currentUser, targetUser) && isMutualGenderMatch(currentUser, targetUser)
-);
+const isMutualSearchMatch = (currentUser, targetUser) => isMutualSearchVisibilityMatch(currentUser, targetUser, {
+  getSearchGenders,
+  normalizeOptionValue,
+  searchGenderOptions: SEARCH_GENDER_OPTIONS,
+});
 
 export const AffairGoProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(createDefaultCurrentUser());
@@ -1372,12 +1557,11 @@ export const AffairGoProvider = ({ children }) => {
   const [photoAgeFilter, setPhotoAgeFilter] = useState(null);
   const [featureIdeas, setFeatureIdeas] = useState([]);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [locationPulse, setLocationPulse] = useState(0);
   const [lastLocationSyncLabel, setLastLocationSyncLabel] = useState('Standort-Sync bereit');
   const [deviceLocation, setDeviceLocation] = useState(null);
   const [locationPermissionGranted, setLocationPermissionGranted] = useState(false);
   const [locationError, setLocationError] = useState('');
-  const [remoteLiveLocations, setRemoteLiveLocations] = useState([]);
+  const [publicMapLocations, setPublicMapLocations] = useState([]);
 
   const mapCenterCoordinates = useMemo(() => deviceLocation || getFallbackLiveLocation(currentUser), [currentUser, deviceLocation]);
 
@@ -1387,10 +1571,37 @@ export const AffairGoProvider = ({ children }) => {
     }
 
     try {
-      const syncedLocations = await syncLiveLocationSnapshot({ profile: currentUser, location });
-      setRemoteLiveLocations(syncedLocations);
-      setUsers((existingUsers) => mergeRemoteLiveLocations(existingUsers, syncedLocations, location));
-      return syncedLocations;
+      const accuracyMeters = normalizeLocationAccuracy(location?.accuracy ?? location?.coords?.accuracy);
+      const lastUpdatedAt = Timestamp.now();
+      const publicLocationDoc = buildPublicLocationDocument({
+        profile: currentUser,
+        exactLocation: location,
+        accuracyMeters,
+        lastUpdatedAt,
+      });
+      const privateLocationDoc = buildPrivateLocationDocument({
+        exactLocation: location,
+        accuracyMeters,
+        lastUpdatedAt,
+      });
+
+      if (!publicLocationDoc || !privateLocationDoc || !currentUser?.id || currentUser.id === 'me') {
+        return [];
+      }
+
+      await Promise.all([
+        setDoc(doc(db, MAP_LOCATIONS_COLLECTION, currentUser.id), publicLocationDoc, { merge: true }),
+        setDoc(doc(db, 'users', currentUser.id, LOCATION_PRIVACY_SUBCOLLECTION, LOCATION_PRIVACY_DOC_ID), privateLocationDoc, { merge: true }),
+      ]);
+
+      const mapLocations = await loadRadiusMapLocations({
+        center: privateLocationDoc.coordinate,
+        radiusKm: currentRadius,
+        excludedUserId: currentUser.id,
+      });
+      setPublicMapLocations(mapLocations);
+      setUsers((existingUsers) => mergeMapLocationsIntoProfiles(existingUsers, mapLocations, privateLocationDoc.coordinate));
+      return mapLocations;
     } catch (error) {
       console.warn('AffairGo live location sync warning', error);
       return [];
@@ -1471,7 +1682,8 @@ export const AffairGoProvider = ({ children }) => {
           setDeviceLocation(null);
           setLocationPermissionGranted(false);
           setLocationError('');
-          setRemoteLiveLocations([]);
+          setPublicMapLocations([]);
+          setUsers(clone(INITIAL_USERS));
           clearCachedSession();
           setIsAuthReady(true);
           return;
@@ -1516,6 +1728,22 @@ export const AffairGoProvider = ({ children }) => {
   useEffect(() => {
     let active = true;
 
+    loadStoredUsers(currentUser.id === 'me' ? '' : currentUser.id).then((storedUsers) => {
+      if (!active || !storedUsers.length) {
+        return;
+      }
+
+      setUsers(storedUsers);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [currentUser.id]);
+
+  useEffect(() => {
+    let active = true;
+
     loadStoredFeatureIdeas().then((storedIdeas) => {
       if (active) {
         setFeatureIdeas(storedIdeas);
@@ -1548,19 +1776,45 @@ export const AffairGoProvider = ({ children }) => {
 
   const requestLiveLocationAccess = async () => {
     try {
-      const permission = await Location.requestForegroundPermissionsAsync();
+      let currentPosition;
 
-      if (!permission.granted) {
-        setLocationPermissionGranted(false);
-        setLocationError('Standortfreigabe fehlt. Erlaube den Zugriff, damit die Matching Map deinen echten Standort nutzen kann.');
-        setLastLocationSyncLabel('Standortfreigabe erforderlich');
-        return false;
+      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.geolocation) {
+        const permissionsApi = navigator.permissions?.query
+          ? await navigator.permissions.query({ name: 'geolocation' }).catch(() => null)
+          : null;
+
+        if (permissionsApi?.state === 'denied') {
+          setLocationPermissionGranted(false);
+          setLocationError('Die Standortfreigabe wurde im Browser blockiert. Bitte aktiviere sie in den Website-Einstellungen.');
+          setLastLocationSyncLabel('Standortfreigabe erforderlich');
+          return false;
+        }
+
+        currentPosition = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            maximumAge: 0,
+            timeout: 15000,
+          });
+        });
+      } else {
+        const permission = await Location.requestForegroundPermissionsAsync();
+
+        if (!permission.granted) {
+          setLocationPermissionGranted(false);
+          setLocationError('Standortfreigabe fehlt. Erlaube den Zugriff, damit die Matching Map deinen echten Standort nutzen kann.');
+          setLastLocationSyncLabel('Standortfreigabe erforderlich');
+          return false;
+        }
+
+        currentPosition = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       }
 
-      const currentPosition = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const accuracy = normalizeLocationAccuracy(currentPosition?.coords?.accuracy);
       const nextDeviceLocation = {
         latitude: roundCoordinate(currentPosition.coords.latitude),
         longitude: roundCoordinate(currentPosition.coords.longitude),
+        accuracy,
       };
 
       setDeviceLocation(nextDeviceLocation);
@@ -1584,6 +1838,7 @@ export const AffairGoProvider = ({ children }) => {
     }
 
     let subscription;
+    let watchId;
     let active = true;
 
     const startWatcher = async () => {
@@ -1593,24 +1848,39 @@ export const AffairGoProvider = ({ children }) => {
         return;
       }
 
+      const handlePosition = (position) => {
+        const nextDeviceLocation = {
+          latitude: roundCoordinate(position.coords.latitude),
+          longitude: roundCoordinate(position.coords.longitude),
+          accuracy: normalizeLocationAccuracy(position.coords.accuracy),
+        };
+
+        setDeviceLocation(nextDeviceLocation);
+        setLocationPermissionGranted(true);
+        setLocationError('');
+        setLastLocationSyncLabel(`GPS aktualisiert • ${new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`);
+        publishLiveLocation(nextDeviceLocation).catch(() => undefined);
+      };
+
+      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.geolocation) {
+        watchId = navigator.geolocation.watchPosition(handlePosition, (error) => {
+          setLocationPermissionGranted(false);
+          setLocationError(error.message || 'Der Browser konnte den Standort nicht aktualisieren.');
+        }, {
+          enableHighAccuracy: true,
+          maximumAge: 0,
+          timeout: 15000,
+        });
+        return;
+      }
+
       subscription = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.Balanced,
           timeInterval: LIVE_LOCATION_INTERVAL_MS,
           distanceInterval: 30,
         },
-        (position) => {
-          const nextDeviceLocation = {
-            latitude: roundCoordinate(position.coords.latitude),
-            longitude: roundCoordinate(position.coords.longitude),
-          };
-
-          setDeviceLocation(nextDeviceLocation);
-          setLocationPermissionGranted(true);
-          setLocationError('');
-          setLastLocationSyncLabel(`GPS aktualisiert • ${new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`);
-          publishLiveLocation(nextDeviceLocation).catch(() => undefined);
-        }
+        handlePosition
       );
     };
 
@@ -1619,6 +1889,9 @@ export const AffairGoProvider = ({ children }) => {
     return () => {
       active = false;
       subscription?.remove?.();
+      if (Number.isInteger(watchId) && typeof navigator !== 'undefined' && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchId);
+      }
     };
   }, [currentUser.searchActive]);
 
@@ -1628,28 +1901,38 @@ export const AffairGoProvider = ({ children }) => {
     }
 
     const observerLocation = mapCenterCoordinates || DEFAULT_MAP_LOCATION;
+    let active = true;
 
-    setUsers((existingUsers) => mergeRemoteLiveLocations(
-      existingUsers.map((profile) => simulateProfileLocation(profile, locationPulse + 1, observerLocation)),
-      remoteLiveLocations,
-      observerLocation
-    ));
+    const refreshMapLocations = async () => {
+      try {
+        const mapLocations = await loadRadiusMapLocations({
+          center: observerLocation,
+          radiusKm: currentRadius,
+          excludedUserId: currentUser.id,
+        });
+
+        if (!active) {
+          return;
+        }
+
+        setPublicMapLocations(mapLocations);
+        setUsers((existingUsers) => mergeMapLocationsIntoProfiles(existingUsers, mapLocations, observerLocation));
+      } catch (error) {
+        console.warn('AffairGo map radius refresh warning', error);
+      }
+    };
+
+    refreshMapLocations();
 
     const intervalId = setInterval(() => {
-      setLocationPulse((previous) => {
-        const nextPulse = previous + 1;
-        setUsers((existingUsers) => mergeRemoteLiveLocations(
-          existingUsers.map((profile) => simulateProfileLocation(profile, nextPulse, observerLocation)),
-          remoteLiveLocations,
-          observerLocation
-        ));
-        setLastLocationSyncLabel(`Live aktualisiert • ${new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`);
-        return nextPulse;
-      });
+      refreshMapLocations();
     }, LIVE_LOCATION_INTERVAL_MS);
 
-    return () => clearInterval(intervalId);
-  }, [currentUser.searchActive, mapCenterCoordinates, remoteLiveLocations]);
+    return () => {
+      active = false;
+      clearInterval(intervalId);
+    };
+  }, [currentRadius, currentUser.id, currentUser.searchActive, mapCenterCoordinates]);
 
   const persistCurrentUserPatch = async (patch) => {
     const userId = auth.currentUser?.uid || currentUser.id;
@@ -1924,6 +2207,9 @@ export const AffairGoProvider = ({ children }) => {
   const swipeLimitReached = false;
 
   const nearbyOnlineProfiles = visibleProfiles.filter((profile) => profile.online).slice(0, 3);
+  const visibleMapEvents = useMemo(() => events
+    .map((event) => buildEventMapItem(event, mapCenterCoordinates || DEFAULT_MAP_LOCATION))
+    .filter((event) => event.distanceKm <= currentRadius), [currentRadius, events, mapCenterCoordinates]);
   const selectedProfile = users.find((profile) => profile.id === selectedProfileId) || visibleProfiles[0] || users[0];
 
   const login = async ({ identifier, password }) => {
@@ -2265,17 +2551,116 @@ export const AffairGoProvider = ({ children }) => {
 
   const updateProfilePhoto = async (asset) => {
     const ownerId = auth.currentUser?.uid || currentUser.id;
-    const profileImageUri = await uploadMediaAsset('profile-images', asset, ownerId);
+
+    if (!ownerId || ownerId === 'me') {
+      throw new Error('Du musst eingeloggt sein, um dein Profilbild zu verifizieren.');
+    }
+
+    if (!hasConfiguredProfilePhotoVerification()) {
+      throw new Error(getProfilePhotoVerificationSetupInstructions());
+    }
+
+    let tempUpload = null;
+
+    try {
+      tempUpload = await uploadMediaAssetToStoragePath('tempProfileImages', asset, ownerId);
+      const session = await createProfilePhotoLivenessSession({ tempProfileImagePath: tempUpload.storagePath });
+
+      return {
+        tempProfileImagePath: tempUpload.storagePath,
+        sessionId: session.sessionId,
+        verificationToken: session.verificationToken,
+        similarityThreshold: session.similarityThreshold,
+        awsRegion: session.awsRegion,
+      };
+    } catch (error) {
+      if (tempUpload?.storageRef) {
+        await deleteObject(tempUpload.storageRef).catch(() => undefined);
+      }
+
+      throw error;
+    }
+  };
+
+  const completeProfilePhotoVerification = async ({ tempProfileImagePath, sessionId, verificationToken }) => {
+    if (!tempProfileImagePath || !sessionId || !verificationToken) {
+      throw new Error('Die Profilbild-Verifikation ist unvollständig. Bitte starte den Prozess erneut.');
+    }
+
+    const comparisonResult = await getProfilePhotoLivenessResultAndCompare({
+      tempProfileImagePath,
+      sessionId,
+      verificationToken,
+    });
+
+    if (comparisonResult?.pending) {
+      return {
+        approved: false,
+        pending: true,
+        faceMatchSimilarity: Number(comparisonResult?.faceMatchSimilarity || 0),
+        similarityThreshold: Number(comparisonResult?.similarityThreshold || 90),
+        message: 'Die Live-Selfie-Analyse wird noch verarbeitet. Bitte schließe die Prüfung in wenigen Sekunden erneut ab.',
+      };
+    }
+
+    if (!comparisonResult?.approved) {
+      await rejectTempProfileImage({
+        tempProfileImagePath,
+        sessionId,
+        verificationToken,
+      }).catch(() => undefined);
+
+      return {
+        approved: false,
+        pending: false,
+        failureCode: comparisonResult?.failureCode || 'FACE_MISMATCH',
+        faceMatchSimilarity: Number(comparisonResult?.faceMatchSimilarity || 0),
+        similarityThreshold: Number(comparisonResult?.similarityThreshold || 90),
+        message: PROFILE_VERIFICATION_FAILURE_MESSAGES[comparisonResult?.failureCode] || 'Die Profilbild-Verifikation ist fehlgeschlagen. Das temporäre Bild wurde gelöscht.',
+      };
+    }
+
+    const approvalResult = await approveVerifiedProfileImage({
+      tempProfileImagePath,
+      sessionId,
+      approvalToken: comparisonResult.approvalToken,
+    });
+
     const nextPatch = {
-      profileImageUri,
+      profilePhotoUrl: approvalResult.profilePhotoUrl,
+      profileImageUri: approvalResult.profilePhotoUrl,
+      profilePhotoVerified: true,
+      profilePhotoVerifiedAt: approvalResult.profilePhotoVerifiedAt || new Date().toISOString(),
+      faceMatchSimilarity: Number(approvalResult.faceMatchSimilarity || 0),
       profilePhotoAgeMonths: 0,
-      verificationState: 'review',
+      verificationState: 'verified',
     };
 
     setCurrentUser((previous) => ({ ...previous, ...nextPatch }));
-    await persistCurrentUserPatch(nextPatch);
-    return profileImageUri;
+
+    return {
+      approved: true,
+      ...nextPatch,
+      similarityThreshold: Number(comparisonResult?.similarityThreshold || 90),
+    };
   };
+
+  const discardPendingProfilePhotoVerification = async ({ tempProfileImagePath, sessionId, verificationToken }) => {
+    if (!tempProfileImagePath || !sessionId || !verificationToken) {
+      return { deleted: false };
+    }
+
+    return rejectTempProfileImage({
+      tempProfileImagePath,
+      sessionId,
+      verificationToken,
+    });
+  };
+
+  const launchProfilePhotoLivenessFlow = async ({ sessionId, verificationToken }) => openFaceLivenessFlow({
+    sessionId,
+    verificationToken,
+  });
 
   const exportMyData = async () => {
     const exportedAt = new Date().toISOString();
@@ -2829,6 +3214,7 @@ export const AffairGoProvider = ({ children }) => {
     visibleProfiles,
     matchedProfiles,
     nearbyOnlineProfiles,
+    visibleMapEvents,
     selectedProfile,
     remainingSwipes,
     swipeLimitReached,
@@ -2840,7 +3226,6 @@ export const AffairGoProvider = ({ children }) => {
     paymentSetupInstructions: getPaymentSetupInstructions(),
     moderationAuditTrail: currentUser.moderationAuditTrail,
     moderationFlags: currentUser.moderationFlags,
-    locationPulse,
     deviceLocation,
     mapCenterCoordinates,
     locationPermissionGranted,
@@ -2859,6 +3244,11 @@ export const AffairGoProvider = ({ children }) => {
     requestEmailChange,
     confirmPendingNickname,
     updateProfilePhoto,
+    completeProfilePhotoVerification,
+    discardPendingProfilePhotoVerification,
+    launchProfilePhotoLivenessFlow,
+    profilePhotoVerificationConfigured: hasConfiguredProfilePhotoVerification(),
+    profilePhotoVerificationSetupInstructions: getProfilePhotoVerificationSetupInstructions(),
     exportMyData,
     requestAccountDeletion,
     completeOnboarding,

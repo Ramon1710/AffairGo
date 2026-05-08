@@ -1,0 +1,103 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function profileVerificationFields() {
+      return [
+        'profilePhotoVerified',
+        'profilePhotoVerifiedAt',
+        'faceMatchSimilarity',
+        'profilePhotoUrl'
+      ];
+    }
+
+    function keepsProfileVerificationFieldsUnchanged() {
+      return !request.resource.data.diff(resource.data).changedKeys().hasAny(profileVerificationFields());
+    }
+
+    function createsSafeProfileVerificationDefaults() {
+      return (
+        !('profilePhotoVerified' in request.resource.data) || request.resource.data.profilePhotoVerified == false
+      ) && (
+        !('profilePhotoVerifiedAt' in request.resource.data) || request.resource.data.profilePhotoVerifiedAt == null
+      ) && (
+        !('faceMatchSimilarity' in request.resource.data) || request.resource.data.faceMatchSimilarity == 0
+      ) && (
+        !('profilePhotoUrl' in request.resource.data) || request.resource.data.profilePhotoUrl == ''
+      );
+    }
+
+    function keepsPublicLocationRedacted() {
+      return (
+        !('latitude' in request.resource.data) || request.resource.data.latitude == null
+      ) && (
+        !('longitude' in request.resource.data) || request.resource.data.longitude == null
+      );
+    }
+
+    function mapLocationFields() {
+      return [
+        'userId',
+        'nickname',
+        'profileImageUri',
+        'age',
+        'status',
+        'searchActive',
+        'visible',
+        'online',
+        'membership',
+        'city',
+        'travelMode',
+        'coordinate',
+        'geohash',
+        'accuracyMeters',
+        'updatedAt'
+      ];
+    }
+
+    function isValidMapLocationPayload(uid) {
+      return request.resource.data.keys().hasOnly(mapLocationFields())
+        && request.resource.data.userId == uid
+        && request.resource.data.coordinate is map
+        && request.resource.data.coordinate.latitude is number
+        && request.resource.data.coordinate.longitude is number
+        && request.resource.data.geohash is string
+        && request.resource.data.visible is bool
+        && request.resource.data.searchActive is bool
+        && request.resource.data.online is bool;
+    }
+
+    match /users/{uid} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(uid) && createsSafeProfileVerificationDefaults() && keepsPublicLocationRedacted();
+      allow update: if isOwner(uid) && keepsProfileVerificationFieldsUnchanged() && keepsPublicLocationRedacted();
+      allow delete: if false;
+    }
+
+    match /users/{uid}/private/{docId} {
+      allow read, write: if isOwner(uid);
+    }
+
+    match /mapLocations/{uid} {
+      allow read: if isSignedIn();
+      allow create, update: if isOwner(uid) && isValidMapLocationPayload(uid);
+      allow delete: if isOwner(uid);
+    }
+
+    match /{collection}/{docId} {
+      allow read, write: if isSignedIn() && collection != 'users' && collection != 'mapLocations';
+    }
+
+    match /{collection}/{docId}/{document=**} {
+      allow read, write: if isSignedIn() && collection != 'users' && collection != 'mapLocations';
+    }
+  }
+}

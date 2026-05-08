@@ -1,9 +1,10 @@
-import { useState } from 'react';
-import { Image, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, GlassCard, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
+import MatchingMapLeaflet from '../components/MatchingMapLeaflet';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme, travelModeColors } from '../constants/affairGoTheme';
-import { buildExternalMapUrl, buildInteractiveMapUrl, buildStaticMapUrl, getMapProviderLabel, getMapSetupInstructions, hasConfiguredMapApiKey } from '../constants/mapProvider';
+import { buildExternalMapUrl, getMapProviderLabel, getMapSetupInstructions, hasConfiguredMapApiKey } from '../constants/mapProvider';
 import { useAffairGo } from '../context/AffairGoContext';
 import { PHOTO_AGE_FILTERS, RADIUS_OPTIONS } from '../data/mockData';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
@@ -19,102 +20,91 @@ const getMatchingPreferenceSummary = (currentUser, profile) => {
   };
 };
 
+const getProfileMapStatus = (profile, travelSummary) => {
+  if (profile?.mapStatus) {
+    return profile.mapStatus;
+  }
+  if (travelSummary?.mode === 'business') {
+    return 'business';
+  }
+  if (travelSummary?.mode === 'vacation') {
+    return 'vacation';
+  }
+  return 'active';
+};
+
+const getStatusLabel = (status) => {
+  if (status === 'business') {
+    return 'Dienstreise';
+  }
+  if (status === 'vacation') {
+    return 'Urlaub';
+  }
+  if (status === 'event') {
+    return 'Event';
+  }
+  return 'Aktiv';
+};
+
 const MatchingMapScreen = () => {
   const navigation = useNavigation();
   const [viewMode, setViewMode] = useState('map');
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const {
-    visibleProfiles,
     currentRadius,
-    photoAgeFilter,
-    setCurrentRadius,
-    setPhotoAgeFilter,
-    selectedProfile,
-    setSelectedProfileId,
-    getCompatibility,
     currentUser,
+    getCompatibility,
     getProfileTravelSummary,
     lastLocationSyncLabel,
-    mapCenterCoordinates,
-    locationPermissionGranted,
     locationError,
+    locationPermissionGranted,
+    mapCenterCoordinates,
+    photoAgeFilter,
     requestLiveLocationAccess,
+    selectedProfile,
+    setCurrentRadius,
+    setPhotoAgeFilter,
+    setSelectedProfileId,
+    visibleMapEvents,
+    visibleProfiles,
   } = useAffairGo();
+  const hasMapApiKey = hasConfiguredMapApiKey();
   const filteredProfiles = verifiedOnly ? visibleProfiles.filter((profile) => profile.verified) : visibleProfiles;
   const filteredSelectedProfile = filteredProfiles.find((profile) => profile.id === selectedProfile?.id) || filteredProfiles[0] || null;
   const selectedProfileTravel = filteredSelectedProfile ? getProfileTravelSummary(filteredSelectedProfile) : null;
   const matchingPreferenceSummary = filteredSelectedProfile ? getMatchingPreferenceSummary(currentUser, filteredSelectedProfile) : { count: 0, preview: [] };
-  const hasMapApiKey = hasConfiguredMapApiKey();
 
-  const getMapZoom = (radius) => {
-    if (radius <= 5) {
-      return 13;
-    }
-    if (radius <= 10) {
-      return 12;
-    }
-    if (radius <= 25) {
-      return 11;
-    }
-    if (radius <= 50) {
-      return 10;
-    }
-    if (radius <= 100) {
-      return 9;
-    }
-    return 8;
-  };
-
-  const getMapBounds = (center, radius) => {
-    const latitudeDelta = Math.max(0.05, radius / 111);
-    const longitudeDelta = Math.max(0.08, radius / (111 * Math.max(0.2, Math.cos((center.latitude * Math.PI) / 180))));
+  const mapProfiles = useMemo(() => filteredProfiles.map((profile) => {
+    const travelSummary = getProfileTravelSummary(profile);
+    const status = getProfileMapStatus(profile, travelSummary);
 
     return {
-      minLatitude: center.latitude - latitudeDelta,
-      maxLatitude: center.latitude + latitudeDelta,
-      minLongitude: center.longitude - longitudeDelta,
-      maxLongitude: center.longitude + longitudeDelta,
+      ...profile,
+      status,
+      statusLabel: getStatusLabel(status),
+      compatibility: getCompatibility(currentUser, profile),
+      profileImageUri: profile.profilePhotoUrl || profile.profileImageUri || '',
     };
-  };
+  }), [currentUser, filteredProfiles, getCompatibility, getProfileTravelSummary]);
 
-  const getMarkerPosition = (profile, bounds) => {
-    if (!Number.isFinite(Number(profile.latitude)) || !Number.isFinite(Number(profile.longitude))) {
-      return null;
-    }
+  const mapEvents = useMemo(() => visibleMapEvents.map((event) => ({
+    ...event,
+    status: 'event',
+    statusLabel: 'Event',
+  })), [visibleMapEvents]);
 
-    const left = ((profile.longitude - bounds.minLongitude) / (bounds.maxLongitude - bounds.minLongitude)) * 100;
-    const top = ((bounds.maxLatitude - profile.latitude) / (bounds.maxLatitude - bounds.minLatitude)) * 100;
-
-    return {
-      left: `${Math.min(94, Math.max(4, left))}%`,
-      top: `${Math.min(90, Math.max(6, top))}%`,
-    };
-  };
-
-  const mapZoom = getMapZoom(currentRadius);
-  const mapBounds = getMapBounds(mapCenterCoordinates, currentRadius);
-  const providerMapUrl = buildStaticMapUrl({
-    latitude: mapCenterCoordinates.latitude,
-    longitude: mapCenterCoordinates.longitude,
-    zoom: mapZoom,
-  });
-  const interactiveMapUrl = buildInteractiveMapUrl({
-    bounds: mapBounds,
-    latitude: mapCenterCoordinates.latitude,
-    longitude: mapCenterCoordinates.longitude,
-  });
   const externalMapUrl = buildExternalMapUrl({
     latitude: mapCenterCoordinates.latitude,
     longitude: mapCenterCoordinates.longitude,
-    zoom: mapZoom,
+    zoom: currentRadius <= 20 ? 11 : currentRadius <= 50 ? 10 : 9,
   });
-  const hasInteractiveWebMap = Platform.OS === 'web' && Boolean(interactiveMapUrl);
 
   const openProfile = (profile) => {
     if (filteredSelectedProfile?.id === profile.id) {
       navigation.navigate('Profil', { profileId: profile.id });
       return;
     }
+
     setSelectedProfileId(profile.id);
   };
 
@@ -122,7 +112,7 @@ const MatchingMapScreen = () => {
     <AppBackground>
       <ScreenHeader
         title="Matching Map"
-        subtitle="Live-Standorte im Suchmodus"
+        subtitle="OpenStreetMap mit Live-Standorten und Events"
         leftAction={
           <Pressable onPress={() => navigation.goBack()}>
             <Ionicons name="arrow-back" size={28} color={affairGoTheme.colors.text} />
@@ -136,29 +126,25 @@ const MatchingMapScreen = () => {
       />
 
       <Text style={styles.liveStatus}>{lastLocationSyncLabel}</Text>
+
       {!locationPermissionGranted ? (
         <GlassCard style={styles.permissionCard}>
           <Text style={styles.permissionTitle}>Standortfreigabe benötigt</Text>
-          <Text style={styles.selectedMeta}>{locationError || 'Erlaube den Gerätestandort, damit die Matching Map mit echten GPS-Daten statt Demo-Koordinaten arbeitet.'}</Text>
+          <Text style={styles.selectedMeta}>{locationError || 'Aktiviere die Standortfreigabe, damit dein echter Browser- oder Gerätestandort gespeichert und für die Karte genutzt werden kann.'}</Text>
           <AccentButton label="Standort aktivieren" onPress={requestLiveLocationAccess} style={styles.permissionButton} />
         </GlassCard>
       ) : null}
-      {!hasMapApiKey && !hasInteractiveWebMap ? (
+
+      {!hasMapApiKey ? (
         <GlassCard style={styles.permissionCard}>
-          <Text style={styles.permissionTitle}>Karten-API vorbereiten</Text>
-          <Text style={styles.selectedMeta}>{getMapProviderLabel()} ist vorbereitet, aber noch ohne API-Key konfiguriert.</Text>
+          <Text style={styles.permissionTitle}>Stadia Maps konfigurieren</Text>
+          <Text style={styles.selectedMeta}>{getMapProviderLabel()} ist eingebunden, aber ohne API-Key kann keine Tile-Layer geladen werden.</Text>
           <Text style={styles.selectedMeta}>{getMapSetupInstructions()}</Text>
-        </GlassCard>
-      ) : null}
-      {hasInteractiveWebMap ? (
-        <GlassCard style={styles.permissionCard}>
-          <Text style={styles.permissionTitle}>Interaktive Web-Karte aktiv</Text>
-          <Text style={styles.selectedMeta}>Auf Web nutzt Night-Whisper jetzt eine echte OSM-Karte mit Live-Zentrum statt nur eines statischen Hintergrundbilds.</Text>
         </GlassCard>
       ) : null}
 
       <View style={styles.filters}>
-        {RADIUS_OPTIONS.map((radius) => (
+        {RADIUS_OPTIONS.filter((radius) => [5, 10, 20, 50, 100, 150].includes(radius)).map((radius) => (
           <View key={radius} style={styles.filterChip}>
             <ToggleChip label={`${radius} km`} active={currentRadius === radius} onPress={() => setCurrentRadius(radius)} />
           </View>
@@ -188,59 +174,33 @@ const MatchingMapScreen = () => {
 
       {viewMode === 'map' ? (
         <GlassCard strong style={styles.mapCard}>
-          <View style={styles.mapArea}>
-            {hasInteractiveWebMap ? (
-              <iframe title="Night-Whisper Matching Map" src={interactiveMapUrl} style={{ border: 0, width: '100%', height: '100%' }} />
-            ) : providerMapUrl ? (
-              <Image source={{ uri: providerMapUrl }} style={styles.mapImage} resizeMode="cover" />
-            ) : null}
-            <View style={styles.centerPin}>
-              <Ionicons name="location" size={54} color={affairGoTheme.colors.accent} />
-            </View>
-            {filteredProfiles.map((profile) => {
-              const isSelected = filteredSelectedProfile?.id === profile.id;
-              const travelSummary = getProfileTravelSummary(profile);
-              const markerPosition = getMarkerPosition(profile, mapBounds);
-
-              if (!markerPosition) {
-                return null;
-              }
-
-              return (
-                <Pressable
-                  key={profile.id}
-                  onPress={() => openProfile(profile)}
-                  style={[
-                    styles.pin,
-                    { ...markerPosition, borderColor: travelModeColors[travelSummary?.mode || profile.travelMode] || affairGoTheme.colors.blue },
-                    isSelected && styles.pinSelected,
-                  ]}
-                >
-                  {profile.profileImageUri ? (
-                    <Image source={{ uri: profile.profileImageUri }} style={styles.pinImage} resizeMode="cover" />
-                  ) : (
-                    <Text style={styles.pinLabel}>{profile.age}</Text>
-                  )}
-                </Pressable>
-              );
-            })}
-            <View style={styles.osmBadge}>
-              <Text style={styles.osmBadgeText}>{hasInteractiveWebMap ? 'OpenStreetMap live' : hasMapApiKey ? `${getMapProviderLabel()} live` : `${getMapProviderLabel()} bereit`}</Text>
-            </View>
+          <MatchingMapLeaflet
+            center={mapCenterCoordinates}
+            radiusKm={currentRadius}
+            profiles={mapProfiles}
+            events={mapEvents}
+            onProfilePress={openProfile}
+          />
+          <View style={styles.mapLegendRow}>
+            <Text style={styles.mapLegendText}>{mapProfiles.length} sichtbare Profile</Text>
+            <Text style={styles.mapLegendText}>{mapEvents.length} Events im Radius</Text>
           </View>
-          {Platform.OS === 'web' ? <AccentButton label="Große Karte öffnen" variant="secondary" onPress={() => Linking.openURL(externalMapUrl)} style={styles.openMapButton} /> : null}
+          {Platform.OS === 'web' ? (
+            <AccentButton label="Karte extern öffnen" variant="secondary" onPress={() => Linking.openURL(externalMapUrl)} style={styles.openMapButton} />
+          ) : null}
         </GlassCard>
       ) : null}
 
       {viewMode === 'list' ? (
         <GlassCard strong style={styles.mapCard}>
-          {filteredProfiles.map((profile) => {
+          {mapProfiles.map((profile) => {
             const travelSummary = getProfileTravelSummary(profile);
             return (
               <Pressable key={profile.id} onPress={() => openProfile(profile)} style={styles.listRow}>
-                <View>
+                <View style={styles.listCopy}>
                   <Text style={styles.listName}>{profile.nickname}</Text>
                   <Text style={styles.listMeta}>{profile.age} Jahre, {profile.distanceKm} km, {profile.figure}</Text>
+                  <Text style={styles.listMeta}>Matching {profile.compatibility}%</Text>
                   {travelSummary ? (
                     <Text style={styles.listMeta}>
                       {travelSummary.label}
@@ -249,8 +209,8 @@ const MatchingMapScreen = () => {
                     </Text>
                   ) : null}
                 </View>
-                <Text style={[styles.listTag, { color: travelModeColors[travelSummary?.mode || profile.travelMode] || affairGoTheme.colors.blue }]}> 
-                  {travelSummary?.label || 'Aktiv'}
+                <Text style={[styles.listTag, { color: travelModeColors[profile.status] || affairGoTheme.colors.blue }]}>
+                  {profile.statusLabel}
                 </Text>
               </Pressable>
             );
@@ -260,14 +220,15 @@ const MatchingMapScreen = () => {
 
       {viewMode === 'radar' ? (
         <GlassCard strong style={styles.mapCard}>
-          <Text style={styles.radarTitle}>Jetzt online in deiner Nähe</Text>
-          {filteredProfiles.filter((profile) => profile.online).map((profile) => {
+          <Text style={styles.radarTitle}>Jetzt online in deinem Radius</Text>
+          {mapProfiles.filter((profile) => profile.online).map((profile) => {
             const travelSummary = getProfileTravelSummary(profile);
             return (
               <Pressable key={profile.id} onPress={() => openProfile(profile)} style={styles.radarRow}>
                 <Ionicons name="radio-outline" size={20} color={affairGoTheme.colors.success} />
                 <View style={styles.radarTextWrap}>
                   <Text style={styles.radarText}>{profile.nickname} ist online, {profile.distanceKm} km entfernt</Text>
+                  <Text style={styles.radarSubtext}>Status: {profile.statusLabel}</Text>
                   {travelSummary ? (
                     <Text style={styles.radarSubtext}>
                       {travelSummary.label}
@@ -288,6 +249,7 @@ const MatchingMapScreen = () => {
           <Text style={styles.selectedMeta}>{filteredSelectedProfile.age} Jahre, {filteredSelectedProfile.distanceKm} km, {filteredSelectedProfile.figure}</Text>
           <Text style={styles.selectedMeta}>Kompatibilität: {getCompatibility(currentUser, filteredSelectedProfile)}%</Text>
           <Text style={styles.selectedMeta}>Gemeinsame Vorlieben: {matchingPreferenceSummary.count}</Text>
+          <Text style={styles.selectedMeta}>Status: {getStatusLabel(getProfileMapStatus(filteredSelectedProfile, selectedProfileTravel))}</Text>
           {matchingPreferenceSummary.preview.length ? <Text style={styles.selectedMeta}>Match-Hinweise: {matchingPreferenceSummary.preview.join(', ')}</Text> : null}
           {selectedProfileTravel ? (
             <Text style={styles.selectedMeta}>
@@ -335,57 +297,18 @@ const styles = StyleSheet.create({
   permissionButton: {
     marginTop: 12,
   },
-  mapArea: {
-    height: 520,
-    borderRadius: 22,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(255,255,255,0.08)',
+  mapLegendRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 12,
   },
-  mapImage: {
-    ...StyleSheet.absoluteFillObject,
+  mapLegendText: {
+    color: affairGoTheme.colors.textMuted,
+    fontSize: 13,
+    fontWeight: '600',
   },
-  centerPin: {
-    position: 'absolute',
-    left: '48%',
-    top: '46%',
-    zIndex: 2,
-  },
-  pin: {
-    position: 'absolute',
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: 'rgba(26, 13, 13, 0.85)',
-    borderWidth: 3,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  pinSelected: {
-    transform: [{ scale: 1.15 }],
-  },
-  pinImage: {
-    width: '100%',
-    height: '100%',
-  },
-  pinLabel: {
-    color: affairGoTheme.colors.text,
-    fontWeight: '800',
-    fontSize: 18,
-  },
-  osmBadge: {
-    position: 'absolute',
-    right: 12,
-    bottom: 12,
-    backgroundColor: 'rgba(26, 13, 13, 0.78)',
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  osmBadgeText: {
-    color: affairGoTheme.colors.text,
-    fontSize: 12,
-    fontWeight: '700',
+  openMapButton: {
+    marginTop: 14,
   },
   selectedCard: {
     marginBottom: 12,
@@ -397,6 +320,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: affairGoTheme.colors.line,
     paddingVertical: 14,
+  },
+  listCopy: {
+    flex: 1,
+    paddingRight: 12,
   },
   listName: {
     color: affairGoTheme.colors.text,
@@ -418,17 +345,18 @@ const styles = StyleSheet.create({
   },
   radarRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: affairGoTheme.colors.line,
   },
   radarTextWrap: {
-    flex: 1,
     marginLeft: 10,
+    flex: 1,
   },
   radarText: {
     color: affairGoTheme.colors.text,
+    fontWeight: '700',
   },
   radarSubtext: {
     color: affairGoTheme.colors.textMuted,
@@ -436,16 +364,17 @@ const styles = StyleSheet.create({
   },
   selectedName: {
     color: affairGoTheme.colors.text,
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '700',
     marginBottom: 8,
   },
   selectedMeta: {
     color: affairGoTheme.colors.textMuted,
-    lineHeight: 22,
+    marginBottom: 6,
+    lineHeight: 20,
   },
   selectedButton: {
-    marginTop: 14,
+    marginTop: 12,
   },
 });
 

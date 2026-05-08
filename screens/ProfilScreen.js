@@ -5,6 +5,7 @@ import { Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text,
 import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader, StatusPill, ToggleChip } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
+import { buildFaceLivenessUrl } from '../constants/profilePhotoVerificationProvider';
 import { useAffairGo } from '../context/AffairGoContext';
 import { EYE_OPTIONS, FIGURE_OPTIONS, HAIR_OPTIONS, MONTH_OPTIONS, SEARCH_GENDER_OPTIONS, SKIN_OPTIONS } from '../data/mockData';
 import { useNavigation, useRoute } from '../naviagtion/SimpleNavigation';
@@ -50,7 +51,7 @@ const formatBirthDetails = (profile) => {
 const ProfilScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
-  const { currentUser, users, chats, updateCurrentUser, addGalleryItem, logout, preferenceOptions, tabooOptions, getCompatibility, changePassword, getProfileTravelSummary, verifyPendingEmail, accessStatusLabel, confirmPendingNickname, exportMyData, requestAccountDeletion, updateProfilePhoto, reportUser, moderationBackendConfigured, moderationAuditTrail, moderationFlags } = useAffairGo();
+  const { currentUser, users, chats, updateCurrentUser, addGalleryItem, logout, preferenceOptions, tabooOptions, getCompatibility, changePassword, getProfileTravelSummary, verifyPendingEmail, accessStatusLabel, confirmPendingNickname, exportMyData, requestAccountDeletion, updateProfilePhoto, completeProfilePhotoVerification, discardPendingProfilePhotoVerification, launchProfilePhotoLivenessFlow, profilePhotoVerificationConfigured, profilePhotoVerificationSetupInstructions, reportUser, moderationBackendConfigured, moderationAuditTrail, moderationFlags } = useAffairGo();
   const viewedProfile = useMemo(() => (route.params?.profileId ? users.find((entry) => entry.id === route.params.profileId) : currentUser), [currentUser, route.params?.profileId, users]);
   const isOwnProfile = !route.params?.profileId || route.params.profileId === currentUser.id;
   const [draft, setDraft] = useState(currentUser);
@@ -66,6 +67,7 @@ const ProfilScreen = () => {
   const [isExportingData, setIsExportingData] = useState(false);
   const [isRequestingDeletion, setIsRequestingDeletion] = useState(false);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [pendingProfilePhotoVerification, setPendingProfilePhotoVerification] = useState(null);
   const [reportModalOpen, setReportModalOpen] = useState(false);
   const [reportReason, setReportReason] = useState(REPORT_REASONS[0].value);
   const [reportDescription, setReportDescription] = useState('');
@@ -229,15 +231,135 @@ const ProfilScreen = () => {
         return;
       }
 
-      const profileImageUri = await updateProfilePhoto(asset);
-      setDraft((previous) => ({ ...previous, profileImageUri, profilePhotoAgeMonths: 0, verificationState: 'review' }));
-      Alert.alert('Profilbild aktualisiert', 'Dein Profilbild wurde hochgeladen und zur erneuten Prüfung markiert.');
+      if (!profilePhotoVerificationConfigured) {
+        throw new Error(profilePhotoVerificationSetupInstructions);
+      }
+
+      const verificationSession = await updateProfilePhoto(asset);
+      const nextPendingVerification = {
+        ...verificationSession,
+        previewUri: asset.uri,
+      };
+
+      setPendingProfilePhotoVerification(nextPendingVerification);
+      setDraft((previous) => ({
+        ...previous,
+        verificationState: 'review',
+      }));
+
+      await launchProfilePhotoLivenessFlow({
+        sessionId: verificationSession.sessionId,
+        verificationToken: verificationSession.verificationToken,
+      });
+
+      Alert.alert('Live-Selfie starten', 'Die Live-Selfie-Prüfung wurde im Browser geöffnet. Kehre danach in die App zurück und tippe auf "Prüfung abschließen".');
     } catch (error) {
       Alert.alert('Profilbild konnte nicht hochgeladen werden', error.message || 'Bitte versuche es erneut.');
     } finally {
       setIsUploadingMedia(false);
     }
   };
+
+  const handleCompleteProfilePhotoVerification = async () => {
+    if (!pendingProfilePhotoVerification) {
+      return;
+    }
+
+    try {
+      setIsUploadingMedia(true);
+      const result = await completeProfilePhotoVerification(pendingProfilePhotoVerification);
+
+      if (result.pending) {
+        Alert.alert('Analyse läuft noch', result.message || 'Bitte schließe die Prüfung in wenigen Sekunden erneut ab.');
+        return;
+      }
+
+      if (!result.approved) {
+        setPendingProfilePhotoVerification(null);
+        Alert.alert('Profilbild abgelehnt', result.message || 'Das Bild konnte nicht verifiziert werden.');
+        return;
+      }
+
+      setPendingProfilePhotoVerification(null);
+      setDraft((previous) => ({
+        ...previous,
+        profilePhotoUrl: result.profilePhotoUrl,
+        profileImageUri: result.profileImageUri,
+        profilePhotoVerified: true,
+        profilePhotoVerifiedAt: result.profilePhotoVerifiedAt,
+        faceMatchSimilarity: result.faceMatchSimilarity,
+        profilePhotoAgeMonths: 0,
+        verificationState: 'verified',
+      }));
+      Alert.alert('Profilbild freigegeben', `Die Gesichtsähnlichkeit liegt bei ${Math.round(result.faceMatchSimilarity)} %. Dein Profilbild ist jetzt aktiv.`);
+    } catch (error) {
+      Alert.alert('Prüfung fehlgeschlagen', error.message || 'Die Profilbild-Prüfung konnte nicht abgeschlossen werden.');
+    } finally {
+      setIsUploadingMedia(false);
+    }
+  };
+
+  const handleDiscardPendingProfilePhotoVerification = async () => {
+    if (!pendingProfilePhotoVerification) {
+      return;
+    }
+
+    try {
+      setIsUploadingMedia(true);
+      await discardPendingProfilePhotoVerification(pendingProfilePhotoVerification);
+      setPendingProfilePhotoVerification(null);
+      Alert.alert('Temporäres Bild gelöscht', 'Das ausstehende Profilbild wurde verworfen.');
+    } catch (error) {
+      Alert.alert('Löschen fehlgeschlagen', error.message || 'Das temporäre Profilbild konnte nicht gelöscht werden.');
+    } finally {
+      setIsUploadingMedia(false);
+    }
+  };
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !pendingProfilePhotoVerification) {
+      return undefined;
+    }
+
+    const livenessUrl = buildFaceLivenessUrl({
+      sessionId: pendingProfilePhotoVerification.sessionId,
+      verificationToken: pendingProfilePhotoVerification.verificationToken,
+    });
+    const expectedOrigin = livenessUrl ? new URL(livenessUrl, window.location.href).origin : window.location.origin;
+
+    const handleLivenessMessage = (event) => {
+      const payload = event.data;
+
+      if (!payload || payload.type !== 'affairgo-face-liveness') {
+        return;
+      }
+
+      if (expectedOrigin && event.origin !== expectedOrigin) {
+        return;
+      }
+
+      if (payload.sessionId !== pendingProfilePhotoVerification.sessionId || payload.verificationToken !== pendingProfilePhotoVerification.verificationToken) {
+        return;
+      }
+
+      if (payload.status === 'analysis_complete') {
+        handleCompleteProfilePhotoVerification();
+        return;
+      }
+
+      if (payload.status === 'cancelled') {
+        Alert.alert('Live-Selfie abgebrochen', 'Die Aufnahme wurde abgebrochen. Du kannst die Prüfung erneut öffnen oder das temporäre Bild verwerfen.');
+        return;
+      }
+
+      if (payload.status === 'error') {
+        Alert.alert('Live-Selfie fehlgeschlagen', payload.errorMessage || 'Die Liveness-Prüfung konnte nicht abgeschlossen werden.');
+      }
+    };
+
+    window.addEventListener('message', handleLivenessMessage);
+    return () => window.removeEventListener('message', handleLivenessMessage);
+  }, [pendingProfilePhotoVerification]);
 
   const handleAddGalleryImage = async () => {
     try {
@@ -341,6 +463,9 @@ const ProfilScreen = () => {
           )}
         </View>
         {isOwnProfile ? <AccentButton label={isUploadingMedia ? 'Bild wird hochgeladen...' : 'Profilbild ändern'} variant="secondary" onPress={handleUploadProfilePhoto} disabled={isUploadingMedia} style={styles.avatarButton} /> : null}
+        {isOwnProfile && pendingProfilePhotoVerification ? <AccentButton label="Live-Selfie öffnen" variant="secondary" onPress={() => launchProfilePhotoLivenessFlow({ sessionId: pendingProfilePhotoVerification.sessionId, verificationToken: pendingProfilePhotoVerification.verificationToken })} disabled={isUploadingMedia} style={styles.avatarButton} /> : null}
+        {isOwnProfile && pendingProfilePhotoVerification ? <AccentButton label={isUploadingMedia ? 'Prüfung läuft...' : 'Prüfung abschließen'} onPress={handleCompleteProfilePhotoVerification} disabled={isUploadingMedia} style={styles.avatarButton} /> : null}
+        {isOwnProfile && pendingProfilePhotoVerification ? <AccentButton label="Temporäres Bild verwerfen" variant="secondary" onPress={handleDiscardPendingProfilePhotoVerification} disabled={isUploadingMedia} style={styles.avatarButton} /> : null}
         <Text style={styles.nameLine}>{isOwnProfile ? `${profile.firstName} ${profile.lastName}` : profile.nickname}</Text>
         <Text style={styles.metaLine}>{formatBirthDetails(profile)}</Text>
         <Text style={styles.metaLine}>{profile.gender}</Text>
@@ -349,9 +474,12 @@ const ProfilScreen = () => {
         {isOwnProfile ? <StatusPill label={moderationLabel} tone={moderationTone} style={styles.statusPill} /> : null}
         {profile.ageVerificationProvider ? <Text style={styles.photoAge}>KYC-Anbieter: {profile.ageVerificationProvider}</Text> : null}
         {profile.ageVerificationReferenceId ? <Text style={styles.photoAge}>KYC-Referenz: {profile.ageVerificationReferenceId}</Text> : null}
+        {profile.profilePhotoVerifiedAt ? <Text style={styles.photoAge}>Profilbild verifiziert: {new Date(profile.profilePhotoVerifiedAt).toLocaleString('de-DE')}</Text> : null}
+        {profile.faceMatchSimilarity ? <Text style={styles.photoAge}>Face-Match: {Math.round(profile.faceMatchSimilarity)} %</Text> : null}
         <Text style={styles.photoAge}>Profilbild hochgeladen: vor {profile.profilePhotoAgeMonths} Monaten</Text>
         {profile.profilePhotoAgeMonths >= 12 ? <Text style={styles.warnRed}>Rote Warnung: Profilbild älter als 12 Monate</Text> : null}
         {profile.profilePhotoAgeMonths >= 6 && profile.profilePhotoAgeMonths < 12 ? <Text style={styles.warnSoft}>Hinweis: Profilbild älter als 6 Monate</Text> : null}
+        {isOwnProfile && pendingProfilePhotoVerification ? <Text style={styles.warnSoft}>Temporäres Bild gewählt. Führe jetzt die Live-Selfie-Prüfung im Browser aus und bestätige danach die Freigabe.</Text> : null}
         {!isOwnProfile ? <AccentButton label="Profil melden" variant="secondary" onPress={() => setReportModalOpen(true)} style={styles.avatarButton} /> : null}
       </GlassCard>
 
