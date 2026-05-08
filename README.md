@@ -60,12 +60,12 @@ Empfohlene Env-Variable: `EXPO_PUBLIC_STADIA_API_KEY=...`
 
 3. Apple Developer Program und App Store Connect
 Registrierung: https://developer.apple.com/programs/ und https://appstoreconnect.apple.com/
-Benötigt fuer: iOS-Release, In-App-Kaeufe auf iOS, Store-Deployment
+Benötigt fuer: spaeteres iOS-Release, In-App-Kaeufe auf iOS, Store-Deployment
 Noch einzutragen: Produkt-IDs, Store-Konfiguration, serverseitige Kaufpruefung
 
 4. Google Play Console
 Registrierung: https://play.google.com/console/
-Benötigt fuer: Android-Release, In-App-Kaeufe auf Android, Store-Deployment
+Benötigt fuer: spaeteres Android-Release, In-App-Kaeufe auf Android, Store-Deployment
 Noch einzutragen: Produkt-IDs, Billing-Konfiguration, serverseitige Kaufpruefung
 
 5. Vercel
@@ -114,13 +114,13 @@ Wichtig:
 
 - Stripe und sonstige Checkout-Flows sind derzeit deaktiviert.
 - Neue und bestehende Nutzer erhalten aktuell Vollzugang ohne Tarif-Upgrade.
-- Für einen späteren Bezahlstart müssten Stripe oder alternative Store-/Billing-Konten erst wieder bewusst integriert werden.
+- Für einen späteren Bezahlstart müssten Stripe oder alternative Store-/Billing-Konten erst wieder bewusst integriert werden. Aktuell sind dafür keine `.env.local`-Werte nötig.
 
 ## Wiedereinstieg in Bezahlung ab Anfang 2027
 
 Wenn Night-Whisper Anfang 2027 wieder monetarisiert werden soll, müssen die externen Voraussetzungen vor der Umsetzung verbindlich vorliegen.
 
-Mindestens erforderlich:
+Mindestens erforderlich, aber erst wenn Zahlungen wirklich wieder aktiviert werden sollen:
 
 - ein Zahlungsanbieter oder eigenes Billing-Backend
 - falls Web-Checkout geplant ist: Stripe-Konto, API-Keys und Webhook-Setup
