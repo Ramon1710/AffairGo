@@ -2095,14 +2095,6 @@ export const AffairGoProvider = ({ children }) => {
       throw new Error('Registrierung erst ab 18 Jahren.');
     }
 
-    if (!payload.ageVerified || payload.ageVerificationStatus !== 'verified') {
-      throw new Error('Bitte schließe zuerst die Altersverifizierung erfolgreich ab.');
-    }
-
-    if (!payload.selfieVerified || payload.selfieVerificationStatus !== 'verified') {
-      throw new Error('Bitte schließe zuerst den Selfie- und KI-Fake-Check erfolgreich ab.');
-    }
-
     await moderatePreAuthAction({
       actionType: 'register_attempt',
       email: payload.email.trim().toLowerCase(),
