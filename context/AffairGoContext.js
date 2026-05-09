@@ -34,6 +34,7 @@ import {
     useContext,
     useEffect,
     useMemo,
+    useRef,
     useState,
 } from 'react';
 import { getModerationProviderLabel, hasConfiguredModerationBackend, submitModerationDecision, submitModerationReport } from '../constants/moderationProvider';
@@ -1566,6 +1567,11 @@ export const AffairGoProvider = ({ children }) => {
   const [locationPermissionGranted, setLocationPermissionGranted] = useState(false);
   const [locationError, setLocationError] = useState('');
   const [publicMapLocations, setPublicMapLocations] = useState([]);
+  const currentUserRef = useRef(currentUser);
+
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
 
   const mapCenterCoordinates = useMemo(() => deviceLocation || getFallbackLiveLocation(currentUser), [currentUser, deviceLocation]);
 
@@ -1939,13 +1945,14 @@ export const AffairGoProvider = ({ children }) => {
   }, [currentRadius, currentUser.id, currentUser.searchActive, mapCenterCoordinates]);
 
   const persistCurrentUserPatch = async (patch) => {
-    const userId = auth.currentUser?.uid || currentUser.id;
+    const latestCurrentUser = currentUserRef.current;
+    const userId = auth.currentUser?.uid || latestCurrentUser.id;
 
     if (!userId || userId === 'me') {
       return;
     }
 
-    await setDoc(doc(db, 'users', userId), toStoredProfile({ ...currentUser, ...patch }), { merge: true });
+    await setDoc(doc(db, 'users', userId), toStoredProfile({ ...latestCurrentUser, ...patch }), { merge: true });
   };
 
   const persistModerationAuditEntry = async (entry, extraPatch = {}) => {
@@ -2571,7 +2578,24 @@ export const AffairGoProvider = ({ children }) => {
     }
 
     if (!hasConfiguredProfilePhotoVerification()) {
-      throw new Error(getProfilePhotoVerificationSetupInstructions());
+      const uploadedProfilePhotoUrl = await uploadMediaAsset('profileImages', asset, ownerId);
+      const nextPatch = {
+        profilePhotoUrl: uploadedProfilePhotoUrl,
+        profileImageUri: uploadedProfilePhotoUrl,
+        profilePhotoVerified: false,
+        profilePhotoVerifiedAt: '',
+        faceMatchSimilarity: 0,
+        profilePhotoAgeMonths: 0,
+        verificationState: 'uploaded',
+      };
+
+      setCurrentUser((previous) => ({ ...previous, ...nextPatch }));
+      await persistCurrentUserPatch(nextPatch);
+
+      return {
+        directUpload: true,
+        ...nextPatch,
+      };
     }
 
     let tempUpload = null;

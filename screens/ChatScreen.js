@@ -437,15 +437,14 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   layout: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    flexDirection: 'column',
   },
   sidebar: {
-    width: '30%',
-    marginRight: 12,
+    width: '100%',
+    marginBottom: 12,
   },
   mainPanel: {
-    width: '68%',
+    width: '100%',
   },
   chatItem: {
     paddingVertical: 10,

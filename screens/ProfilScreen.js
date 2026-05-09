@@ -233,11 +233,29 @@ const ProfilScreen = () => {
         return;
       }
 
-      if (!profilePhotoVerificationConfigured) {
-        throw new Error(profilePhotoVerificationSetupInstructions);
+      const verificationSession = await updateProfilePhoto(asset);
+
+      if (verificationSession.directUpload) {
+        setPendingProfilePhotoVerification(null);
+        setDraft((previous) => ({
+          ...previous,
+          profilePhotoUrl: verificationSession.profilePhotoUrl,
+          profileImageUri: verificationSession.profileImageUri,
+          profilePhotoVerified: Boolean(verificationSession.profilePhotoVerified),
+          profilePhotoVerifiedAt: verificationSession.profilePhotoVerifiedAt || '',
+          faceMatchSimilarity: Number(verificationSession.faceMatchSimilarity || 0),
+          profilePhotoAgeMonths: 0,
+          verificationState: verificationSession.verificationState || 'uploaded',
+        }));
+        Alert.alert(
+          'Profilbild aktualisiert',
+          profilePhotoVerificationConfigured
+            ? 'Das Profilbild wurde gespeichert.'
+            : 'Das Profilbild wurde direkt gespeichert. Die Live-Selfie-Prüfung ist aktuell nicht konfiguriert.'
+        );
+        return;
       }
 
-      const verificationSession = await updateProfilePhoto(asset);
       const nextPendingVerification = {
         ...verificationSession,
         previewUri: asset.uri,

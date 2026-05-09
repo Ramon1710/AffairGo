@@ -23,12 +23,14 @@ service firebase.storage {
 
     match /profileImages/{uid}/{fileName} {
       allow read: if isSignedIn();
-      allow write, delete: if false;
+      allow create, update: if isOwner(uid) && isImageUpload();
+      allow delete: if isOwner(uid);
     }
 
     match /profile-images/{uid}/{fileName} {
       allow read: if isSignedIn();
-      allow write, delete: if false;
+      allow create, update: if isOwner(uid) && isImageUpload();
+      allow delete: if isOwner(uid);
     }
 
     match /gallery-images/{uid}/{fileName} {

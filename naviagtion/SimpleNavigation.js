@@ -15,6 +15,16 @@ export const NavigationProvider = ({ initialRouteName = 'Landing', children }) =
     stackRef.current = stack;
   }, [stack]);
 
+  const getAuthenticatedBackStack = (currentStack) => {
+    const dashboardIndex = currentStack.findIndex((route) => route.name === 'Dashboard');
+
+    if (dashboardIndex >= 0) {
+      return currentStack.slice(0, dashboardIndex + 1);
+    }
+
+    return [{ name: 'Dashboard', params: undefined }];
+  };
+
   useEffect(() => {
     if (Platform.OS !== 'android') {
       return undefined;
@@ -24,15 +34,10 @@ export const NavigationProvider = ({ initialRouteName = 'Landing', children }) =
       const currentStack = stackRef.current;
       const currentTopRoute = currentStack[currentStack.length - 1]?.name;
 
-      if (isAuthenticated && currentTopRoute !== 'Dashboard') {
-        const dashboardIndex = currentStack.findIndex((route) => route.name === 'Dashboard');
-
-        if (dashboardIndex >= 0) {
-          setStack(currentStack.slice(0, dashboardIndex + 1));
-          return true;
+      if (isAuthenticated) {
+        if (currentTopRoute !== 'Dashboard' || currentStack.length !== 1) {
+          setStack(getAuthenticatedBackStack(currentStack));
         }
-
-        setStack([{ name: 'Dashboard', params: undefined }]);
         return true;
       }
 
@@ -55,7 +60,13 @@ export const NavigationProvider = ({ initialRouteName = 'Landing', children }) =
       },
       canGoBack: () => stack.length > 1,
       goBack: () => {
-        setStack((previous) => (previous.length > 1 ? previous.slice(0, -1) : previous));
+        setStack((previous) => {
+          if (isAuthenticated) {
+            return getAuthenticatedBackStack(previous);
+          }
+
+          return previous.length > 1 ? previous.slice(0, -1) : previous;
+        });
       },
       reset: ({ routes, index = 0 }) => {
         const nextRoutes = (routes || []).map((route) => ({ name: route.name, params: route.params }));
@@ -74,7 +85,7 @@ export const NavigationProvider = ({ initialRouteName = 'Landing', children }) =
         });
       },
     }),
-    [stack.length]
+    [isAuthenticated, stack.length]
   );
 
   const value = useMemo(() => ({ navigation, route: currentRoute }), [navigation, currentRoute]);
