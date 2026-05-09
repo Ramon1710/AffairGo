@@ -484,57 +484,6 @@ const ProfilScreen = () => {
         {!isOwnProfile ? <AccentButton label="Profil melden" variant="secondary" onPress={() => setReportModalOpen(true)} style={styles.avatarButton} /> : null}
       </GlassCard>
 
-      {isOwnProfile ? (
-        <GlassCard style={styles.securityCard}>
-          <Text style={styles.securityTitle}>Altersverifizierung</Text>
-          <Text style={styles.securityText}>
-            {profile.ageVerified
-              ? 'Dein 18+-Status ist bestätigt. Bei einer erneuten Prüfung wird hier der aktuelle Status angezeigt.'
-              : profile.ageVerificationStatus === 'pending'
-                ? 'Deine Dokumentenprüfung wurde eingereicht. Registrierung und sensible Bereiche bleiben bis zur Freigabe geschützt.'
-                : 'Dein 18+-Nachweis ist noch nicht abgeschlossen. Die Prüfung erfolgt im Registrierungsflow über Dokument und Live-Selfie.'}
-          </Text>
-        </GlassCard>
-      ) : null}
-
-      <GlassCard style={styles.securityCard}>
-        <Text style={styles.securityTitle}>Screenshot-Schutz</Text>
-        <Text style={styles.securityText}>
-          {Platform.OS === 'web'
-            ? 'Dieser Bereich ist zusätzlich geschützt, damit Bilder und persönliche Daten nicht unbemerkt gesichert werden.'
-            : 'Dieser Profilbereich ist für nativen Screenshot-Schutz vorbereitet, um Bilder und persönliche Daten besser zu schützen.'}
-        </Text>
-      </GlassCard>
-
-      {isOwnProfile ? (
-        <GlassCard style={styles.securityCard}>
-          <Text style={styles.securityTitle}>Moderation und Sicherheit</Text>
-          <Text style={styles.securityText}>
-            {moderationBackendConfigured
-              ? 'Sicherheitsrelevante Aktionen werden geprüft und zur Nachverfolgung protokolliert.'
-              : 'Sicherheitsrelevante Aktionen werden überwacht und bei Bedarf eingeschränkt.'}
-          </Text>
-          <Text style={styles.copyLine}>Aktueller Status: {moderationLabel}</Text>
-          <Text style={styles.copyLine}>Letzte Prüfung: {moderationProfile?.moderationLastCheckedAt || 'Noch keine Sicherheitsprüfung'}</Text>
-          <Text style={styles.copyLine}>Aktive Flags: {(moderationFlags || []).length ? moderationFlags.join(', ') : 'Keine'}</Text>
-          {moderationProfile?.moderationRateLimitUntil ? <Text style={styles.warnRed}>Aktionen begrenzt bis: {moderationProfile.moderationRateLimitUntil}</Text> : null}
-          {recentModerationEntries.length ? (
-            <View style={styles.auditList}>
-              {recentModerationEntries.map((entry) => (
-                <View key={entry.id} style={styles.auditItem}>
-                  <Text style={styles.auditTitle}>{entry.actionType}</Text>
-                  <Text style={styles.auditMeta}>{entry.outcome} • {entry.createdAt}</Text>
-                  {entry.reason ? <Text style={styles.auditReason}>{entry.reason}</Text> : null}
-                  {entry.flags?.length ? <Text style={styles.auditFlags}>Flags: {entry.flags.join(', ')}</Text> : null}
-                </View>
-              ))}
-            </View>
-          ) : (
-            <Text style={styles.copyLine}>Noch keine Moderationsfälle protokolliert.</Text>
-          )}
-        </GlassCard>
-      ) : null}
-
       <GlassCard style={styles.infoCard}>
         {isOwnProfile ? (
           <>

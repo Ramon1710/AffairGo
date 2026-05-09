@@ -8,14 +8,51 @@ import { useNavigation } from '../naviagtion/SimpleNavigation';
 
 const quickActions = [
   { key: 'Profil', label: 'Profil', icon: 'person-outline' },
-  { key: 'MatchingMap', label: 'Matching Map', icon: 'map-outline' },
-  { key: 'Swipe', label: 'Swipe', icon: 'swap-horizontal-outline' },
+  { key: 'MatchingMap', label: 'Matching Map', icon: 'map-outline', requiresVisibility: true },
+  { key: 'Swipe', label: 'Swipe', icon: 'swap-horizontal-outline', requiresVisibility: true },
   { key: 'Chat', label: 'Chats', icon: 'chatbubbles-outline' },
 ];
 
 const Dashboard = () => {
   const navigation = useNavigation();
-  const { currentUser, visibleProfiles, events, nearbyOnlineProfiles, getProfileTravelSummary, accessStatusLabel, logout } = useAffairGo();
+  const {
+    currentUser,
+    visibleProfiles,
+    events,
+    nearbyOnlineProfiles,
+    getProfileTravelSummary,
+    accessStatusLabel,
+    locationPermissionGranted,
+    locationError,
+    logout,
+    requestLiveLocationAccess,
+    updateCurrentUser,
+  } = useAffairGo();
+  const visibilityEnabled = Boolean(currentUser.searchActive && locationPermissionGranted);
+
+  const handleVisibilityToggle = async () => {
+    if (visibilityEnabled) {
+      await updateCurrentUser({ searchActive: false });
+      return;
+    }
+
+    const granted = await requestLiveLocationAccess();
+
+    if (!granted) {
+      await updateCurrentUser({ searchActive: false });
+      return;
+    }
+
+    await updateCurrentUser({ searchActive: true });
+  };
+
+  const openQuickAction = (action) => {
+    if (action.requiresVisibility && !visibilityEnabled) {
+      return;
+    }
+
+    navigation.navigate(action.key);
+  };
   const toTripList = (trips, mode) => {
     if (!Array.isArray(trips)) {
       return [];
@@ -70,6 +107,27 @@ const Dashboard = () => {
         <Text style={styles.membershipText}>{accessStatusLabel}</Text>
       </View>
 
+      <GlassCard strong style={styles.visibilityCard}>
+        <View style={styles.visibilityHeader}>
+          <View style={styles.visibilityCopy}>
+            <Text style={styles.visibilityTitle}>Sichtbarkeit</Text>
+            <Text style={styles.visibilityStatus}>{visibilityEnabled ? 'Aktiv' : 'Inaktiv'}</Text>
+          </View>
+          <AccentButton
+            label={visibilityEnabled ? 'Deaktivieren' : 'Aktivieren'}
+            variant={visibilityEnabled ? 'secondary' : 'primary'}
+            onPress={handleVisibilityToggle}
+            style={styles.visibilityButton}
+          />
+        </View>
+        {!visibilityEnabled ? (
+          <Text style={styles.visibilityHint}>
+            Sichtbarkeit/Standort aktivieren um Swipe und Matchingmap zu nutzen.
+            {locationError ? ` ${locationError}` : ''}
+          </Text>
+        ) : null}
+      </GlassCard>
+
       <View style={styles.signalGrid}>
         {DASHBOARD_SIGNAL_CARDS.map((card) => (
           <GlassCard key={card.id} style={styles.signalCard}>
@@ -81,10 +139,19 @@ const Dashboard = () => {
 
       <View style={styles.grid}>
         {quickActions.map((action) => (
-          <Pressable key={action.key} style={styles.tile} onPress={() => navigation.navigate(action.key)}>
-            <GlassCard strong style={styles.tileCard}>
-              <Ionicons name={action.icon} size={56} color={affairGoTheme.colors.accent} />
-              <Text style={styles.tileLabel}>{action.label}</Text>
+          <Pressable
+            key={action.key}
+            style={styles.tile}
+            onPress={() => openQuickAction(action)}
+            disabled={action.requiresVisibility && !visibilityEnabled}
+          >
+            <GlassCard strong style={[styles.tileCard, action.requiresVisibility && !visibilityEnabled ? styles.tileCardDisabled : null]}>
+              <Ionicons
+                name={action.icon}
+                size={56}
+                color={action.requiresVisibility && !visibilityEnabled ? affairGoTheme.colors.textMuted : affairGoTheme.colors.accent}
+              />
+              <Text style={[styles.tileLabel, action.requiresVisibility && !visibilityEnabled ? styles.tileLabelDisabled : null]}>{action.label}</Text>
             </GlassCard>
           </Pressable>
         ))}
@@ -153,7 +220,7 @@ const Dashboard = () => {
         <EmptyState
           title={EMPTY_STATE_COPY.matches.title}
           detail={EMPTY_STATE_COPY.matches.detail}
-          action={<AccentButton label="Matching Map öffnen" variant="secondary" onPress={() => navigation.navigate('MatchingMap')} />}
+          action={<AccentButton label="Matching Map öffnen" variant="secondary" onPress={() => navigation.navigate('MatchingMap')} disabled={!visibilityEnabled} />}
         />
       )}
 
@@ -203,6 +270,36 @@ const styles = StyleSheet.create({
   signalGrid: {
     marginBottom: 16,
   },
+  visibilityCard: {
+    marginBottom: 16,
+  },
+  visibilityHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  visibilityCopy: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  visibilityTitle: {
+    color: affairGoTheme.colors.text,
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  visibilityStatus: {
+    color: affairGoTheme.colors.textMuted,
+    marginTop: 4,
+    fontSize: 15,
+  },
+  visibilityButton: {
+    marginTop: 0,
+  },
+  visibilityHint: {
+    color: affairGoTheme.colors.warning,
+    marginTop: 14,
+    lineHeight: 22,
+  },
   signalCard: {
     marginBottom: 10,
   },
@@ -228,11 +325,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  tileCardDisabled: {
+    opacity: 0.45,
+  },
   tileLabel: {
     color: affairGoTheme.colors.text,
     fontSize: 24,
     fontWeight: '600',
     marginTop: 18,
+  },
+  tileLabelDisabled: {
+    color: affairGoTheme.colors.textMuted,
   },
   eventCard: {
     marginBottom: 14,
