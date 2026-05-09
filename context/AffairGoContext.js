@@ -1575,16 +1575,17 @@ export const AffairGoProvider = ({ children }) => {
 
   const mapCenterCoordinates = useMemo(() => deviceLocation || getFallbackLiveLocation(currentUser), [currentUser, deviceLocation]);
 
-  const publishLiveLocation = async (location) => {
+  const publishLiveLocation = async (location, profileOverride = null) => {
     if (!Number.isFinite(Number(location?.latitude)) || !Number.isFinite(Number(location?.longitude))) {
       return [];
     }
 
     try {
+      const activeProfile = profileOverride ? { ...currentUserRef.current, ...profileOverride } : currentUserRef.current;
       const accuracyMeters = normalizeLocationAccuracy(location?.accuracy ?? location?.coords?.accuracy);
       const lastUpdatedAt = Timestamp.now();
       const publicLocationDoc = buildPublicLocationDocument({
-        profile: currentUser,
+        profile: activeProfile,
         exactLocation: location,
         accuracyMeters,
         lastUpdatedAt,
@@ -1595,19 +1596,19 @@ export const AffairGoProvider = ({ children }) => {
         lastUpdatedAt,
       });
 
-      if (!publicLocationDoc || !privateLocationDoc || !currentUser?.id || currentUser.id === 'me') {
+      if (!publicLocationDoc || !privateLocationDoc || !activeProfile?.id || activeProfile.id === 'me') {
         return [];
       }
 
       await Promise.all([
-        setDoc(doc(db, MAP_LOCATIONS_COLLECTION, currentUser.id), publicLocationDoc, { merge: true }),
-        setDoc(doc(db, 'users', currentUser.id, LOCATION_PRIVACY_SUBCOLLECTION, LOCATION_PRIVACY_DOC_ID), privateLocationDoc, { merge: true }),
+        setDoc(doc(db, MAP_LOCATIONS_COLLECTION, activeProfile.id), publicLocationDoc, { merge: true }),
+        setDoc(doc(db, 'users', activeProfile.id, LOCATION_PRIVACY_SUBCOLLECTION, LOCATION_PRIVACY_DOC_ID), privateLocationDoc, { merge: true }),
       ]);
 
       const mapLocations = await loadRadiusMapLocations({
         center: privateLocationDoc.coordinate,
         radiusKm: currentRadius,
-        excludedUserId: currentUser.id,
+        excludedUserId: activeProfile.id,
       });
       setPublicMapLocations(mapLocations);
       setUsers((existingUsers) => mergeMapLocationsIntoProfiles(existingUsers, mapLocations, privateLocationDoc.coordinate));
@@ -2476,8 +2477,9 @@ export const AffairGoProvider = ({ children }) => {
   };
 
   const completeOnboarding = async ({ preferences, taboos }) => {
+    const latestCurrentUser = currentUserRef.current;
     const nextUser = {
-      ...currentUser,
+      ...latestCurrentUser,
       preferences,
       taboos,
       onboardingCompleted: true,
@@ -2486,12 +2488,18 @@ export const AffairGoProvider = ({ children }) => {
 
     setCurrentUser(nextUser);
 
-    await persistCurrentUserPatch({ preferences, taboos, onboardingCompleted: true, searchActive: true });
+    Promise.all([
+      persistCurrentUserPatch({ preferences, taboos, onboardingCompleted: true, searchActive: true }),
+      deviceLocation ? publishLiveLocation(deviceLocation, nextUser) : Promise.resolve([]),
+    ]).catch((error) => {
+      console.warn('AffairGo onboarding persist warning', error);
+    });
 
     return nextUser;
   };
 
   const updateCurrentUser = async (patch) => {
+    const latestCurrentUser = currentUserRef.current;
     const nextPatch = { ...patch };
     delete nextPatch.password;
     delete nextPatch.repeatPassword;
@@ -2499,15 +2507,15 @@ export const AffairGoProvider = ({ children }) => {
 
     if ('searchAgeMin' in nextPatch || 'searchAgeMax' in nextPatch) {
       const normalizedAgeRange = normalizeSearchAgeRange({
-        searchAgeMin: nextPatch.searchAgeMin ?? currentUser.searchAgeMin,
-        searchAgeMax: nextPatch.searchAgeMax ?? currentUser.searchAgeMax,
-      }, currentUser);
+        searchAgeMin: nextPatch.searchAgeMin ?? latestCurrentUser.searchAgeMin,
+        searchAgeMax: nextPatch.searchAgeMax ?? latestCurrentUser.searchAgeMax,
+      }, latestCurrentUser);
       nextPatch.searchAgeMin = normalizedAgeRange.searchAgeMin;
       nextPatch.searchAgeMax = normalizedAgeRange.searchAgeMax;
     }
 
     if ('searchGenders' in nextPatch) {
-      nextPatch.searchGenders = getSearchGenders(nextPatch, currentUser.searchGenders);
+      nextPatch.searchGenders = getSearchGenders(nextPatch, latestCurrentUser.searchGenders);
     }
 
     if ('verifiedMatchesOnly' in nextPatch) {
@@ -2515,7 +2523,7 @@ export const AffairGoProvider = ({ children }) => {
     }
 
     if ('preferences' in nextPatch) {
-      nextPatch.preferences = normalizeOptionList(nextPatch.preferences, PREFERENCE_OPTIONS, currentUser.preferences);
+      nextPatch.preferences = normalizeOptionList(nextPatch.preferences, PREFERENCE_OPTIONS, latestCurrentUser.preferences);
 
       if (hasCompletedPreferenceSetup({ preferences: nextPatch.preferences })) {
         nextPatch.onboardingCompleted = true;
@@ -2523,7 +2531,7 @@ export const AffairGoProvider = ({ children }) => {
     }
 
     if ('taboos' in nextPatch) {
-      nextPatch.taboos = normalizeOptionList(nextPatch.taboos, TABOO_OPTIONS, currentUser.taboos);
+      nextPatch.taboos = normalizeOptionList(nextPatch.taboos, TABOO_OPTIONS, latestCurrentUser.taboos);
     }
 
     const requestedEmail = typeof nextPatch.email === 'string' ? nextPatch.email.trim().toLowerCase() : null;
@@ -2532,13 +2540,21 @@ export const AffairGoProvider = ({ children }) => {
     const requestedNickname = typeof nextPatch.nickname === 'string' ? nextPatch.nickname.trim() : null;
     delete nextPatch.nickname;
 
-    if (requestedNickname && requestedNickname !== currentUser.nickname) {
-      await ensureNicknameAvailable(requestedNickname, auth.currentUser?.uid || currentUser.id);
+    if (requestedNickname && requestedNickname !== latestCurrentUser.nickname) {
+      await ensureNicknameAvailable(requestedNickname, auth.currentUser?.uid || latestCurrentUser.id);
       nextPatch.pendingNickname = requestedNickname;
     }
 
-    setCurrentUser((previous) => ({ ...previous, ...nextPatch }));
-    await persistCurrentUserPatch(nextPatch);
+    const nextCurrentUser = { ...latestCurrentUser, ...nextPatch };
+
+    setCurrentUser(nextCurrentUser);
+
+    await Promise.all([
+      persistCurrentUserPatch(nextPatch),
+      ('searchActive' in nextPatch) && deviceLocation
+        ? publishLiveLocation(deviceLocation, nextCurrentUser)
+        : Promise.resolve([]),
+    ]);
 
     if (requestedEmail !== null) {
       return requestEmailChange(requestedEmail);

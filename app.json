@@ -38,7 +38,7 @@
       ]
     ],
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./App-ICON.png"
     },
     "extra": {
       "websiteUrl": "https://night-whisper.com",

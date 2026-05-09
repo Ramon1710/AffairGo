@@ -26,22 +26,33 @@ const Dashboard = () => {
     requestLiveLocationAccess,
     updateCurrentUser,
   } = useAffairGo();
+  const [isTogglingVisibility, setIsTogglingVisibility] = React.useState(false);
   const visibilityEnabled = Boolean(currentUser.searchActive && locationPermissionGranted);
 
   const handleVisibilityToggle = async () => {
-    if (visibilityEnabled) {
-      await updateCurrentUser({ searchActive: false });
+    if (isTogglingVisibility) {
       return;
     }
 
-    const granted = await requestLiveLocationAccess();
+    try {
+      setIsTogglingVisibility(true);
 
-    if (!granted) {
-      await updateCurrentUser({ searchActive: false });
-      return;
+      if (visibilityEnabled) {
+        await updateCurrentUser({ searchActive: false });
+        return;
+      }
+
+      const granted = await requestLiveLocationAccess();
+
+      if (!granted) {
+        await updateCurrentUser({ searchActive: false });
+        return;
+      }
+
+      await updateCurrentUser({ searchActive: true });
+    } finally {
+      setIsTogglingVisibility(false);
     }
-
-    await updateCurrentUser({ searchActive: true });
   };
 
   const openQuickAction = (action) => {
@@ -97,9 +108,10 @@ const Dashboard = () => {
             <Text style={styles.visibilityStatus}>{visibilityEnabled ? 'Aktiv' : 'Inaktiv'}</Text>
           </View>
           <AccentButton
-            label={visibilityEnabled ? 'Deaktivieren' : 'Aktivieren'}
+            label={isTogglingVisibility ? 'Aktualisiere...' : visibilityEnabled ? 'Deaktivieren' : 'Aktivieren'}
             variant={visibilityEnabled ? 'secondary' : 'primary'}
             onPress={handleVisibilityToggle}
+            disabled={isTogglingVisibility}
             style={styles.visibilityButton}
           />
         </View>
@@ -383,3 +395,5 @@ const styles = StyleSheet.create({
 });
 
 export default Dashboard;
+
+const React = require('react');

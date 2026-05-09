@@ -1,21 +1,24 @@
-import { Platform, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Image, Platform, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { AccentButton, AppBackground, BulletRow, GlassCard, InfoBanner, InlineStat, SectionTitle, StatusPill } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
-import { accessColors, accessLabels, affairGoTheme } from '../constants/affairGoTheme';
+import { accessColors, affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
 import { WEBSITE_SECTIONS } from '../data/mockData';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
 
+const appIcon = require('../App-ICON.png');
+
 const LandingScreen = () => {
   const { width } = useWindowDimensions();
   const navigation = useNavigation();
-  const { currentUser, events, visibleProfiles, isAuthenticated, featureIdeas, accessStatusLabel } = useAffairGo();
+  const { currentUser, events, visibleProfiles, isAuthenticated } = useAffairGo();
   const isCompactWeb = Platform.OS === 'web' && width < 900;
 
   return (
     <AppBackground contentContainerStyle={styles.content}>
       <View style={[styles.hero, Platform.OS === 'web' && !isCompactWeb && styles.heroWeb]}>
         <View style={styles.heroCopy}>
+          <Image source={appIcon} style={styles.logo} resizeMode="contain" />
           <View style={styles.badge}>
             <Ionicons name="heart" size={18} color={affairGoTheme.colors.accent} />
             <Text style={styles.badgeText}>Night-Whisper</Text>
@@ -23,11 +26,11 @@ const LandingScreen = () => {
           <Text style={styles.domainText}>night-whisper.com</Text>
           <Text style={styles.heroTitle}>Night-Whisper verbindet diskret, stilvoll und direkt in deiner Stadt.</Text>
           <Text style={styles.heroText}>
-            Erstelle dein Profil, entdecke passende Kontakte, nutze die Matching Map und starte Gespräche direkt in der Webapp.
+            Erstelle dein Profil, entdecke passende Kontakte, nutze die Matching Map und starte Gespräche direkt in der App.
           </Text>
           <View style={[styles.heroActions, isCompactWeb && styles.heroActionsCompact]}>
             <AccentButton
-              label={isAuthenticated ? 'Direkt ins Dashboard' : 'Zur Webapp'}
+              label={isAuthenticated ? 'Dashboard' : 'Login'}
               onPress={() => navigation.navigate(isAuthenticated ? 'Dashboard' : 'Login')}
               style={[styles.heroButton, isCompactWeb && styles.heroButtonCompact]}
             />
@@ -44,15 +47,18 @@ const LandingScreen = () => {
             <InlineStat label="Events im Radius" value={String(events.length)} />
           </View>
           <View style={styles.statusRow}>
-            <StatusPill label={accessLabels[currentUser.membership] || 'Kostenfrei'} tone="success" />
-            <StatusPill label={isAuthenticated ? 'Angemeldet' : 'Gastmodus'} tone={isAuthenticated ? 'success' : 'default'} style={styles.statusPill} />
+            <StatusPill label={isAuthenticated ? 'Angemeldet' : 'Login erforderlich'} tone={isAuthenticated ? 'success' : 'default'} style={styles.statusPill} />
           </View>
-          <Text style={styles.membershipStatus}>{accessStatusLabel}</Text>
+          <Text style={styles.membershipStatus}>
+            {isAuthenticated
+              ? 'Du bist eingeloggt und kannst direkt ins Dashboard wechseln.'
+              : 'Melde dich an oder registriere dich, um Dashboard, Matching Map und Chats zu nutzen.'}
+          </Text>
         </View>
 
         <GlassCard strong style={[styles.previewCard, isCompactWeb && styles.previewCardCompact]}>
           <Text style={styles.previewEyebrow}>Live-Vorschau</Text>
-          <Text style={styles.previewTitle}>Direkt verbunden mit der Webapp</Text>
+          <Text style={styles.previewTitle}>Direkt verbunden mit deinem Profil</Text>
           <BulletRow icon="shield-checkmark-outline" label="18+ und Bildprüfung" detail="Sicherheitsprüfungen und Profilfreigaben sorgen für mehr Vertrauen beim Kennenlernen." />
           <BulletRow icon="navigate-outline" label="Matching Map mit Radius" detail="Finde Kontakte in deiner Nähe, filtere nach Radius und behalte die Übersicht unterwegs." />
           <BulletRow icon="chatbubble-ellipses-outline" label="Chat, Spiele und Icebreaker" detail="Starte Gespräche direkt, lockere Matches auf und bleibe unkompliziert in Kontakt." />
@@ -71,27 +77,21 @@ const LandingScreen = () => {
         ))}
       </View>
 
-      <SectionTitle title="Mitgliedschaft" aside="kostenlos bis Anfang 2027" />
+      <SectionTitle title="Mitgliedschaft" aside="offen bis Anfang 2027" />
       <GlassCard strong style={styles.freeAccessCard}>
-        <Text style={styles.cardTitle}>Kostenlos beitreten und direkt loslegen</Text>
-        <Text style={styles.modalText}>Bis Anfang 2027 bleiben Registrierung, Login und die aktuellen Webapp-Funktionen ohne Bezahlschranke verfügbar.</Text>
+        <Text style={styles.cardTitle}>Beitreten und direkt loslegen</Text>
+        <Text style={styles.modalText}>Bis Anfang 2027 bleiben Registrierung, Login und die aktuellen App-Funktionen frei zugänglich.</Text>
         <Text style={styles.setupHint}>So kannst du Night-Whisper ohne Hürden kennenlernen, Kontakte aufbauen und die Plattform sofort nutzen.</Text>
-        <AccentButton label={isAuthenticated ? 'Direkt in die Webapp' : 'Jetzt kostenlos starten'} onPress={() => navigation.navigate(isAuthenticated ? 'Dashboard' : 'Register')} style={styles.planButton} />
+        <AccentButton label={isAuthenticated ? 'Zum Dashboard' : 'Login'} onPress={() => navigation.navigate(isAuthenticated ? 'Dashboard' : 'Login')} style={styles.planButton} />
       </GlassCard>
 
-      <SectionTitle title="Sicherheit und Community" aside="direkt verknüpft" />
+      <SectionTitle title="Sicherheit" aside="direkt verknüpft" />
       <View style={[styles.communityRow, Platform.OS === 'web' && !isCompactWeb && styles.communityRowWeb]}>
         <GlassCard style={[styles.communityCard, isCompactWeb && styles.communityCardCompact]}>
           <Text style={styles.cardTitle}>Sicherheitslogik</Text>
           <BulletRow icon="warning-outline" label="Alte Fotos markieren" detail="6 Monate = Hinweis, 12 Monate = rote Warnung im Profil und auf Karten." />
           <BulletRow icon="sparkles-outline" label="Alle Kernfunktionen freigeschaltet" detail="Direktnachrichten, Explore, Matching Map und priorisierte Ansichten stehen dir ohne Zusatzschritte offen." />
           <BulletRow icon="camera-outline" label="Screenshot-Schutz" detail="Sensible Bereiche werden zusätzlich geschützt, damit private Inhalte nicht unbemerkt gesichert werden." />
-        </GlassCard>
-        <GlassCard style={[styles.communityCard, isCompactWeb && styles.communityCardCompact]}>
-          <Text style={styles.cardTitle}>Community-Ideenbox</Text>
-          <Text style={styles.ideaLead}>Bisher eingereichte Ideen: {featureIdeas.length}</Text>
-          <Text style={styles.ideaText}>Frühe Nutzer helfen beim Aufbau der Community, schlagen Features vor und prägen so die Richtung von Night-Whisper aktiv mit.</Text>
-          <AccentButton label="Jetzt starten" onPress={() => navigation.navigate(isAuthenticated ? 'Dashboard' : 'Login')} />
         </GlassCard>
       </View>
 
@@ -118,6 +118,12 @@ const styles = StyleSheet.create({
   heroCopy: {
     flex: 1,
     marginBottom: 18,
+  },
+  logo: {
+    width: Platform.OS === 'web' ? 116 : 92,
+    height: Platform.OS === 'web' ? 116 : 92,
+    marginBottom: 18,
+    borderRadius: 28,
   },
   badge: {
     alignSelf: 'flex-start',
@@ -317,18 +323,6 @@ const styles = StyleSheet.create({
     color: affairGoTheme.colors.accentSoft,
     lineHeight: 20,
     marginBottom: 14,
-  },
-  ideaLead: {
-    color: affairGoTheme.colors.text,
-    fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  ideaText: {
-    color: affairGoTheme.colors.textMuted,
-    fontSize: 15,
-    lineHeight: 24,
-    marginBottom: 16,
   },
 });
 
