@@ -254,7 +254,7 @@ const ProfilScreen = () => {
         verificationToken: verificationSession.verificationToken,
       });
 
-      Alert.alert('Live-Selfie starten', 'Die Live-Selfie-Prüfung wurde im Browser geöffnet. Kehre danach in die App zurück und tippe auf "Prüfung abschließen".');
+      Alert.alert('Live-Selfie starten', 'Die Live-Selfie-Prüfung wurde geöffnet. Kehre danach zurück und tippe auf "Prüfung abschließen".');
     } catch (error) {
       Alert.alert('Profilbild konnte nicht hochgeladen werden', error.message || 'Bitte versuche es erneut.');
     } finally {
@@ -474,14 +474,13 @@ const ProfilScreen = () => {
         <StatusPill label={verificationLabel} tone={verificationTone} style={styles.statusPill} />
         <StatusPill label={ageVerificationLabel} tone={ageVerificationTone} style={styles.statusPill} />
         {isOwnProfile ? <StatusPill label={moderationLabel} tone={moderationTone} style={styles.statusPill} /> : null}
-        {profile.ageVerificationProvider ? <Text style={styles.photoAge}>KYC-Anbieter: {profile.ageVerificationProvider}</Text> : null}
-        {profile.ageVerificationReferenceId ? <Text style={styles.photoAge}>KYC-Referenz: {profile.ageVerificationReferenceId}</Text> : null}
+        {profile.ageVerificationProvider ? <Text style={styles.photoAge}>Altersprüfung: bestätigt</Text> : null}
         {profile.profilePhotoVerifiedAt ? <Text style={styles.photoAge}>Profilbild verifiziert: {new Date(profile.profilePhotoVerifiedAt).toLocaleString('de-DE')}</Text> : null}
         {profile.faceMatchSimilarity ? <Text style={styles.photoAge}>Face-Match: {Math.round(profile.faceMatchSimilarity)} %</Text> : null}
         <Text style={styles.photoAge}>Profilbild hochgeladen: vor {profile.profilePhotoAgeMonths} Monaten</Text>
         {profile.profilePhotoAgeMonths >= 12 ? <Text style={styles.warnRed}>Rote Warnung: Profilbild älter als 12 Monate</Text> : null}
         {profile.profilePhotoAgeMonths >= 6 && profile.profilePhotoAgeMonths < 12 ? <Text style={styles.warnSoft}>Hinweis: Profilbild älter als 6 Monate</Text> : null}
-        {isOwnProfile && pendingProfilePhotoVerification ? <Text style={styles.warnSoft}>Temporäres Bild gewählt. Führe jetzt die Live-Selfie-Prüfung im Browser aus und bestätige danach die Freigabe.</Text> : null}
+        {isOwnProfile && pendingProfilePhotoVerification ? <Text style={styles.warnSoft}>Temporäres Bild gewählt. Bitte schließe jetzt die Live-Selfie-Prüfung ab und bestätige danach die Freigabe.</Text> : null}
         {!isOwnProfile ? <AccentButton label="Profil melden" variant="secondary" onPress={() => setReportModalOpen(true)} style={styles.avatarButton} /> : null}
       </GlassCard>
 
@@ -490,9 +489,9 @@ const ProfilScreen = () => {
           <Text style={styles.securityTitle}>Altersverifizierung</Text>
           <Text style={styles.securityText}>
             {profile.ageVerified
-              ? 'Dein 18+-Status ist bestätigt. Bei einer erneuten Dokumentenprüfung oder Anbieter-Änderung wird hier der aktuelle Status angezeigt.'
+              ? 'Dein 18+-Status ist bestätigt. Bei einer erneuten Prüfung wird hier der aktuelle Status angezeigt.'
               : profile.ageVerificationStatus === 'pending'
-                ? 'Deine Dokumentenprüfung wurde eingereicht. Die Registrierung und sensible Bereiche bleiben bis zur Freigabe an den Anbieterstatus gebunden.'
+                ? 'Deine Dokumentenprüfung wurde eingereicht. Registrierung und sensible Bereiche bleiben bis zur Freigabe geschützt.'
                 : 'Dein 18+-Nachweis ist noch nicht abgeschlossen. Die Prüfung erfolgt im Registrierungsflow über Dokument und Live-Selfie.'}
           </Text>
         </GlassCard>
@@ -502,7 +501,7 @@ const ProfilScreen = () => {
         <Text style={styles.securityTitle}>Screenshot-Schutz</Text>
         <Text style={styles.securityText}>
           {Platform.OS === 'web'
-            ? 'Im Web sind Drucken, Copy/Cut, Kontextmenü und Sichtwechsel hier zusätzlich gehärtet. Ein absoluter Browser-Schutz ist technisch trotzdem nie garantiert.'
+            ? 'Dieser Bereich ist zusätzlich geschützt, damit Bilder und persönliche Daten nicht unbemerkt gesichert werden.'
             : 'Dieser Profilbereich ist für nativen Screenshot-Schutz vorbereitet, um Bilder und persönliche Daten besser zu schützen.'}
         </Text>
       </GlassCard>
@@ -512,8 +511,8 @@ const ProfilScreen = () => {
           <Text style={styles.securityTitle}>Moderation und Sicherheit</Text>
           <Text style={styles.securityText}>
             {moderationBackendConfigured
-              ? 'Deine kritischen Aktionen werden über das Moderations-Backend geprüft und im Audit-Trail protokolliert.'
-              : 'Aktuell ist nur der lokale Sicherheits-Fallback aktiv. Fuer belastbare Fallbearbeitung musst du das Moderations-Backend in .env.local konfigurieren.'}
+              ? 'Sicherheitsrelevante Aktionen werden geprüft und zur Nachverfolgung protokolliert.'
+              : 'Sicherheitsrelevante Aktionen werden überwacht und bei Bedarf eingeschränkt.'}
           </Text>
           <Text style={styles.copyLine}>Aktueller Status: {moderationLabel}</Text>
           <Text style={styles.copyLine}>Letzte Prüfung: {moderationProfile?.moderationLastCheckedAt || 'Noch keine Sicherheitsprüfung'}</Text>

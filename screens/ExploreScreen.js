@@ -15,7 +15,7 @@ const ExploreScreen = () => {
   const handleSubmitIdea = async () => {
     try {
       await submitFeatureIdea(`Neues Spiel für ${selectedCity}`);
-      Alert.alert('Idee eingereicht', 'Deine Idee wurde gespeichert und fuer die Moderationspruefung markiert.');
+      Alert.alert('Idee eingereicht', 'Deine Idee wurde gespeichert und für die Moderationsprüfung markiert.');
     } catch (error) {
       Alert.alert('Idee blockiert', error.message || 'Die Idee konnte aktuell nicht eingereicht werden.');
     }

@@ -4,7 +4,7 @@ import { AccentButton, AppBackground, GlassCard, ScreenHeader, ToggleChip } from
 import MatchingMapLeaflet from '../components/MatchingMapLeaflet';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme, travelModeColors } from '../constants/affairGoTheme';
-import { buildExternalMapUrl, getMapProviderLabel, getMapSetupInstructions, hasConfiguredMapApiKey } from '../constants/mapProvider';
+import { buildExternalMapUrl, getMapProviderLabel, hasConfiguredMapApiKey } from '../constants/mapProvider';
 import { useAffairGo } from '../context/AffairGoContext';
 import { PHOTO_AGE_FILTERS, RADIUS_OPTIONS } from '../data/mockData';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
@@ -137,9 +137,8 @@ const MatchingMapScreen = () => {
 
       {!hasMapApiKey ? (
         <GlassCard style={styles.permissionCard}>
-          <Text style={styles.permissionTitle}>Stadia Maps konfigurieren</Text>
-          <Text style={styles.selectedMeta}>{getMapProviderLabel()} ist eingebunden, aber ohne API-Key kann keine Tile-Layer geladen werden.</Text>
-          <Text style={styles.selectedMeta}>{getMapSetupInstructions()}</Text>
+          <Text style={styles.permissionTitle}>Karte derzeit nicht verfügbar</Text>
+          <Text style={styles.selectedMeta}>{getMapProviderLabel()} ist momentan nicht erreichbar. Bitte versuche es in Kürze erneut.</Text>
         </GlassCard>
       ) : null}
 

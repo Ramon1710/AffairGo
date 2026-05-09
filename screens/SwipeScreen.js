@@ -118,7 +118,7 @@ const SwipeScreen = () => {
     <AppBackground contentContainerStyle={styles.content}>
       <ScreenHeader
         title="Swipe"
-        subtitle="Tinder-ähnlicher Demo-Flow"
+        subtitle="Profile entdecken"
         leftAction={
           <Pressable onPress={() => navigation.goBack()}>
             <Ionicons name="arrow-back" size={28} color={affairGoTheme.colors.text} />

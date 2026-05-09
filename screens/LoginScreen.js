@@ -183,7 +183,7 @@ const LoginScreen = () => {
           <GlassCard strong style={styles.modalCard}>
             <Text style={styles.modalTitle}>Passwort vergessen</Text>
             <Text style={styles.modalText}>
-              Night-Whisper nutzt bevorzugt den verwalteten Reset per Mail-Workflow. Wenn dafuer noch kein Backend konfiguriert ist, faellt der Flow automatisch auf den Firebase-Reset-Link zurueck.
+              Du erhältst eine E-Mail mit einem Link, über den du dein Passwort sicher zurücksetzen kannst.
             </Text>
             <AccentButton label={isResetSubmitting ? 'Mail wird gesendet...' : 'Mail senden'} onPress={handleReset} disabled={isResetSubmitting} style={styles.modalButton} />
             <AccentButton label="Abbrechen" variant="ghost" onPress={() => setResetOpen(false)} disabled={isResetSubmitting} />

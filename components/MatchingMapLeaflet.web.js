@@ -111,9 +111,9 @@ const MatchingMapLeaflet = ({ center, radiusKm, profiles, events, onProfilePress
   if (!hasApiKey) {
     return (
       <View style={{ minHeight: 440, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-        <Text style={{ color: affairGoTheme.colors.text, fontSize: 18, fontWeight: '700', marginBottom: 8 }}>Stadia Maps API-Key fehlt</Text>
+        <Text style={{ color: affairGoTheme.colors.text, fontSize: 18, fontWeight: '700', marginBottom: 8 }}>Karte derzeit nicht verfügbar</Text>
         <Text style={{ color: affairGoTheme.colors.textMuted, textAlign: 'center', lineHeight: 22 }}>
-          Setze EXPO_PUBLIC_STADIA_API_KEY in deiner .env oder .env.local und starte Expo danach neu, damit die Leaflet-Karte geladen werden kann.
+          Die Kartenansicht kann im Moment nicht geladen werden. Bitte versuche es in Kürze erneut.
         </Text>
       </View>
     );

@@ -141,9 +141,9 @@ const ChatScreen = () => {
 
     try {
       await softBlock(selectedUser.id);
-      Alert.alert('Profil blockiert', 'Das Profil wurde aus deinen Chats entfernt und fuer dich ausgeblendet.');
+      Alert.alert('Profil blockiert', 'Das Profil wurde aus deinen Chats entfernt und für dich ausgeblendet.');
     } catch (error) {
-      Alert.alert('Blockieren nicht moeglich', error.message || 'Das Profil konnte aktuell nicht blockiert werden.');
+      Alert.alert('Blockieren nicht möglich', error.message || 'Das Profil konnte aktuell nicht blockiert werden.');
     }
   };
 
@@ -301,7 +301,7 @@ const ChatScreen = () => {
         title="Screenshot-Schutz"
         detail={
           Platform.OS === 'web'
-            ? 'Im Web blockiert Night-Whisper hier zusätzlich Drucken, Copy/Cut, Kontextmenü und blendet den Bereich bei Sichtwechsel geschützt aus.'
+            ? 'Private Unterhaltungen werden zusätzlich geschützt, damit Inhalte nicht unbemerkt gesichert werden.'
             : 'Dieser Bereich ist für nativen Screenshot-Schutz vorbereitet, damit Chat-Inhalte nicht unbemerkt gespeichert werden.'
         }
         tone="warning"

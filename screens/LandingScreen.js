@@ -18,12 +18,12 @@ const LandingScreen = () => {
         <View style={styles.heroCopy}>
           <View style={styles.badge}>
             <Ionicons name="heart" size={18} color={affairGoTheme.colors.accent} />
-            <Text style={styles.badgeText}>Night-Whisper Website + Webapp</Text>
+            <Text style={styles.badgeText}>Night-Whisper</Text>
           </View>
           <Text style={styles.domainText}>night-whisper.com</Text>
-          <Text style={styles.heroTitle}>Kostenloser Frühzugang für Night-Whisper bis Anfang 2027.</Text>
+          <Text style={styles.heroTitle}>Night-Whisper verbindet diskret, stilvoll und direkt in deiner Stadt.</Text>
           <Text style={styles.heroText}>
-            Registrierungen sind bereits geöffnet. Du kannst dein Profil anlegen, die Webapp direkt nutzen und den Community-Aufbau in deiner Stadt von Anfang an mitgestalten.
+            Erstelle dein Profil, entdecke passende Kontakte, nutze die Matching Map und starte Gespräche direkt in der Webapp.
           </Text>
           <View style={[styles.heroActions, isCompactWeb && styles.heroActionsCompact]}>
             <AccentButton
@@ -39,7 +39,7 @@ const LandingScreen = () => {
             />
           </View>
           <View style={styles.statRow}>
-            <InlineStat label="Demo-Profil" value={currentUser.nickname} accent={accessColors[currentUser.membership] || affairGoTheme.colors.accent} />
+            <InlineStat label="Aktives Profil" value={currentUser.nickname} accent={accessColors[currentUser.membership] || affairGoTheme.colors.accent} />
             <InlineStat label="Sichtbare Matches" value={String(visibleProfiles.length)} />
             <InlineStat label="Events im Radius" value={String(events.length)} />
           </View>
@@ -53,13 +53,13 @@ const LandingScreen = () => {
         <GlassCard strong style={[styles.previewCard, isCompactWeb && styles.previewCardCompact]}>
           <Text style={styles.previewEyebrow}>Live-Vorschau</Text>
           <Text style={styles.previewTitle}>Direkt verbunden mit der Webapp</Text>
-          <BulletRow icon="shield-checkmark-outline" label="18+ und Bildprüfung" detail="Profilfoto-Upload mit KI-Selfie-Check als verifizierter Flow modelliert." />
-          <BulletRow icon="navigate-outline" label="Matching Map mit Radius" detail="Aktive Suche, Reise-Modi, Fotoalter-Filter und Radar greifen auf dieselben Mock-Daten zu." />
-          <BulletRow icon="chatbubble-ellipses-outline" label="Chat, Spiele und Icebreaker" detail="Direktnachrichten, Spiele und Icebreaker sind aktuell für alle Registrierungen freigeschaltet." />
+          <BulletRow icon="shield-checkmark-outline" label="18+ und Bildprüfung" detail="Sicherheitsprüfungen und Profilfreigaben sorgen für mehr Vertrauen beim Kennenlernen." />
+          <BulletRow icon="navigate-outline" label="Matching Map mit Radius" detail="Finde Kontakte in deiner Nähe, filtere nach Radius und behalte die Übersicht unterwegs." />
+          <BulletRow icon="chatbubble-ellipses-outline" label="Chat, Spiele und Icebreaker" detail="Starte Gespräche direkt, lockere Matches auf und bleibe unkompliziert in Kontakt." />
         </GlassCard>
       </View>
 
-      <SectionTitle title="Funktionsschema" aside="Website" />
+      <SectionTitle title="Funktionen" aside="Night-Whisper" />
       <View style={[styles.sectionGrid, Platform.OS === 'web' && !isCompactWeb && styles.sectionGridWeb]}>
         {WEBSITE_SECTIONS.map((section) => (
           <GlassCard key={section.title} style={[styles.sectionCard, isCompactWeb && styles.sectionCardCompact]}>
@@ -71,11 +71,11 @@ const LandingScreen = () => {
         ))}
       </View>
 
-      <SectionTitle title="Frühzugang" aside="kostenlos bis Anfang 2027" />
+      <SectionTitle title="Mitgliedschaft" aside="kostenlos bis Anfang 2027" />
       <GlassCard strong style={styles.freeAccessCard}>
-        <Text style={styles.cardTitle}>Kostenlos testen, Community aufbauen</Text>
-        <Text style={styles.modalText}>Bis Anfang 2027 bleiben Registrierung, Login und alle aktuellen Webapp-Funktionen ohne Bezahlschranke freigeschaltet.</Text>
-        <Text style={styles.setupHint}>Die frühe Phase dient bewusst dem Community-Aufbau, ersten Profilen, Events und echtem Produktfeedback aus der Nutzerschaft.</Text>
+        <Text style={styles.cardTitle}>Kostenlos beitreten und direkt loslegen</Text>
+        <Text style={styles.modalText}>Bis Anfang 2027 bleiben Registrierung, Login und die aktuellen Webapp-Funktionen ohne Bezahlschranke verfügbar.</Text>
+        <Text style={styles.setupHint}>So kannst du Night-Whisper ohne Hürden kennenlernen, Kontakte aufbauen und die Plattform sofort nutzen.</Text>
         <AccentButton label={isAuthenticated ? 'Direkt in die Webapp' : 'Jetzt kostenlos starten'} onPress={() => navigation.navigate(isAuthenticated ? 'Dashboard' : 'Register')} style={styles.planButton} />
       </GlassCard>
 
@@ -84,20 +84,20 @@ const LandingScreen = () => {
         <GlassCard style={[styles.communityCard, isCompactWeb && styles.communityCardCompact]}>
           <Text style={styles.cardTitle}>Sicherheitslogik</Text>
           <BulletRow icon="warning-outline" label="Alte Fotos markieren" detail="6 Monate = Hinweis, 12 Monate = rote Warnung im Profil und auf Karten." />
-          <BulletRow icon="sparkles-outline" label="Alle Kernfunktionen freigeschaltet" detail="Direktnachrichten, Explore, Matching Map und priorisierte Ansichten sind aktuell ohne Tarifgrenze verfügbar." />
-          <BulletRow icon="camera-outline" label="Screenshot-Schutz" detail="Im Web werden Druck, Copy/Cut, Kontextmenü und Sichtwechsel zusätzlich gehärtet; nativ bleibt der Plattformschutz vorbereitet." />
+          <BulletRow icon="sparkles-outline" label="Alle Kernfunktionen freigeschaltet" detail="Direktnachrichten, Explore, Matching Map und priorisierte Ansichten stehen dir ohne Zusatzschritte offen." />
+          <BulletRow icon="camera-outline" label="Screenshot-Schutz" detail="Sensible Bereiche werden zusätzlich geschützt, damit private Inhalte nicht unbemerkt gesichert werden." />
         </GlassCard>
         <GlassCard style={[styles.communityCard, isCompactWeb && styles.communityCardCompact]}>
           <Text style={styles.cardTitle}>Community-Ideenbox</Text>
           <Text style={styles.ideaLead}>Bisher eingereichte Ideen: {featureIdeas.length}</Text>
           <Text style={styles.ideaText}>Frühe Nutzer helfen beim Aufbau der Community, schlagen Features vor und prägen so die Richtung von Night-Whisper aktiv mit.</Text>
-          <AccentButton label="Frühzugang öffnen" onPress={() => navigation.navigate(isAuthenticated ? 'Dashboard' : 'Login')} />
+          <AccentButton label="Jetzt starten" onPress={() => navigation.navigate(isAuthenticated ? 'Dashboard' : 'Login')} />
         </GlassCard>
       </View>
 
       <InfoBanner
-        title="Demo-Hinweis"
-        detail="Website, Webapp und App-Flows greifen bewusst auf gemeinsame Mockdaten und denselben Produktzustand zu. So lassen sich Features konsistent testen, bevor Backend-Details vollständig produktiv angebunden werden."
+        title="Diskret und klar"
+        detail="Night-Whisper kombiniert ein reduziertes Design mit klaren Profilen, Matching Map, Chat und Sicherheitsfunktionen für einen ruhigen, direkten Einstieg."
         style={styles.demoBanner}
       />
     </AppBackground>
