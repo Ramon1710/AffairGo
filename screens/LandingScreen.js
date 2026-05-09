@@ -1,4 +1,4 @@
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { AccentButton, AppBackground, BulletRow, GlassCard, InfoBanner, InlineStat, SectionTitle, StatusPill } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { accessColors, accessLabels, affairGoTheme } from '../constants/affairGoTheme';
@@ -7,12 +7,14 @@ import { WEBSITE_SECTIONS } from '../data/mockData';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
 
 const LandingScreen = () => {
+  const { width } = useWindowDimensions();
   const navigation = useNavigation();
   const { currentUser, events, visibleProfiles, isAuthenticated, featureIdeas, accessStatusLabel } = useAffairGo();
+  const isCompactWeb = Platform.OS === 'web' && width < 900;
 
   return (
     <AppBackground contentContainerStyle={styles.content}>
-      <View style={[styles.hero, Platform.OS === 'web' && styles.heroWeb]}>
+      <View style={[styles.hero, Platform.OS === 'web' && !isCompactWeb && styles.heroWeb]}>
         <View style={styles.heroCopy}>
           <View style={styles.badge}>
             <Ionicons name="heart" size={18} color={affairGoTheme.colors.accent} />
@@ -23,17 +25,17 @@ const LandingScreen = () => {
           <Text style={styles.heroText}>
             Registrierungen sind bereits geöffnet. Du kannst dein Profil anlegen, die Webapp direkt nutzen und den Community-Aufbau in deiner Stadt von Anfang an mitgestalten.
           </Text>
-          <View style={styles.heroActions}>
+          <View style={[styles.heroActions, isCompactWeb && styles.heroActionsCompact]}>
             <AccentButton
               label={isAuthenticated ? 'Direkt ins Dashboard' : 'Zur Webapp'}
               onPress={() => navigation.navigate(isAuthenticated ? 'Dashboard' : 'Login')}
-              style={styles.heroButton}
+              style={[styles.heroButton, isCompactWeb && styles.heroButtonCompact]}
             />
             <AccentButton
               label="Registrieren"
               variant="secondary"
               onPress={() => navigation.navigate('Register')}
-              style={styles.heroButton}
+              style={[styles.heroButton, isCompactWeb && styles.heroButtonCompact]}
             />
           </View>
           <View style={styles.statRow}>
@@ -48,7 +50,7 @@ const LandingScreen = () => {
           <Text style={styles.membershipStatus}>{accessStatusLabel}</Text>
         </View>
 
-        <GlassCard strong style={styles.previewCard}>
+        <GlassCard strong style={[styles.previewCard, isCompactWeb && styles.previewCardCompact]}>
           <Text style={styles.previewEyebrow}>Live-Vorschau</Text>
           <Text style={styles.previewTitle}>Direkt verbunden mit der Webapp</Text>
           <BulletRow icon="shield-checkmark-outline" label="18+ und Bildprüfung" detail="Profilfoto-Upload mit KI-Selfie-Check als verifizierter Flow modelliert." />
@@ -58,9 +60,9 @@ const LandingScreen = () => {
       </View>
 
       <SectionTitle title="Funktionsschema" aside="Website" />
-      <View style={[styles.sectionGrid, Platform.OS === 'web' && styles.sectionGridWeb]}>
+      <View style={[styles.sectionGrid, Platform.OS === 'web' && !isCompactWeb && styles.sectionGridWeb]}>
         {WEBSITE_SECTIONS.map((section) => (
-          <GlassCard key={section.title} style={styles.sectionCard}>
+          <GlassCard key={section.title} style={[styles.sectionCard, isCompactWeb && styles.sectionCardCompact]}>
             <Text style={styles.cardTitle}>{section.title}</Text>
             {section.items.map((item) => (
               <BulletRow key={item} icon="checkmark-circle-outline" label={item} />
@@ -78,14 +80,14 @@ const LandingScreen = () => {
       </GlassCard>
 
       <SectionTitle title="Sicherheit und Community" aside="direkt verknüpft" />
-      <View style={[styles.communityRow, Platform.OS === 'web' && styles.communityRowWeb]}>
-        <GlassCard style={styles.communityCard}>
+      <View style={[styles.communityRow, Platform.OS === 'web' && !isCompactWeb && styles.communityRowWeb]}>
+        <GlassCard style={[styles.communityCard, isCompactWeb && styles.communityCardCompact]}>
           <Text style={styles.cardTitle}>Sicherheitslogik</Text>
           <BulletRow icon="warning-outline" label="Alte Fotos markieren" detail="6 Monate = Hinweis, 12 Monate = rote Warnung im Profil und auf Karten." />
           <BulletRow icon="sparkles-outline" label="Alle Kernfunktionen freigeschaltet" detail="Direktnachrichten, Explore, Matching Map und priorisierte Ansichten sind aktuell ohne Tarifgrenze verfügbar." />
           <BulletRow icon="camera-outline" label="Screenshot-Schutz" detail="Im Web werden Druck, Copy/Cut, Kontextmenü und Sichtwechsel zusätzlich gehärtet; nativ bleibt der Plattformschutz vorbereitet." />
         </GlassCard>
-        <GlassCard style={styles.communityCard}>
+        <GlassCard style={[styles.communityCard, isCompactWeb && styles.communityCardCompact]}>
           <Text style={styles.cardTitle}>Community-Ideenbox</Text>
           <Text style={styles.ideaLead}>Bisher eingereichte Ideen: {featureIdeas.length}</Text>
           <Text style={styles.ideaText}>Frühe Nutzer helfen beim Aufbau der Community, schlagen Features vor und prägen so die Richtung von Night-Whisper aktiv mit.</Text>
@@ -159,10 +161,18 @@ const styles = StyleSheet.create({
     flexDirection: Platform.OS === 'web' ? 'row' : 'column',
     marginTop: 22,
   },
+  heroActionsCompact: {
+    flexDirection: 'column',
+  },
   heroButton: {
     marginRight: Platform.OS === 'web' ? 12 : 0,
     marginBottom: Platform.OS === 'web' ? 0 : 12,
     minWidth: 180,
+  },
+  heroButtonCompact: {
+    marginRight: 0,
+    marginBottom: 12,
+    width: '100%',
   },
   statRow: {
     flexDirection: 'row',
@@ -188,6 +198,11 @@ const styles = StyleSheet.create({
     marginLeft: Platform.OS === 'web' ? 22 : 0,
     alignSelf: 'stretch',
   },
+  previewCardCompact: {
+    flex: undefined,
+    marginLeft: 0,
+    marginTop: 6,
+  },
   previewEyebrow: {
     color: affairGoTheme.colors.accentSoft,
     fontSize: 14,
@@ -212,6 +227,9 @@ const styles = StyleSheet.create({
   sectionCard: {
     marginBottom: 14,
     width: Platform.OS === 'web' ? '32%' : '100%',
+  },
+  sectionCardCompact: {
+    width: '100%',
   },
   cardTitle: {
     color: affairGoTheme.colors.text,
@@ -270,6 +288,9 @@ const styles = StyleSheet.create({
   communityCard: {
     width: Platform.OS === 'web' ? '49%' : '100%',
     marginBottom: 14,
+  },
+  communityCardCompact: {
+    width: '100%',
   },
   demoBanner: {
     marginTop: 4,

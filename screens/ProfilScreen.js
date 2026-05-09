@@ -1,7 +1,7 @@
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader, StatusPill, ToggleChip } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
@@ -49,9 +49,11 @@ const formatBirthDetails = (profile) => {
 };
 
 const ProfilScreen = () => {
+  const { width } = useWindowDimensions();
   const navigation = useNavigation();
   const route = useRoute();
   const { currentUser, users, chats, updateCurrentUser, addGalleryItem, logout, preferenceOptions, tabooOptions, getCompatibility, changePassword, getProfileTravelSummary, verifyPendingEmail, accessStatusLabel, confirmPendingNickname, exportMyData, requestAccountDeletion, updateProfilePhoto, completeProfilePhotoVerification, discardPendingProfilePhotoVerification, launchProfilePhotoLivenessFlow, profilePhotoVerificationConfigured, profilePhotoVerificationSetupInstructions, reportUser, moderationBackendConfigured, moderationAuditTrail, moderationFlags } = useAffairGo();
+  const isCompactWeb = Platform.OS === 'web' && width < 768;
   const viewedProfile = useMemo(() => (route.params?.profileId ? users.find((entry) => entry.id === route.params.profileId) : currentUser), [currentUser, route.params?.profileId, users]);
   const isOwnProfile = !route.params?.profileId || route.params.profileId === currentUser.id;
   const [draft, setDraft] = useState(currentUser);
@@ -542,12 +544,12 @@ const ProfilScreen = () => {
             <View style={styles.visibilityBox}>
               <Text style={styles.visibilityTitle}>Matchingvoraussetzungen</Text>
               <Text style={styles.visibilityText}>Du siehst nur Profile, deren Alter und Suchziel zu dir passen. Gleichzeitig bist du auch nur für diese Personen sichtbar.</Text>
-              <View style={styles.filterToggleRow}>
+              <View style={[styles.filterToggleRow, isCompactWeb && styles.filterToggleRowCompact]}>
                 <Text style={styles.filterToggleText}>Nur verifizierte Matches anzeigen</Text>
                 <ToggleChip label="Nur verifiziert" active={Boolean(profile.verifiedMatchesOnly)} onPress={() => updateField('verifiedMatchesOnly', !profile.verifiedMatchesOnly)} />
               </View>
-              <View style={styles.row}>
-                <View style={styles.half}>
+              <View style={[styles.row, isCompactWeb && styles.rowCompact]}>
+                <View style={[styles.half, isCompactWeb && styles.halfCompact]}>
                   <FormField
                     label="Suche Alter von"
                     value={String(profile.searchAgeMin ?? '')}
@@ -555,7 +557,7 @@ const ProfilScreen = () => {
                     keyboardType="number-pad"
                   />
                 </View>
-                <View style={styles.half}>
+                <View style={[styles.half, isCompactWeb && styles.halfCompact]}>
                   <FormField
                     label="Suche Alter bis"
                     value={String(profile.searchAgeMax ?? '')}
@@ -619,16 +621,16 @@ const ProfilScreen = () => {
               </View>
             ) : null}
             <FormField label="Spitzname" value={profile.nickname} onChangeText={(value) => updateField('nickname', value)} hint="Öffentlich sichtbar, nur falls verfügbar" />
-            <View style={styles.row}>
-              <View style={styles.half}><FormField label="Körpergröße" value={profile.height} onChangeText={(value) => updateField('height', value)} /></View>
-              <View style={styles.half}><Text style={styles.pickerLabel}>Figur</Text><View style={styles.pickerWrap}><Picker selectedValue={profile.figure} onValueChange={(value) => updateField('figure', value)}>{FIGURE_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View></View>
+            <View style={[styles.row, isCompactWeb && styles.rowCompact]}>
+              <View style={[styles.half, isCompactWeb && styles.halfCompact]}><FormField label="Körpergröße" value={profile.height} onChangeText={(value) => updateField('height', value)} /></View>
+              <View style={[styles.half, isCompactWeb && styles.halfCompact]}><Text style={styles.pickerLabel}>Figur</Text><View style={styles.pickerWrap}><Picker selectedValue={profile.figure} onValueChange={(value) => updateField('figure', value)}>{FIGURE_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View></View>
             </View>
             <AccentButton label="Passwort ändern" variant="secondary" onPress={() => setPasswordModalOpen(true)} style={styles.passwordButton} />
             {shouldShowPenisSizeField(profile.gender) ? <FormField label="Penisgröße" value={profile.penisSize} onChangeText={(value) => updateField('penisSize', value)} /> : null}
             {shouldShowBraSizeField(profile.gender) ? <FormField label="BH-Größe" value={profile.braSize} onChangeText={(value) => updateField('braSize', value)} /> : null}
-            <View style={styles.row}>
-              <View style={styles.half}><Text style={styles.pickerLabel}>Haarfarbe</Text><View style={styles.pickerWrap}><Picker selectedValue={profile.hairColor} onValueChange={(value) => updateField('hairColor', value)}>{HAIR_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View></View>
-              <View style={styles.half}><Text style={styles.pickerLabel}>Augenfarbe</Text><View style={styles.pickerWrap}><Picker selectedValue={profile.eyeColor} onValueChange={(value) => updateField('eyeColor', value)}>{EYE_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View></View>
+            <View style={[styles.row, isCompactWeb && styles.rowCompact]}>
+              <View style={[styles.half, isCompactWeb && styles.halfCompact]}><Text style={styles.pickerLabel}>Haarfarbe</Text><View style={styles.pickerWrap}><Picker selectedValue={profile.hairColor} onValueChange={(value) => updateField('hairColor', value)}>{HAIR_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View></View>
+              <View style={[styles.half, isCompactWeb && styles.halfCompact]}><Text style={styles.pickerLabel}>Augenfarbe</Text><View style={styles.pickerWrap}><Picker selectedValue={profile.eyeColor} onValueChange={(value) => updateField('eyeColor', value)}>{EYE_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View></View>
             </View>
             <Text style={styles.pickerLabel}>Hauttyp</Text>
             <View style={styles.pickerWrap}><Picker selectedValue={profile.skinType} onValueChange={(value) => updateField('skinType', value)}>{SKIN_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View>
@@ -686,14 +688,14 @@ const ProfilScreen = () => {
         <Text style={styles.groupTitle}>Galerie</Text>
         <View style={styles.galleryRow}>
           {profile.gallery.map((item) => (
-            <View key={item.id} style={styles.galleryItem}>
+            <View key={item.id} style={[styles.galleryItem, isCompactWeb && styles.galleryItemCompact]}>
               {item.imageUri ? <Image source={{ uri: item.imageUri }} style={styles.galleryImage} resizeMode="cover" /> : <Ionicons name="image-outline" size={28} color={affairGoTheme.colors.textMuted} />}
               <Text style={styles.galleryLabel}>{item.label}</Text>
               <Text style={styles.galleryAge}>{item.ageLabel}</Text>
             </View>
           ))}
           {isOwnProfile && profile.gallery.length < 10 ? (
-            <Pressable style={styles.galleryItem} onPress={handleAddGalleryImage}>
+            <Pressable style={[styles.galleryItem, isCompactWeb && styles.galleryItemCompact]} onPress={handleAddGalleryImage}>
               <Ionicons name="add" size={34} color={affairGoTheme.colors.text} />
               <Text style={styles.galleryLabel}>Foto hinzufügen</Text>
             </Pressable>
@@ -839,6 +841,10 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 12,
   },
+  filterToggleRowCompact: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+  },
   filterToggleText: {
     color: affairGoTheme.colors.text,
     flex: 1,
@@ -848,9 +854,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginHorizontal: -6,
   },
+  rowCompact: {
+    flexDirection: 'column',
+    marginHorizontal: 0,
+  },
   half: {
     flex: 1,
     marginHorizontal: 6,
+  },
+  halfCompact: {
+    marginHorizontal: 0,
   },
   pickerLabel: {
     color: affairGoTheme.colors.text,
@@ -947,6 +960,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.05)',
     padding: 10,
+  },
+  galleryItemCompact: {
+    width: '100%',
+    marginRight: 0,
   },
   galleryImage: {
     width: '100%',
