@@ -1,11 +1,13 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { BackHandler, Platform } from 'react-native';
+import { useAffairGo } from '../context/AffairGoContext';
 
 const NavigationContext = createContext(null);
 
 export const NavigationProvider = ({ initialRouteName = 'Landing', children }) => {
   const [stack, setStack] = useState([{ name: initialRouteName, params: undefined }]);
   const stackRef = useRef(stack);
+  const { isAuthenticated } = useAffairGo();
 
   const currentRoute = stack[stack.length - 1] || { name: initialRouteName, params: undefined };
 
@@ -19,7 +21,22 @@ export const NavigationProvider = ({ initialRouteName = 'Landing', children }) =
     }
 
     const backSubscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (stackRef.current.length > 1) {
+      const currentStack = stackRef.current;
+      const currentTopRoute = currentStack[currentStack.length - 1]?.name;
+
+      if (isAuthenticated && currentTopRoute !== 'Dashboard') {
+        const dashboardIndex = currentStack.findIndex((route) => route.name === 'Dashboard');
+
+        if (dashboardIndex >= 0) {
+          setStack(currentStack.slice(0, dashboardIndex + 1));
+          return true;
+        }
+
+        setStack([{ name: 'Dashboard', params: undefined }]);
+        return true;
+      }
+
+      if (currentStack.length > 1) {
         setStack((previous) => previous.slice(0, -1));
       }
 
@@ -29,7 +46,7 @@ export const NavigationProvider = ({ initialRouteName = 'Landing', children }) =
     return () => {
       backSubscription.remove();
     };
-  }, []);
+  }, [isAuthenticated]);
 
   const navigation = useMemo(
     () => ({

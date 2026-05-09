@@ -453,7 +453,6 @@ const ProfilScreen = () => {
             <Ionicons name="arrow-back" size={28} color={affairGoTheme.colors.accentSoft} />
           </Pressable>
         }
-        rightAction={isOwnProfile ? <Pressable onPress={async () => { await logout(); navigation.reset({ index: 0, routes: [{ name: 'Landing' }] }); }}><Ionicons name="log-out-outline" size={28} color={affairGoTheme.colors.text} /></Pressable> : null}
       />
 
       <GlassCard strong style={styles.heroCard}>
@@ -604,6 +603,15 @@ const ProfilScreen = () => {
           <Text style={styles.copyLine}>Löschanfrage: {profile.accountDeletionRequestedAt || 'Keine offene Anfrage'}</Text>
           <AccentButton label={isExportingData ? 'Datenexport wird erstellt...' : 'Datenexport erstellen'} variant="secondary" onPress={handleExportData} style={styles.privacyButton} disabled={isExportingData} />
           <AccentButton label={isRequestingDeletion ? 'Löschanfrage wird gespeichert...' : 'Konto-Löschung anfragen'} variant="ghost" onPress={handleRequestDeletion} disabled={isRequestingDeletion} />
+          <AccentButton
+            label="Abmelden"
+            variant="secondary"
+            onPress={async () => {
+              await logout();
+              navigation.reset({ index: 0, routes: [{ name: 'Landing' }] });
+            }}
+            style={styles.logoutButton}
+          />
         </GlassCard>
       ) : null}
 
@@ -872,6 +880,9 @@ const styles = StyleSheet.create({
   privacyButton: {
     marginTop: 6,
     marginBottom: 10,
+  },
+  logoutButton: {
+    marginTop: 6,
   },
   readonlyLine: {
     color: affairGoTheme.colors.text,

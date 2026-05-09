@@ -7,7 +7,6 @@ import { DASHBOARD_SIGNAL_CARDS, EMPTY_STATE_COPY } from '../data/mockData';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
 
 const quickActions = [
-  { key: 'Profil', label: 'Profil', icon: 'person-outline' },
   { key: 'MatchingMap', label: 'Matching Map', icon: 'map-outline', requiresVisibility: true },
   { key: 'Swipe', label: 'Swipe', icon: 'swap-horizontal-outline', requiresVisibility: true },
   { key: 'Chat', label: 'Chats', icon: 'chatbubbles-outline' },
@@ -24,7 +23,6 @@ const Dashboard = () => {
     accessStatusLabel,
     locationPermissionGranted,
     locationError,
-    logout,
     requestLiveLocationAccess,
     updateCurrentUser,
   } = useAffairGo();
@@ -76,29 +74,14 @@ const Dashboard = () => {
         rightAction={
           <Pressable
             style={[styles.profileButton, { borderColor: accessColors[currentUser.membership] || affairGoTheme.colors.accent }]}
-            onPress={async () => {
-              await logout();
-              navigation.reset({ index: 0, routes: [{ name: 'Landing' }] });
-            }}
+            onPress={() => navigation.navigate('Profil')}
           >
-            <Ionicons name="log-out-outline" size={24} color={accessColors[currentUser.membership] || affairGoTheme.colors.accent} />
+            <Ionicons name="person-outline" size={24} color={accessColors[currentUser.membership] || affairGoTheme.colors.accent} />
           </Pressable>
         }
       />
 
       <View style={styles.travelRow}>
-        <GlassCard style={styles.travelMenu}>
-          <Pressable style={styles.menuItem} onPress={() => navigation.navigate('TravelPlanner', { mode: 'business' })}>
-            <Text style={styles.menuItemText}>Dienstreise</Text>
-          </Pressable>
-          <Pressable style={styles.menuItem} onPress={() => navigation.navigate('TravelPlanner', { mode: 'vacation' })}>
-            <Text style={styles.menuItemText}>Urlaub</Text>
-          </Pressable>
-          <Pressable style={styles.menuItem} onPress={() => navigation.navigate('Event')}>
-            <Text style={styles.menuItemText}>Veranstaltungen in der Nähe</Text>
-          </Pressable>
-        </GlassCard>
-
         <View style={styles.statCluster}>
           <InlineStat label="Radius" value={`${currentUser.radius} km`} />
           <InlineStat label="Online jetzt" value={String(nearbyOnlineProfiles.length)} accent={affairGoTheme.colors.success} />
@@ -128,15 +111,6 @@ const Dashboard = () => {
         ) : null}
       </GlassCard>
 
-      <View style={styles.signalGrid}>
-        {DASHBOARD_SIGNAL_CARDS.map((card) => (
-          <GlassCard key={card.id} style={styles.signalCard}>
-            <StatusPill label={card.title} tone="info" style={styles.signalPill} />
-            <Text style={styles.signalDetail}>{card.detail}</Text>
-          </GlassCard>
-        ))}
-      </View>
-
       <View style={styles.grid}>
         {quickActions.map((action) => (
           <Pressable
@@ -154,6 +128,27 @@ const Dashboard = () => {
               <Text style={[styles.tileLabel, action.requiresVisibility && !visibilityEnabled ? styles.tileLabelDisabled : null]}>{action.label}</Text>
             </GlassCard>
           </Pressable>
+        ))}
+      </View>
+
+      <GlassCard style={styles.travelMenu}>
+        <Pressable style={styles.menuItem} onPress={() => navigation.navigate('TravelPlanner', { mode: 'business' })}>
+          <Text style={styles.menuItemText}>Dienstreise</Text>
+        </Pressable>
+        <Pressable style={styles.menuItem} onPress={() => navigation.navigate('TravelPlanner', { mode: 'vacation' })}>
+          <Text style={styles.menuItemText}>Urlaub</Text>
+        </Pressable>
+        <Pressable style={styles.menuItem} onPress={() => navigation.navigate('Event')}>
+          <Text style={styles.menuItemText}>Veranstaltungen in der Nähe</Text>
+        </Pressable>
+      </GlassCard>
+
+      <View style={styles.signalGrid}>
+        {DASHBOARD_SIGNAL_CARDS.map((card) => (
+          <GlassCard key={card.id} style={styles.signalCard}>
+            <StatusPill label={card.title} tone="info" style={styles.signalPill} />
+            <Text style={styles.signalDetail}>{card.detail}</Text>
+          </GlassCard>
         ))}
       </View>
 
