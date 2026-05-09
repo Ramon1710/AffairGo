@@ -2479,9 +2479,7 @@ export const AffairGoProvider = ({ children }) => {
 
     setCurrentUser(nextUser);
 
-    persistCurrentUserPatch({ preferences, taboos, onboardingCompleted: true, searchActive: true }).catch((error) => {
-      console.warn('AffairGo onboarding persist warning', error);
-    });
+    await persistCurrentUserPatch({ preferences, taboos, onboardingCompleted: true, searchActive: true });
 
     return nextUser;
   };

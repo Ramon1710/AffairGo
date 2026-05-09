@@ -7,6 +7,7 @@ import { DASHBOARD_SIGNAL_CARDS, EMPTY_STATE_COPY } from '../data/mockData';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
 
 const quickActions = [
+  { key: 'Profil', label: 'Profil', icon: 'person-outline' },
   { key: 'MatchingMap', label: 'Matching Map', icon: 'map-outline' },
   { key: 'Swipe', label: 'Swipe', icon: 'swap-horizontal-outline' },
   { key: 'Chat', label: 'Chats', icon: 'chatbubbles-outline' },
@@ -14,7 +15,7 @@ const quickActions = [
 
 const Dashboard = () => {
   const navigation = useNavigation();
-  const { currentUser, visibleProfiles, events, nearbyOnlineProfiles, getProfileTravelSummary, accessStatusLabel } = useAffairGo();
+  const { currentUser, visibleProfiles, events, nearbyOnlineProfiles, getProfileTravelSummary, accessStatusLabel, logout } = useAffairGo();
   const toTripList = (trips, mode) => {
     if (!Array.isArray(trips)) {
       return [];
@@ -35,16 +36,15 @@ const Dashboard = () => {
       <ScreenHeader
         title="Dashboard"
         subtitle={currentUser.nickname}
-        leftAction={
-          <View>
-            <Pressable style={styles.menuIcon} onPress={() => navigation.navigate('TravelPlanner', { mode: 'business' })}>
-              <Ionicons name="menu" size={34} color={affairGoTheme.colors.accent} />
-            </Pressable>
-          </View>
-        }
         rightAction={
-          <Pressable style={[styles.profileButton, { borderColor: accessColors[currentUser.membership] || affairGoTheme.colors.accent }]} onPress={() => navigation.navigate('Profil')}>
-            <Ionicons name="person" size={24} color={accessColors[currentUser.membership] || affairGoTheme.colors.accent} />
+          <Pressable
+            style={[styles.profileButton, { borderColor: accessColors[currentUser.membership] || affairGoTheme.colors.accent }]}
+            onPress={async () => {
+              await logout();
+              navigation.reset({ index: 0, routes: [{ name: 'Landing' }] });
+            }}
+          >
+            <Ionicons name="log-out-outline" size={24} color={accessColors[currentUser.membership] || affairGoTheme.colors.accent} />
           </Pressable>
         }
       />
@@ -163,10 +163,6 @@ const Dashboard = () => {
 };
 
 const styles = StyleSheet.create({
-  menuIcon: {
-    width: 40,
-    alignItems: 'center',
-  },
   profileButton: {
     width: 52,
     height: 52,

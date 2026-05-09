@@ -44,7 +44,8 @@ const StackNavigator = () => {
       return;
     }
 
-    const nextAuthenticatedRoute = currentUser.onboardingCompleted ? 'Dashboard' : 'Onboarding';
+    const hasCompletedOnboarding = Boolean(currentUser.onboardingCompleted || currentUser.preferences?.length);
+    const nextAuthenticatedRoute = hasCompletedOnboarding ? 'Dashboard' : 'Onboarding';
     const isPublicRoute = PUBLIC_ROUTES.has(route.name);
 
     if (isAuthenticated && isPublicRoute) {
@@ -55,7 +56,7 @@ const StackNavigator = () => {
     if (!isAuthenticated && !isPublicRoute) {
       navigation.reset({ index: 0, routes: [{ name: 'Landing' }] });
     }
-  }, [currentUser.onboardingCompleted, isAuthenticated, isAuthReady, navigation, route.name]);
+  }, [currentUser.onboardingCompleted, currentUser.preferences, isAuthenticated, isAuthReady, navigation, route.name]);
 
   if (!isAuthReady) {
     return (
