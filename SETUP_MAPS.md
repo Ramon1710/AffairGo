@@ -28,7 +28,7 @@ EXPO_PUBLIC_STADIA_API_KEY=dein_oeffentlicher_stadia_tile_key
 cp .env.example .env
 ```
 
-Dann in .env mindestens setzen:
+Dann in .env oder .env.local mindestens setzen:
 
 ```bash
 EXPO_PUBLIC_FIREBASE_API_KEY=...
@@ -46,8 +46,10 @@ EXPO_PUBLIC_STADIA_API_KEY=dein_oeffentlicher_stadia_tile_key
 
 Nur in die lokale oder gehostete Environment-Konfiguration eintragen, nie hart im Frontend-Code:
 
-- lokal: .env
+- lokal: .env oder .env.local
 - Vercel oder anderes Hosting: Projekt-Environment-Variable EXPO_PUBLIC_STADIA_API_KEY
+
+Nach jeder Aenderung an .env oder .env.local Expo komplett neu starten, damit der Client die neuen EXPO_PUBLIC-Werte uebernimmt.
 
 Verwendete Tile-URL:
 
@@ -129,7 +131,7 @@ firebase deploy --only firestore:rules,functions,storage
 npm install leaflet react-leaflet geofire-common
 ```
 
-2. .env anlegen und EXPO_PUBLIC_STADIA_API_KEY setzen
+2. .env oder .env.local anlegen und EXPO_PUBLIC_STADIA_API_KEY setzen
 
 3. Expo-Webserver starten
 

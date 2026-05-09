@@ -1,5 +1,11 @@
+import Constants from 'expo-constants';
+
 const MAP_PROVIDER_NAME = 'Stadia Maps';
-const MAP_API_KEY = (process.env.EXPO_PUBLIC_STADIA_API_KEY || '').trim();
+const MAP_API_KEY = (
+  Constants.expoConfig?.extra?.stadiaApiKey
+  || process.env.EXPO_PUBLIC_STADIA_API_KEY
+  || ''
+).trim();
 const TILE_STYLE = 'alidade_smooth';
 const TILE_ATTRIBUTION = '&copy; Stadia Maps &copy; OpenMapTiles &copy; OpenStreetMap contributors';
 
@@ -10,7 +16,7 @@ export const hasConfiguredMapApiKey = () => !looksLikePlaceholder(MAP_API_KEY);
 export const getMapProviderLabel = () => MAP_PROVIDER_NAME;
 
 export const getMapSetupInstructions = () => {
-  return 'Lege eine .env im Projekt an und setze EXPO_PUBLIC_STADIA_API_KEY mit deinem öffentlichen Stadia-Maps-Key.';
+  return 'Setze EXPO_PUBLIC_STADIA_API_KEY in .env oder .env.local und starte Expo danach neu, damit der Client den Stadia-Maps-Key neu einliest.';
 };
 
 export const getMapTileAttribution = () => TILE_ATTRIBUTION;
