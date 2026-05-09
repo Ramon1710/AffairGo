@@ -1629,7 +1629,10 @@ export const AffairGoProvider = ({ children }) => {
   };
 
   const hydrateAuthenticatedSession = (sessionData, firebaseUser = null) => {
-    const normalizedProfile = normalizeUserProfile(sessionData?.profile, firebaseUser);
+    const resolvedProfile = sessionData?.profile && typeof sessionData.profile === 'object'
+      ? sessionData.profile
+      : sessionData;
+    const normalizedProfile = normalizeUserProfile(resolvedProfile, firebaseUser);
 
     setCurrentUser(normalizedProfile);
     setChats(Array.isArray(sessionData?.chats) ? sessionData.chats : []);
@@ -2235,15 +2238,21 @@ export const AffairGoProvider = ({ children }) => {
 
   const login = async ({ identifier, password }) => {
     const fixedAdminLogin = matchesFixedAdminCredentials(identifier, password);
-    const normalizedEmail = fixedAdminLogin ? FIXED_ADMIN_EMAIL : await resolveAuthEmail(identifier);
+    const normalizedEmail = fixedAdminLogin
+      ? FIXED_ADMIN_EMAIL
+      : await withTimeout(
+          resolveAuthEmail(identifier),
+          5000,
+          'Die Anmeldung hat beim Aufloesen deiner Kennung zu lange gedauert. Bitte versuche es erneut.'
+        );
 
     if (!fixedAdminLogin) {
-      await moderatePreAuthAction({
+      await withTimeout(moderatePreAuthAction({
         actionType: 'login_attempt',
         email: normalizedEmail,
         identifier,
         metadata: { hasPassword: Boolean(password) },
-      });
+      }), 5000, 'Die Sicherheitspruefung vor dem Login hat zu lange gedauert. Bitte versuche es erneut.');
     }
 
     try {
@@ -2252,27 +2261,80 @@ export const AffairGoProvider = ({ children }) => {
 
       if (fixedAdminLogin) {
         try {
-          credentials = await signInWithEmailAndPassword(auth, FIXED_ADMIN_EMAIL, FIXED_ADMIN_PASSWORD);
+          credentials = await withTimeout(
+            signInWithEmailAndPassword(auth, FIXED_ADMIN_EMAIL, FIXED_ADMIN_PASSWORD),
+            12000,
+            'Der Admin-Login hat zu lange gedauert. Bitte versuche es erneut.'
+          );
         } catch (error) {
           if (error?.code === 'auth/user-not-found' || error?.code === 'auth/invalid-credential') {
-            credentials = await createUserWithEmailAndPassword(auth, FIXED_ADMIN_EMAIL, FIXED_ADMIN_PASSWORD);
+            credentials = await withTimeout(
+              createUserWithEmailAndPassword(auth, FIXED_ADMIN_EMAIL, FIXED_ADMIN_PASSWORD),
+              12000,
+              'Das Admin-Konto konnte nicht rechtzeitig angelegt werden. Bitte versuche es erneut.'
+            );
           } else {
             throw error;
           }
         }
 
         const [, persistedAdminProfile] = await Promise.all([
-          reload(credentials.user),
+          withTimeout(
+            reload(credentials.user),
+            4000,
+            'Das Aktualisieren des Admin-Status hat zu lange gedauert.'
+          ).catch((error) => {
+            console.warn('AffairGo admin reload warning', error);
+            return null;
+          }),
           ensureFixedAdminProfileStored(credentials.user),
         ]);
         profileData = persistedAdminProfile;
       } else {
-        credentials = await signInWithEmailAndPassword(auth, normalizedEmail, password);
-        const [, loadedProfile] = await Promise.all([
+        credentials = await withTimeout(
+          signInWithEmailAndPassword(auth, normalizedEmail, password),
+          12000,
+          'Der Login hat zu lange gedauert. Bitte pruefe deine Verbindung und versuche es erneut.'
+        );
+
+        await withTimeout(
           reload(credentials.user),
+          4000,
+          'Das Aktualisieren deines Login-Status hat zu lange gedauert.'
+        ).catch((error) => {
+          console.warn('AffairGo login reload warning', error);
+          return null;
+        });
+
+        const cachedSession = readCachedSession(credentials.user.uid);
+
+        if (cachedSession) {
+          const normalizedProfile = hydrateAuthenticatedSession(cachedSession, credentials.user);
+
+          syncCurrentUserFromFirebase(credentials.user).catch((error) => {
+            console.warn('AffairGo login refresh warning', error);
+          });
+
+          return {
+            requiresPasswordChange: normalizedProfile.isAdmin ? false : normalizedProfile.forcePasswordChange,
+            needsOnboarding: normalizedProfile.isAdmin ? false : !normalizedProfile.onboardingCompleted,
+          };
+        }
+
+        profileData = await withTimeout(
           loadStoredProfile(credentials.user.uid, credentials.user.email),
-        ]);
-        profileData = loadedProfile;
+          5000,
+          'Das Laden deines Profils hat zu lange gedauert.'
+        ).catch((error) => {
+          console.warn('AffairGo login profile fallback warning', error);
+          syncCurrentUserFromFirebase(credentials.user).catch((syncError) => {
+            console.warn('AffairGo login fallback refresh warning', syncError);
+          });
+          return {
+            id: credentials.user.uid,
+            email: credentials.user.email || normalizedEmail,
+          };
+        });
       }
 
       if (!fixedAdminLogin && !credentials.user.emailVerified) {
@@ -2284,16 +2346,7 @@ export const AffairGoProvider = ({ children }) => {
         throw new Error('Dein Konto wurde angelegt, aber die Verifizierungs-Mail konnte nicht gesendet werden. Bitte prüfe die Firebase-E-Mail-Vorlagen und versuche es erneut.');
       }
 
-      const cachedSession = readCachedSession(credentials.user.uid);
-      const normalizedProfile = cachedSession
-        ? hydrateAuthenticatedSession(cachedSession, credentials.user)
-        : hydrateAuthenticatedSession(profileData, credentials.user);
-
-      if (cachedSession) {
-        syncCurrentUserFromFirebase(credentials.user).catch((error) => {
-          console.warn('AffairGo login refresh warning', error);
-        });
-      }
+      const normalizedProfile = hydrateAuthenticatedSession(profileData, credentials.user);
 
       return {
         requiresPasswordChange: normalizedProfile.isAdmin ? false : normalizedProfile.forcePasswordChange,
@@ -2402,7 +2455,7 @@ export const AffairGoProvider = ({ children }) => {
       throw new Error('Registrierung erst ab 18 Jahren.');
     }
 
-    await moderatePreAuthAction({
+    await withTimeout(moderatePreAuthAction({
       actionType: 'register_attempt',
       email: payload.email.trim().toLowerCase(),
       nickname: payload.nickname.trim(),
@@ -2411,10 +2464,14 @@ export const AffairGoProvider = ({ children }) => {
         ageVerified: Boolean(payload.ageVerified),
         selfieVerified: Boolean(payload.selfieVerified),
       },
-    });
+    }), 5000, 'Die Sicherheitspruefung vor der Registrierung hat zu lange gedauert. Bitte versuche es erneut.');
 
     try {
-      await ensureNicknameAvailable(payload.nickname);
+      await withTimeout(
+        ensureNicknameAvailable(payload.nickname),
+        5000,
+        'Die Pruefung deines Spitznamens hat zu lange gedauert. Bitte versuche es erneut.'
+      );
       const normalizedEmail = payload.email.trim().toLowerCase();
       const credentials = await withTimeout(
         createUserWithEmailAndPassword(auth, normalizedEmail, payload.password),
@@ -2435,8 +2492,10 @@ export const AffairGoProvider = ({ children }) => {
         profilePhotoAgeMonths: 0,
         verificationState: uploadedProfilePhotoUrl ? 'uploaded' : 'review',
       }, credentials.user.uid);
-      const profileSaved = await tryStoreRegistrationProfile(profile, credentials.user.uid);
-      const emailSent = await trySendVerificationEmail(credentials.user);
+      const [profileSaved, emailSent] = await Promise.all([
+        tryStoreRegistrationProfile(profile, credentials.user.uid),
+        trySendVerificationEmail(credentials.user),
+      ]);
       await withTimeout(
         trySignOut(),
         5000,

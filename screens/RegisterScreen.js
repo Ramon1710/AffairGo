@@ -1,7 +1,7 @@
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
 import { useMemo, useState } from 'react';
-import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
@@ -9,8 +9,11 @@ import { useAffairGo } from '../context/AffairGoContext';
 import { EYE_OPTIONS, FIGURE_OPTIONS, GENDER_OPTIONS, HAIR_OPTIONS, MONTH_OPTIONS, SKIN_OPTIONS } from '../data/mockData';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
 
+const { expo } = require('../app.json');
+
 const currentYear = new Date().getFullYear();
 const yearOptions = Array.from({ length: 82 }, (_, index) => currentYear - 18 - index);
+const PRIVACY_POLICY_URL = `${String(process.env.EXPO_PUBLIC_WEBSITE_URL || expo?.extra?.websiteUrl || 'https://night-whisper.com').replace(/\/$/, '')}/datenschutz`;
 
 const createEmptyAgeVerificationState = () => ({
   ageVerified: false,
@@ -141,6 +144,14 @@ const RegisterScreen = () => {
       updateAssetField('profileImageAsset', asset);
     } catch (imageError) {
       Alert.alert('Profilbild fehlt', imageError.message || 'Das Profilbild konnte nicht ausgewählt werden.');
+    }
+  };
+
+  const openPrivacyPolicy = async () => {
+    try {
+      await Linking.openURL(PRIVACY_POLICY_URL);
+    } catch {
+      Alert.alert('Link konnte nicht geöffnet werden', 'Die Datenschutzerklärung konnte gerade nicht geöffnet werden.');
     }
   };
 
@@ -281,17 +292,26 @@ const RegisterScreen = () => {
         <Text style={styles.pickerLabel}>Hauttyp</Text>
         <View style={styles.pickerWrap}><Picker selectedValue={form.skinType} onValueChange={(value) => updateField('skinType', value)} dropdownIconColor={affairGoTheme.colors.text}>{SKIN_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View>
 
-        <Pressable
-          style={styles.checkboxRow}
-          onPress={() => updateField('privacyConsentAccepted', !form.privacyConsentAccepted)}
-        >
-          <View style={[styles.checkbox, form.privacyConsentAccepted && styles.checkboxActive]}>
-            {form.privacyConsentAccepted ? <Ionicons name="checkmark" size={16} color={affairGoTheme.colors.text} /> : null}
+        <View style={styles.checkboxRow}>
+          <Pressable
+            style={styles.checkboxPressable}
+            onPress={() => updateField('privacyConsentAccepted', !form.privacyConsentAccepted)}
+          >
+            <View style={[styles.checkbox, form.privacyConsentAccepted && styles.checkboxActive]}>
+              {form.privacyConsentAccepted ? <Ionicons name="checkmark" size={16} color={affairGoTheme.colors.text} /> : null}
+            </View>
+          </Pressable>
+          <View style={styles.checkboxCopy}>
+            <Pressable onPress={() => updateField('privacyConsentAccepted', !form.privacyConsentAccepted)}>
+              <Text style={styles.checkboxText}>
+                Ich bin mit den Datenschutzbestimmungen einverstanden.
+              </Text>
+            </Pressable>
+            <Pressable onPress={openPrivacyPolicy}>
+              <Text style={styles.privacyLink}>Datenschutzerklärung öffnen</Text>
+            </Pressable>
           </View>
-          <Text style={styles.checkboxText}>
-            Ich bin mit den Datenschutzbestimmungen einverstanden.
-          </Text>
-        </Pressable>
+        </View>
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
         <AccentButton label={isSubmitting ? 'Registrierung läuft...' : 'Registrieren'} onPress={handleRegister} disabled={isSubmitting} style={styles.buttonGap} />
@@ -410,6 +430,10 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: 16,
   },
+  checkboxPressable: {
+    marginRight: 12,
+    marginTop: 1,
+  },
   checkbox: {
     width: 24,
     height: 24,
@@ -419,17 +443,23 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
-    marginTop: 1,
   },
   checkboxActive: {
     borderColor: affairGoTheme.colors.accent,
     backgroundColor: 'rgba(255,67,67,0.28)',
   },
-  checkboxText: {
+  checkboxCopy: {
     flex: 1,
+  },
+  checkboxText: {
     color: affairGoTheme.colors.textMuted,
     lineHeight: 22,
+  },
+  privacyLink: {
+    color: affairGoTheme.colors.accentSoft,
+    lineHeight: 22,
+    marginTop: 4,
+    textDecorationLine: 'underline',
   },
   errorText: {
     color: affairGoTheme.colors.danger,
