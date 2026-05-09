@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { Alert, Animated, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
-import { AccentButton, AppBackground, GlassCard, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
+import { AccentButton, AppBackground, GlassCard, ScreenHeader } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
@@ -11,7 +11,7 @@ const SWIPE_OUT_DISTANCE = 560;
 
 const SwipeScreen = () => {
   const navigation = useNavigation();
-  const { visibleProfiles, respondToSwipe, rewindLastSwipe, currentUser, getCompatibility, remainingSwipes, swipeLimitReached, getProfileTravelSummary } = useAffairGo();
+  const { visibleProfiles, respondToSwipe, currentUser, getCompatibility, remainingSwipes, swipeLimitReached, getProfileTravelSummary } = useAffairGo();
   const currentProfile = visibleProfiles[0];
   const nextProfile = visibleProfiles[1] || null;
   const currentProfileTravel = currentProfile ? getProfileTravelSummary(currentProfile) : null;
@@ -124,7 +124,6 @@ const SwipeScreen = () => {
             <Ionicons name="arrow-back" size={28} color={affairGoTheme.colors.text} />
           </Pressable>
         }
-        rightAction={<ToggleChip label="Zurück" active={false} onPress={rewindLastSwipe} />}
       />
 
       {currentProfile ? (

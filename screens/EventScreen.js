@@ -1,6 +1,6 @@
 import * as ImagePicker from 'expo-image-picker';
 import { useMemo, useState } from 'react';
-import { Alert, Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { AccentButton, AppBackground, EmptyState, FormField, GlassCard, InfoBanner, InlineStat, ScreenHeader, StatusPill, ToggleChip } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
@@ -32,11 +32,13 @@ const EMPTY_EVENT_FORM = {
 
 const EventScreen = () => {
   const navigation = useNavigation();
+  const { width } = useWindowDimensions();
   const { events, registerForEvent, createEvent, currentRadius, setCurrentRadius, currentUser } = useAffairGo();
   const [form, setForm] = useState(EMPTY_EVENT_FORM);
   const [activeFilter, setActiveFilter] = useState('Alle');
   const canJoinEvents = currentUser.verified && currentUser.searchActive;
   const canCreateEvents = true;
+  const isTwoColumnLayout = Platform.OS === 'web' && width >= 1100;
 
   const travelCities = useMemo(() => Array.from(new Set([
     currentUser.city,
@@ -316,7 +318,7 @@ const EventScreen = () => {
         subtitle="Events, Partys und Community"
         leftAction={<Pressable onPress={() => navigation.goBack()}><Ionicons name="arrow-back" size={28} color={affairGoTheme.colors.text} /></Pressable>}
       />
-      {Platform.OS === 'web' ? (
+      {isTwoColumnLayout ? (
         <View style={styles.webLayout}>
           <View style={styles.primaryColumn}>{eventFeed}</View>
           <View style={styles.secondaryColumn}>{creationPanel}</View>
