@@ -1,12 +1,17 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { BackHandler, Platform } from 'react-native';
 
 const NavigationContext = createContext(null);
 
 export const NavigationProvider = ({ initialRouteName = 'Landing', children }) => {
   const [stack, setStack] = useState([{ name: initialRouteName, params: undefined }]);
+  const stackRef = useRef(stack);
 
   const currentRoute = stack[stack.length - 1] || { name: initialRouteName, params: undefined };
+
+  useEffect(() => {
+    stackRef.current = stack;
+  }, [stack]);
 
   useEffect(() => {
     if (Platform.OS !== 'android') {
@@ -14,19 +19,11 @@ export const NavigationProvider = ({ initialRouteName = 'Landing', children }) =
     }
 
     const backSubscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      let handled = false;
+      if (stackRef.current.length > 1) {
+        setStack((previous) => previous.slice(0, -1));
+      }
 
-      setStack((previous) => {
-        if (previous.length > 1) {
-          handled = true;
-          return previous.slice(0, -1);
-        }
-
-        handled = true;
-        return previous;
-      });
-
-      return handled;
+      return true;
     });
 
     return () => {

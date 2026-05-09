@@ -18,29 +18,38 @@ export const AppBackground = ({ children, scroll = true, contentContainerStyle, 
       htmlBackground: html.style.backgroundColor,
       bodyBackground: body.style.backgroundColor,
       rootBackground: root?.style.backgroundColor || '',
+      htmlOverflowX: html.style.overflowX,
+      bodyOverflowX: body.style.overflowX,
+      rootOverflowX: root?.style.overflowX || '',
       bodyMargin: body.style.margin,
       bodyMinHeight: body.style.minHeight,
       rootMinHeight: root?.style.minHeight || '',
     };
 
     html.style.backgroundColor = affairGoTheme.colors.background;
+    html.style.overflowX = 'hidden';
     body.style.backgroundColor = affairGoTheme.colors.background;
+    body.style.overflowX = 'hidden';
     body.style.margin = '0';
     body.style.minHeight = '100vh';
 
     if (root) {
       root.style.backgroundColor = affairGoTheme.colors.background;
+      root.style.overflowX = 'hidden';
       root.style.minHeight = '100vh';
     }
 
     return () => {
       html.style.backgroundColor = previous.htmlBackground;
+      html.style.overflowX = previous.htmlOverflowX;
       body.style.backgroundColor = previous.bodyBackground;
+      body.style.overflowX = previous.bodyOverflowX;
       body.style.margin = previous.bodyMargin;
       body.style.minHeight = previous.bodyMinHeight;
 
       if (root) {
         root.style.backgroundColor = previous.rootBackground;
+        root.style.overflowX = previous.rootOverflowX;
         root.style.minHeight = previous.rootMinHeight;
       }
     };
@@ -174,8 +183,10 @@ export const EmptyState = ({ title, detail, action }) => (
 const styles = StyleSheet.create({
   background: {
     flex: 1,
+    width: '100%',
     backgroundColor: affairGoTheme.colors.background,
     minHeight: Platform.OS === 'web' ? '100vh' : undefined,
+    overflow: 'hidden',
   },
   scrim: {
     ...StyleSheet.absoluteFillObject,
@@ -183,10 +194,13 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+    width: '100%',
     backgroundColor: 'transparent',
   },
   scrollContent: {
     flexGrow: 1,
+    width: '100%',
+    maxWidth: '100%',
     paddingHorizontal: 18,
     paddingTop: Platform.OS === 'web' ? 28 : 48,
     paddingBottom: 36,
@@ -194,10 +208,13 @@ const styles = StyleSheet.create({
   },
   fixedContent: {
     flex: 1,
+    width: '100%',
+    maxWidth: '100%',
     paddingHorizontal: 18,
     paddingTop: Platform.OS === 'web' ? 28 : 48,
     paddingBottom: 24,
     backgroundColor: 'transparent',
+    overflow: 'hidden',
   },
   card: {
     backgroundColor: affairGoTheme.colors.card,
@@ -215,15 +232,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 24,
+    width: '100%',
   },
   headerAction: {
     width: 48,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   headerCopy: {
     flex: 1,
     alignItems: 'center',
+    minWidth: 0,
   },
   subtitle: {
     color: affairGoTheme.colors.accentSoft,
