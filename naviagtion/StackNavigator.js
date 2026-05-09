@@ -33,6 +33,7 @@ const screens = {
 };
 
 const PUBLIC_ROUTES = new Set(['Landing', 'Login', 'Register']);
+const PROFILE_PHOTO_REQUIRED_ROUTES = new Set(['MatchingMap', 'Swipe']);
 
 const StackNavigator = () => {
   const navigation = useNavigation();
@@ -45,6 +46,7 @@ const StackNavigator = () => {
     }
 
     const hasCompletedOnboarding = Boolean(currentUser.onboardingCompleted || currentUser.preferences?.length);
+    const hasProfilePhoto = Boolean(currentUser.profilePhotoUrl || currentUser.profileImageUri);
     const nextAuthenticatedRoute = hasCompletedOnboarding ? 'Dashboard' : 'Onboarding';
     const isPublicRoute = PUBLIC_ROUTES.has(route.name);
 
@@ -53,10 +55,15 @@ const StackNavigator = () => {
       return;
     }
 
+    if (isAuthenticated && PROFILE_PHOTO_REQUIRED_ROUTES.has(route.name) && !hasProfilePhoto) {
+      navigation.reset({ index: 0, routes: [{ name: 'Profil' }] });
+      return;
+    }
+
     if (!isAuthenticated && !isPublicRoute) {
       navigation.reset({ index: 0, routes: [{ name: 'Landing' }] });
     }
-  }, [currentUser.onboardingCompleted, currentUser.preferences, isAuthenticated, isAuthReady, navigation, route.name]);
+  }, [currentUser.onboardingCompleted, currentUser.preferences, currentUser.profilePhotoUrl, currentUser.profileImageUri, isAuthenticated, isAuthReady, navigation, route.name]);
 
   if (!isAuthReady) {
     return (

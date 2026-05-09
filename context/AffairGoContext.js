@@ -184,6 +184,8 @@ const createDefaultCurrentUser = () => ({
   emailVerified: false,
   pendingEmail: '',
   pendingNickname: '',
+  privacyConsentAccepted: false,
+  privacyConsentAcceptedAt: '',
   ageVerified: false,
   ageVerificationStatus: 'not_started',
   ageVerificationProvider: '',
@@ -626,6 +628,8 @@ const normalizeUserProfile = (profile = {}, firebaseUser = null) => {
     emailVerified: fixedAdmin ? true : (firebaseUser?.emailVerified ?? profile.emailVerified ?? false),
     pendingEmail: profile.pendingEmail || '',
     pendingNickname: profile.pendingNickname || '',
+    privacyConsentAccepted: Boolean(profile.privacyConsentAccepted),
+    privacyConsentAcceptedAt: profile.privacyConsentAcceptedAt || '',
     ageVerified: fixedAdmin ? true : (profile.ageVerified ?? Boolean(profile.age >= 18)),
     ageVerificationStatus: fixedAdmin ? 'verified' : (profile.ageVerificationStatus || (profile.age >= 18 ? 'verified' : 'not_started')),
     ageVerificationProvider: profile.ageVerificationProvider || '',
@@ -686,11 +690,6 @@ const toStoredProfile = (profile) => {
   const { searchAgeMin, searchAgeMax } = normalizeSearchAgeRange(profile, createDefaultCurrentUser());
   delete sanitized.password;
   delete sanitized.repeatPassword;
-  delete sanitized.profileImageUri;
-  delete sanitized.profilePhotoUrl;
-  delete sanitized.profilePhotoVerified;
-  delete sanitized.profilePhotoVerifiedAt;
-  delete sanitized.faceMatchSimilarity;
 
   return {
     ...sanitized,
@@ -711,6 +710,8 @@ const toStoredProfile = (profile) => {
     goldDiscountPackage: false,
     purchaseHistory: Array.isArray(profile.purchaseHistory) ? profile.purchaseHistory : [],
     pendingNickname: profile.pendingNickname || '',
+    privacyConsentAccepted: Boolean(profile.privacyConsentAccepted),
+    privacyConsentAcceptedAt: profile.privacyConsentAcceptedAt || '',
     ageVerified: Boolean(profile.ageVerified),
     ageVerificationStatus: profile.ageVerificationStatus || 'not_started',
     ageVerificationProvider: profile.ageVerificationProvider || '',
@@ -733,6 +734,12 @@ const toStoredProfile = (profile) => {
     moderationRateLimitUntil: profile.moderationRateLimitUntil || '',
     moderationAuditTrail: Array.isArray(profile.moderationAuditTrail) ? profile.moderationAuditTrail : [],
     verifiedMatchesOnly: Boolean(profile.verifiedMatchesOnly),
+    profileImageUri: profile.profilePhotoUrl || profile.profileImageUri || '',
+    profilePhotoUrl: profile.profilePhotoUrl || profile.profileImageUri || '',
+    profilePhotoVerified: Boolean(profile.profilePhotoVerified),
+    profilePhotoVerifiedAt: profile.profilePhotoVerifiedAt || '',
+    faceMatchSimilarity: Number.isFinite(Number(profile.faceMatchSimilarity)) ? Number(profile.faceMatchSimilarity) : 0,
+    profilePhotoAgeMonths: Number.isFinite(Number(profile.profilePhotoAgeMonths)) ? Number(profile.profilePhotoAgeMonths) : 0,
     accountDeletionRequestedAt: profile.accountDeletionRequestedAt || '',
     dataExportRequestedAt: profile.dataExportRequestedAt || '',
     latitude: Number.isFinite(Number(profile.latitude)) ? Number(profile.latitude) : null,
@@ -750,6 +757,8 @@ const buildRegistrationProfile = (payload, uid) => ({
   email: payload.email.trim().toLowerCase(),
   nickname: payload.nickname.trim(),
   pendingNickname: '',
+  privacyConsentAccepted: Boolean(payload.privacyConsentAccepted),
+  privacyConsentAcceptedAt: payload.privacyConsentAcceptedAt || '',
   ageVerified: Boolean(payload.ageVerified),
   ageVerificationStatus: payload.ageVerificationStatus || 'not_started',
   ageVerificationProvider: payload.ageVerificationProvider || '',
@@ -2412,7 +2421,20 @@ export const AffairGoProvider = ({ children }) => {
         15000,
         'Die Registrierung hat beim Anlegen des Kontos zu lange gedauert. Bitte prüfe Netzwerk und Firebase-Konfiguration.'
       );
-      const profile = buildRegistrationProfile(payload, credentials.user.uid);
+      const uploadedProfilePhotoUrl = payload.profileImageAsset?.uri
+        ? await uploadMediaAsset('profileImages', payload.profileImageAsset, credentials.user.uid)
+        : '';
+      const profile = buildRegistrationProfile({
+        ...payload,
+        profileImageUploaded: Boolean(uploadedProfilePhotoUrl || payload.profileImageUploaded),
+        profileImageUri: uploadedProfilePhotoUrl || payload.profileImageUri || '',
+        profilePhotoUrl: uploadedProfilePhotoUrl || payload.profilePhotoUrl || '',
+        profilePhotoVerified: false,
+        profilePhotoVerifiedAt: '',
+        faceMatchSimilarity: 0,
+        profilePhotoAgeMonths: 0,
+        verificationState: uploadedProfilePhotoUrl ? 'uploaded' : 'review',
+      }, credentials.user.uid);
       const profileSaved = await tryStoreRegistrationProfile(profile, credentials.user.uid);
       const emailSent = await trySendVerificationEmail(credentials.user);
       await withTimeout(

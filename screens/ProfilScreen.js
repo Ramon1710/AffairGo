@@ -75,6 +75,17 @@ const ProfilScreen = () => {
   const [reportDescription, setReportDescription] = useState('');
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
 
+  useEffect(() => {
+    if (isOwnProfile) {
+      setDraft(currentUser);
+      return;
+    }
+
+    if (viewedProfile) {
+      setDraft(viewedProfile);
+    }
+  }, [currentUser, isOwnProfile, viewedProfile]);
+
   const updateField = (key, value) => setDraft((previous) => ({ ...previous, [key]: value }));
   const updateSearchAgeField = (key, value) => {
     const numericValue = Number.parseInt(String(value).replace(/\D/g, ''), 10);
@@ -494,7 +505,11 @@ const ProfilScreen = () => {
         {profile.ageVerificationProvider ? <Text style={styles.photoAge}>Altersprüfung: bestätigt</Text> : null}
         {profile.profilePhotoVerifiedAt ? <Text style={styles.photoAge}>Profilbild verifiziert: {new Date(profile.profilePhotoVerifiedAt).toLocaleString('de-DE')}</Text> : null}
         {profile.faceMatchSimilarity ? <Text style={styles.photoAge}>Face-Match: {Math.round(profile.faceMatchSimilarity)} %</Text> : null}
-        <Text style={styles.photoAge}>Profilbild hochgeladen: vor {profile.profilePhotoAgeMonths} Monaten</Text>
+        <Text style={styles.photoAge}>
+          {profile.profilePhotoUrl || profile.profileImageUri
+            ? `Profilbild hochgeladen: vor ${profile.profilePhotoAgeMonths} Monaten`
+            : 'Noch kein Profilbild gespeichert'}
+        </Text>
         {profile.profilePhotoAgeMonths >= 12 ? <Text style={styles.warnRed}>Rote Warnung: Profilbild älter als 12 Monate</Text> : null}
         {profile.profilePhotoAgeMonths >= 6 && profile.profilePhotoAgeMonths < 12 ? <Text style={styles.warnSoft}>Hinweis: Profilbild älter als 6 Monate</Text> : null}
         {isOwnProfile && pendingProfilePhotoVerification ? <Text style={styles.warnSoft}>Temporäres Bild gewählt. Bitte schließe jetzt die Live-Selfie-Prüfung ab und bestätige danach die Freigabe.</Text> : null}

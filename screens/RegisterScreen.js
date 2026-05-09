@@ -43,6 +43,8 @@ const RegisterScreen = () => {
   const [form, setForm] = useState({
     profileImageUploaded: false,
     profileImageAsset: null,
+    privacyConsentAccepted: false,
+    privacyConsentAcceptedAt: '',
     email: '',
     password: '',
     repeatPassword: '',
@@ -161,10 +163,17 @@ const RegisterScreen = () => {
         setIsSubmitting(false);
         return;
       }
+      if (!form.privacyConsentAccepted) {
+        setError('Bitte stimme den Datenschutzbestimmungen zu.');
+        setIsSubmitting(false);
+        return;
+      }
       const result = await register({
         ...form,
         age,
         birthLabel,
+        privacyConsentAccepted: true,
+        privacyConsentAcceptedAt: form.privacyConsentAcceptedAt || new Date().toISOString(),
         ageVerified: true,
         ageVerificationStatus: 'verified',
         ageVerificationProvider: 'birthdate-check',
@@ -271,6 +280,18 @@ const RegisterScreen = () => {
 
         <Text style={styles.pickerLabel}>Hauttyp</Text>
         <View style={styles.pickerWrap}><Picker selectedValue={form.skinType} onValueChange={(value) => updateField('skinType', value)} dropdownIconColor={affairGoTheme.colors.text}>{SKIN_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View>
+
+        <Pressable
+          style={styles.checkboxRow}
+          onPress={() => updateField('privacyConsentAccepted', !form.privacyConsentAccepted)}
+        >
+          <View style={[styles.checkbox, form.privacyConsentAccepted && styles.checkboxActive]}>
+            {form.privacyConsentAccepted ? <Ionicons name="checkmark" size={16} color={affairGoTheme.colors.text} /> : null}
+          </View>
+          <Text style={styles.checkboxText}>
+            Ich bin mit den Datenschutzbestimmungen einverstanden.
+          </Text>
+        </Pressable>
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
         <AccentButton label={isSubmitting ? 'Registrierung läuft...' : 'Registrieren'} onPress={handleRegister} disabled={isSubmitting} style={styles.buttonGap} />
@@ -383,6 +404,32 @@ const styles = StyleSheet.create({
     color: affairGoTheme.colors.textMuted,
     lineHeight: 20,
     marginBottom: 16,
+  },
+  checkboxRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: affairGoTheme.colors.line,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+    marginTop: 1,
+  },
+  checkboxActive: {
+    borderColor: affairGoTheme.colors.accent,
+    backgroundColor: 'rgba(255,67,67,0.28)',
+  },
+  checkboxText: {
+    flex: 1,
+    color: affairGoTheme.colors.textMuted,
+    lineHeight: 22,
   },
   errorText: {
     color: affairGoTheme.colors.danger,

@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, GlassCard, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
 import MatchingMapLeaflet from '../components/MatchingMapLeaflet';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme, travelModeColors } from '../constants/affairGoTheme';
-import { buildExternalMapUrl, getMapProviderLabel, hasConfiguredMapApiKey } from '../constants/mapProvider';
+import { getMapProviderLabel, hasConfiguredMapApiKey } from '../constants/mapProvider';
 import { useAffairGo } from '../context/AffairGoContext';
 import { PHOTO_AGE_FILTERS, RADIUS_OPTIONS } from '../data/mockData';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
@@ -93,12 +93,6 @@ const MatchingMapScreen = () => {
     statusLabel: 'Event',
   })), [visibleMapEvents]);
 
-  const externalMapUrl = buildExternalMapUrl({
-    latitude: mapCenterCoordinates.latitude,
-    longitude: mapCenterCoordinates.longitude,
-    zoom: currentRadius <= 20 ? 11 : currentRadius <= 50 ? 10 : 9,
-  });
-
   const openProfile = (profile) => {
     if (filteredSelectedProfile?.id === profile.id) {
       navigation.navigate('Profil', { profileId: profile.id });
@@ -184,9 +178,6 @@ const MatchingMapScreen = () => {
             <Text style={styles.mapLegendText}>{mapProfiles.length} sichtbare Profile</Text>
             <Text style={styles.mapLegendText}>{mapEvents.length} Events im Radius</Text>
           </View>
-          {Platform.OS === 'web' ? (
-            <AccentButton label="Karte extern öffnen" variant="secondary" onPress={() => Linking.openURL(externalMapUrl)} style={styles.openMapButton} />
-          ) : null}
         </GlassCard>
       ) : null}
 
@@ -305,9 +296,6 @@ const styles = StyleSheet.create({
     color: affairGoTheme.colors.textMuted,
     fontSize: 13,
     fontWeight: '600',
-  },
-  openMapButton: {
-    marginTop: 14,
   },
   selectedCard: {
     marginBottom: 12,

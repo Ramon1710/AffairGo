@@ -27,7 +27,9 @@ const Dashboard = () => {
     updateCurrentUser,
   } = useAffairGo();
   const [isTogglingVisibility, setIsTogglingVisibility] = React.useState(false);
+  const hasProfilePhoto = Boolean(currentUser.profilePhotoUrl || currentUser.profileImageUri);
   const visibilityEnabled = Boolean(currentUser.searchActive && locationPermissionGranted);
+  const matchingAccessEnabled = Boolean(visibilityEnabled && hasProfilePhoto);
 
   const handleVisibilityToggle = async () => {
     if (isTogglingVisibility) {
@@ -38,25 +40,31 @@ const Dashboard = () => {
       setIsTogglingVisibility(true);
 
       if (visibilityEnabled) {
-        await updateCurrentUser({ searchActive: false });
+        updateCurrentUser({ searchActive: false }).catch((error) => {
+          console.warn('AffairGo visibility toggle warning', error);
+        });
         return;
       }
 
       const granted = await requestLiveLocationAccess();
 
       if (!granted) {
-        await updateCurrentUser({ searchActive: false });
+        updateCurrentUser({ searchActive: false }).catch((error) => {
+          console.warn('AffairGo visibility permission warning', error);
+        });
         return;
       }
 
-      await updateCurrentUser({ searchActive: true });
+      updateCurrentUser({ searchActive: true }).catch((error) => {
+        console.warn('AffairGo visibility activation warning', error);
+      });
     } finally {
       setIsTogglingVisibility(false);
     }
   };
 
   const openQuickAction = (action) => {
-    if (action.requiresVisibility && !visibilityEnabled) {
+    if (action.requiresVisibility && !matchingAccessEnabled) {
       return;
     }
 
@@ -115,9 +123,11 @@ const Dashboard = () => {
             style={styles.visibilityButton}
           />
         </View>
-        {!visibilityEnabled ? (
+        {!matchingAccessEnabled ? (
           <Text style={styles.visibilityHint}>
-            Sichtbarkeit/Standort aktivieren um Swipe und Matchingmap zu nutzen.
+            {hasProfilePhoto
+              ? 'Sichtbarkeit und Standort aktivieren, um Swipe und Matching Map zu nutzen.'
+              : 'Nur mit Profilbild möglich. Lade zuerst in deinem Profil ein Bild hoch, dann werden Swipe und Matching Map freigeschaltet.'}
             {locationError ? ` ${locationError}` : ''}
           </Text>
         ) : null}
@@ -129,15 +139,16 @@ const Dashboard = () => {
             key={action.key}
             style={styles.tile}
             onPress={() => openQuickAction(action)}
-            disabled={action.requiresVisibility && !visibilityEnabled}
+            disabled={action.requiresVisibility && !matchingAccessEnabled}
           >
-            <GlassCard strong style={[styles.tileCard, action.requiresVisibility && !visibilityEnabled ? styles.tileCardDisabled : null]}>
+            <GlassCard strong style={[styles.tileCard, action.requiresVisibility && !matchingAccessEnabled ? styles.tileCardDisabled : null]}>
               <Ionicons
                 name={action.icon}
                 size={56}
-                color={action.requiresVisibility && !visibilityEnabled ? affairGoTheme.colors.textMuted : affairGoTheme.colors.accent}
+                color={action.requiresVisibility && !matchingAccessEnabled ? affairGoTheme.colors.textMuted : affairGoTheme.colors.accent}
               />
-              <Text style={[styles.tileLabel, action.requiresVisibility && !visibilityEnabled ? styles.tileLabelDisabled : null]}>{action.label}</Text>
+              <Text style={[styles.tileLabel, action.requiresVisibility && !matchingAccessEnabled ? styles.tileLabelDisabled : null]}>{action.label}</Text>
+              {action.requiresVisibility && !matchingAccessEnabled ? <Text style={styles.tileHint}>Nur mit Profilbild moeglich</Text> : null}
             </GlassCard>
           </Pressable>
         ))}
@@ -227,7 +238,7 @@ const Dashboard = () => {
         <EmptyState
           title={EMPTY_STATE_COPY.matches.title}
           detail={EMPTY_STATE_COPY.matches.detail}
-          action={<AccentButton label="Matching Map öffnen" variant="secondary" onPress={() => navigation.navigate('MatchingMap')} disabled={!visibilityEnabled} />}
+          action={<AccentButton label="Matching Map öffnen" variant="secondary" onPress={() => navigation.navigate('MatchingMap')} disabled={!matchingAccessEnabled} />}
         />
       )}
 
@@ -340,9 +351,17 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '600',
     marginTop: 18,
+    textAlign: 'center',
   },
   tileLabelDisabled: {
     color: affairGoTheme.colors.textMuted,
+  },
+  tileHint: {
+    color: affairGoTheme.colors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 10,
+    textAlign: 'center',
   },
   eventCard: {
     marginBottom: 14,
