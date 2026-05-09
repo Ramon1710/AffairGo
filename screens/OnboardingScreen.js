@@ -6,10 +6,15 @@ import { useNavigation } from '../naviagtion/SimpleNavigation';
 
 const OnboardingScreen = () => {
   const navigation = useNavigation();
-  const { preferenceOptions, tabooOptions, completeOnboarding } = useAffairGo();
-  const [preferences, setPreferences] = React.useState([]);
-  const [taboos, setTaboos] = React.useState([]);
+  const { currentUser, preferenceOptions, tabooOptions, completeOnboarding } = useAffairGo();
+  const [preferences, setPreferences] = React.useState(currentUser.preferences || []);
+  const [taboos, setTaboos] = React.useState(currentUser.taboos || []);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+  React.useEffect(() => {
+    setPreferences(currentUser.preferences || []);
+    setTaboos(currentUser.taboos || []);
+  }, [currentUser.preferences, currentUser.taboos]);
 
   const toggleValue = (list, setList, value) => {
     setList((previous) =>

@@ -307,6 +307,8 @@ const normalizeOptionList = (values, options, fallback = []) => {
   return values.map((value) => normalizeOptionValue(value, options, value));
 };
 
+const hasCompletedPreferenceSetup = (profile = {}) => Array.isArray(profile.preferences) && profile.preferences.length > 0;
+
 const normalizeSearchAgeValue = (value, fallback) => {
   const parsedValue = Number.parseInt(value, 10);
 
@@ -607,6 +609,8 @@ const normalizeUserProfile = (profile = {}, firebaseUser = null) => {
   const resolvedEmail = profile.email || firebaseUser?.email || defaults.email;
   const fixedAdmin = Boolean(profile.isAdmin) || profile.role === 'admin' || isFixedAdminEmail(resolvedEmail);
   const { searchAgeMin, searchAgeMax } = normalizeSearchAgeRange(profile, defaults);
+  const normalizedPreferences = normalizeOptionList(profile.preferences, PREFERENCE_OPTIONS, defaults.preferences);
+  const normalizedTaboos = normalizeOptionList(profile.taboos, TABOO_OPTIONS, defaults.taboos);
 
   return {
     ...defaults,
@@ -664,11 +668,11 @@ const normalizeUserProfile = (profile = {}, firebaseUser = null) => {
     searchAgeMin,
     searchAgeMax,
     searchGenders: getSearchGenders(profile, defaults.searchGenders),
-    preferences: normalizeOptionList(profile.preferences, PREFERENCE_OPTIONS, defaults.preferences),
-    taboos: normalizeOptionList(profile.taboos, TABOO_OPTIONS, defaults.taboos),
+    preferences: normalizedPreferences,
+    taboos: normalizedTaboos,
     travelPlans: resolvedTravelPlans,
     forcePasswordChange: Boolean(profile.forcePasswordChange),
-    onboardingCompleted: fixedAdmin ? true : Boolean(profile.onboardingCompleted),
+    onboardingCompleted: fixedAdmin ? true : (Boolean(profile.onboardingCompleted) || hasCompletedPreferenceSetup({ preferences: normalizedPreferences })),
     searchActive: fixedAdmin ? true : Boolean(profile.searchActive),
     membership: FREE_ACCESS_MEMBERSHIP,
     role: fixedAdmin ? 'admin' : (profile.role || defaults.role),
@@ -2503,6 +2507,18 @@ export const AffairGoProvider = ({ children }) => {
 
     if ('verifiedMatchesOnly' in nextPatch) {
       nextPatch.verifiedMatchesOnly = Boolean(nextPatch.verifiedMatchesOnly);
+    }
+
+    if ('preferences' in nextPatch) {
+      nextPatch.preferences = normalizeOptionList(nextPatch.preferences, PREFERENCE_OPTIONS, currentUser.preferences);
+
+      if (hasCompletedPreferenceSetup({ preferences: nextPatch.preferences })) {
+        nextPatch.onboardingCompleted = true;
+      }
+    }
+
+    if ('taboos' in nextPatch) {
+      nextPatch.taboos = normalizeOptionList(nextPatch.taboos, TABOO_OPTIONS, currentUser.taboos);
     }
 
     const requestedEmail = typeof nextPatch.email === 'string' ? nextPatch.email.trim().toLowerCase() : null;
