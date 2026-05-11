@@ -218,8 +218,14 @@ module.exports = async (req, res) => {
       const e = React.createElement;
 
       const notifyParent = (payload) => {
+        const message = { type: 'affairgo-face-liveness', ...payload };
+
         if (window.opener && !window.opener.closed) {
-          window.opener.postMessage({ type: 'affairgo-face-liveness', ...payload }, '*');
+          window.opener.postMessage(message, '*');
+        }
+
+        if (window.ReactNativeWebView && typeof window.ReactNativeWebView.postMessage === 'function') {
+          window.ReactNativeWebView.postMessage(JSON.stringify(message));
         }
       };
 
