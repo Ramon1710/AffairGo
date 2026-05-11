@@ -1464,6 +1464,52 @@ const persistStoredEvent = async (event) => {
   }, { merge: true });
 };
 
+const readBlobFromUri = async (assetUri) => {
+  if (!assetUri) {
+    throw new Error('Es wurde kein Bild zum Hochladen ausgewählt.');
+  }
+
+  if (/^(https?:|blob:)/i.test(assetUri)) {
+    const response = await fetch(assetUri);
+
+    if (!response.ok) {
+      throw new Error('Die Bilddatei konnte nicht gelesen werden.');
+    }
+
+    return response.blob();
+  }
+
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+
+    request.onload = () => resolve(request.response);
+    request.onerror = () => reject(new Error('Die lokale Bilddatei konnte nicht gelesen werden.'));
+    request.responseType = 'blob';
+    request.open('GET', assetUri, true);
+    request.send();
+  });
+};
+
+const resolveUploadExtension = (assetOrUri, assetUri) => {
+  const fileName = typeof assetOrUri === 'string' ? '' : assetOrUri?.fileName || assetOrUri?.name || '';
+  const mimeType = typeof assetOrUri === 'string' ? '' : assetOrUri?.mimeType || '';
+  const extensionMatch = (fileName || assetUri).match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
+
+  if (extensionMatch?.[1]) {
+    return extensionMatch[1].toLowerCase();
+  }
+
+  if (/png/i.test(mimeType)) {
+    return 'png';
+  }
+
+  if (/webp/i.test(mimeType)) {
+    return 'webp';
+  }
+
+  return 'jpg';
+};
+
 const uploadMediaAsset = async (folder, assetOrUri, ownerId) => {
   const assetUri = typeof assetOrUri === 'string' ? assetOrUri : assetOrUri?.uri;
 
@@ -1475,10 +1521,8 @@ const uploadMediaAsset = async (folder, assetOrUri, ownerId) => {
     return assetUri;
   }
 
-  const response = await fetch(assetUri);
-  const blob = await response.blob();
-  const extensionMatch = assetUri.match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
-  const extension = extensionMatch?.[1] || 'jpg';
+  const blob = await readBlobFromUri(assetUri);
+  const extension = resolveUploadExtension(assetOrUri, assetUri);
   const storageRef = ref(storage, `${folder}/${ownerId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`);
 
   await uploadBytes(storageRef, blob, { contentType: blob.type || 'image/jpeg' });
@@ -1496,10 +1540,8 @@ const uploadMediaAssetToStoragePath = async (folder, assetOrUri, ownerId) => {
     throw new Error('Für die Verifizierung sind nur lokale Bilddateien erlaubt.');
   }
 
-  const response = await fetch(assetUri);
-  const blob = await response.blob();
-  const extensionMatch = assetUri.match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
-  const extension = extensionMatch?.[1] || 'jpg';
+  const blob = await readBlobFromUri(assetUri);
+  const extension = resolveUploadExtension(assetOrUri, assetUri);
   const filePath = `${folder}/${ownerId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
   const storageRef = ref(storage, filePath);
 
