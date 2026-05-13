@@ -10,31 +10,6 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
-    function profileVerificationFields() {
-      return [
-        'profilePhotoVerified',
-        'profilePhotoVerifiedAt',
-        'faceMatchSimilarity',
-        'profilePhotoUrl'
-      ];
-    }
-
-    function keepsProfileVerificationFieldsUnchanged() {
-      return !request.resource.data.diff(resource.data).changedKeys().hasAny(profileVerificationFields());
-    }
-
-    function createsSafeProfileVerificationDefaults() {
-      return (
-        !('profilePhotoVerified' in request.resource.data) || request.resource.data.profilePhotoVerified == false
-      ) && (
-        !('profilePhotoVerifiedAt' in request.resource.data) || request.resource.data.profilePhotoVerifiedAt == null
-      ) && (
-        !('faceMatchSimilarity' in request.resource.data) || request.resource.data.faceMatchSimilarity == 0
-      ) && (
-        !('profilePhotoUrl' in request.resource.data) || request.resource.data.profilePhotoUrl == ''
-      );
-    }
-
     function keepsPublicLocationRedacted() {
       return (
         !('latitude' in request.resource.data) || request.resource.data.latitude == null
@@ -77,8 +52,8 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read: if isSignedIn();
-      allow create: if isOwner(uid) && createsSafeProfileVerificationDefaults() && keepsPublicLocationRedacted();
-      allow update: if isOwner(uid) && keepsProfileVerificationFieldsUnchanged() && keepsPublicLocationRedacted();
+      allow create: if isOwner(uid) && keepsPublicLocationRedacted();
+      allow update: if isOwner(uid) && keepsPublicLocationRedacted();
       allow delete: if false;
     }
 
