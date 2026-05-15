@@ -1,6 +1,6 @@
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
@@ -39,10 +39,11 @@ const createEmptySelfieVerificationState = () => ({
 
 const shouldShowPenisSizeField = (gender) => gender === 'männlich' || gender === 'divers' || gender === 'paare';
 const shouldShowBraSizeField = (gender) => gender === 'weiblich' || gender === 'divers' || gender === 'paare';
+const MIN_NICKNAME_LENGTH = 3;
 
 const RegisterScreen = () => {
   const navigation = useNavigation();
-  const { register } = useAffairGo();
+  const { register, checkNicknameAvailability } = useAffairGo();
   const [form, setForm] = useState({
     profileImageUploaded: false,
     profileImageAsset: null,
@@ -72,6 +73,7 @@ const RegisterScreen = () => {
   });
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [nicknameStatus, setNicknameStatus] = useState({ state: 'idle', message: '' });
 
   const age = useMemo(() => {
     const birthDate = new Date(form.birthYear, Number(form.birthMonth), Number(form.birthDay || 1));
@@ -85,6 +87,51 @@ const RegisterScreen = () => {
   }, [form.birthDay, form.birthMonth, form.birthYear]);
 
   const birthLabel = `${form.birthDay}, ${MONTH_OPTIONS[form.birthMonth]} ${form.birthYear} (${age} Jahre)`;
+
+  useEffect(() => {
+    const trimmedNickname = form.nickname.trim();
+
+    if (!trimmedNickname) {
+      setNicknameStatus({ state: 'idle', message: '' });
+      return undefined;
+    }
+
+    if (trimmedNickname.length < MIN_NICKNAME_LENGTH) {
+      setNicknameStatus({ state: 'idle', message: 'Mindestens 3 Zeichen.' });
+      return undefined;
+    }
+
+    let cancelled = false;
+    setNicknameStatus({ state: 'checking', message: 'Spitzname wird geprüft...' });
+
+    const timeoutId = setTimeout(() => {
+      checkNicknameAvailability(trimmedNickname)
+        .then((result) => {
+          if (cancelled) {
+            return;
+          }
+
+          setNicknameStatus(result?.available
+            ? { state: 'available', message: 'Spitzname ist in Ordnung.' }
+            : { state: 'taken', message: result?.message || 'Dieser Spitzname ist bereits vergeben.' });
+        })
+        .catch((checkError) => {
+          if (cancelled) {
+            return;
+          }
+
+          setNicknameStatus({
+            state: 'error',
+            message: checkError.message || 'Spitzname konnte gerade nicht geprüft werden.',
+          });
+        });
+    }, 400);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
+  }, [checkNicknameAvailability, form.nickname]);
 
   const updateField = (key, value) => {
     setForm((previous) => {
@@ -166,6 +213,16 @@ const RegisterScreen = () => {
       }
       if (!form.profileImageUploaded) {
         setError('Bitte lade zuerst ein Profilbild hoch.');
+        setIsSubmitting(false);
+        return;
+      }
+      if (form.nickname.trim().length < MIN_NICKNAME_LENGTH) {
+        setError('Dein Spitzname muss mindestens 3 Zeichen lang sein.');
+        setIsSubmitting(false);
+        return;
+      }
+      if (nicknameStatus.state === 'taken') {
+        setError(nicknameStatus.message || 'Dieser Spitzname ist bereits vergeben.');
         setIsSubmitting(false);
         return;
       }
@@ -266,6 +323,16 @@ const RegisterScreen = () => {
         </View>
 
         <FormField label="Spitzname" value={form.nickname} onChangeText={(value) => updateField('nickname', value)} hint="Öffentlich sichtbar im Profil" placeholder="Spitzname" />
+        {nicknameStatus.message ? (
+          <Text style={[
+            styles.nicknameStatus,
+            nicknameStatus.state === 'available' && styles.nicknameStatusAvailable,
+            nicknameStatus.state === 'checking' && styles.nicknameStatusChecking,
+            (nicknameStatus.state === 'taken' || nicknameStatus.state === 'error') && styles.nicknameStatusError,
+          ]}>
+            {nicknameStatus.message}
+          </Text>
+        ) : null}
 
         <Text style={styles.sectionLabel}>Geburtsdatum</Text>
         <View style={styles.row}>
@@ -464,6 +531,20 @@ const styles = StyleSheet.create({
   errorText: {
     color: affairGoTheme.colors.danger,
     marginBottom: 10,
+  },
+  nicknameStatus: {
+    marginTop: -6,
+    marginBottom: 14,
+    color: affairGoTheme.colors.textMuted,
+  },
+  nicknameStatusAvailable: {
+    color: '#8ee59b',
+  },
+  nicknameStatusChecking: {
+    color: affairGoTheme.colors.accentSoft,
+  },
+  nicknameStatusError: {
+    color: affairGoTheme.colors.danger,
   },
   buttonGap: {
     marginBottom: 10,

@@ -39,6 +39,7 @@ import {
     useState,
 } from 'react';
 import { getModerationProviderLabel, hasConfiguredModerationBackend, submitModerationDecision, submitModerationReport } from '../constants/moderationProvider';
+import { checkNicknameAvailability as checkNicknameAvailabilityWithProvider } from '../constants/nicknameProvider';
 import { requestManagedPasswordReset } from '../constants/passwordResetProvider';
 import { getPaymentProviderLabel, getPaymentSetupInstructions, hasConfiguredPaymentBackend, startPurchaseFlow } from '../constants/paymentProvider';
 import {
@@ -1635,10 +1636,18 @@ const uploadMediaAssetToStoragePath = async (folder, assetOrUri, ownerId) => {
 };
 
 const ensureNicknameAvailable = async (nickname, excludedUserId = null) => {
-  let storedProfile = null;
+  const normalizedNickname = nickname?.trim();
+
+  if (!normalizedNickname) {
+    throw new Error('Bitte gib einen Spitznamen ein.');
+  }
 
   try {
-    storedProfile = await findStoredProfileByNickname(nickname);
+    const result = await checkNicknameAvailabilityWithProvider({ nickname: normalizedNickname });
+
+    if (!result?.available) {
+      throw new Error('Dieser Spitzname ist bereits vergeben. Bitte wähle einen anderen.');
+    }
   } catch (error) {
     if (isFirestoreReadOfflineError(error)) {
       console.warn('AffairGo nickname availability fallback', error);
@@ -1647,10 +1656,19 @@ const ensureNicknameAvailable = async (nickname, excludedUserId = null) => {
 
     throw error;
   }
+};
 
-  if (storedProfile && storedProfile.id !== excludedUserId) {
-    throw new Error('Dieser Spitzname ist bereits vergeben. Bitte wähle einen anderen.');
+const checkNicknameAvailability = async (nickname) => {
+  const normalizedNickname = nickname?.trim();
+
+  if (!normalizedNickname) {
+    return {
+      available: false,
+      message: 'Bitte gib einen Spitznamen ein.',
+    };
   }
+
+  return checkNicknameAvailabilityWithProvider({ nickname: normalizedNickname });
 };
 
 const resolveAuthEmail = async (identifier) => {
@@ -3541,6 +3559,7 @@ export const AffairGoProvider = ({ children }) => {
     createEvent,
     registerForEvent,
     reportUser,
+    checkNicknameAvailability,
     submitFeatureIdea,
     approveFeatureIdea,
     activatePlan,

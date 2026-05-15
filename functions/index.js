@@ -185,6 +185,37 @@ const createDownloadUrl = (bucketName, filePath, downloadToken) => {
   return `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodedPath}?alt=media&token=${downloadToken}`;
 };
 
+const normalizeGermanComparison = (value = '') => String(value)
+  .trim()
+  .toLowerCase()
+  .replaceAll('ä', 'ae')
+  .replaceAll('ö', 'oe')
+  .replaceAll('ü', 'ue')
+  .replaceAll('ß', 'ss');
+
+exports.checkNicknameAvailability = onCall({
+  region: FIREBASE_REGION,
+}, async (request) => {
+  const nickname = assertString(request.data?.nickname, 'nickname');
+  const normalizedNickname = normalizeGermanComparison(nickname);
+  const requesterUid = request.auth?.uid || '';
+  const snapshot = await getFirestore()
+    .collection('users')
+    .where('nicknameLower', '==', normalizedNickname)
+    .limit(2)
+    .get();
+
+  const conflictingProfile = snapshot.docs.find((profileDoc) => profileDoc.id !== requesterUid);
+
+  return {
+    available: !conflictingProfile,
+    normalizedNickname,
+    message: conflictingProfile
+      ? 'Dieser Spitzname ist bereits vergeben.'
+      : 'Spitzname ist verfuegbar.',
+  };
+});
+
 exports.createFaceLivenessSession = onCall({
   region: FIREBASE_REGION,
   secrets: [AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, PROFILE_IMAGE_VERIFICATION_SIGNING_KEY],
