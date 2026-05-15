@@ -2,6 +2,7 @@ import * as Location from 'expo-location';
 import {
     EmailAuthProvider,
     createUserWithEmailAndPassword,
+    deleteUser,
     onAuthStateChanged,
     reauthenticateWithCredential,
     reload,
@@ -310,6 +311,65 @@ const normalizeOptionList = (values, options, fallback = []) => {
   return values.map((value) => normalizeOptionValue(value, options, value));
 };
 
+const pickFirstDefinedValue = (...values) => values.find((value) => value !== undefined && value !== null);
+
+const pickFirstNonEmptyString = (...values) => {
+  const match = values.find((value) => typeof value === 'string' && value.trim());
+  return match ? match.trim() : '';
+};
+
+const resolveProfilePhotoValue = (profile = {}, fallback = '') => pickFirstNonEmptyString(
+  profile.profilePhotoUrl,
+  profile.profileImageUri,
+  profile.profileImage,
+  fallback,
+);
+
+const getProfileFieldAliases = (profile = {}) => ({
+  firstName: pickFirstNonEmptyString(profile.firstName, profile.firstname, profile.vorname),
+  lastName: pickFirstNonEmptyString(profile.lastName, profile.lastname, profile.nachname),
+  city: pickFirstNonEmptyString(profile.city, profile.ort),
+  gender: pickFirstNonEmptyString(profile.gender, profile.geschlecht, profile.sex),
+  height: pickFirstNonEmptyString(profile.height, profile.groesse, profile.koerpergroesse, profile.bodyHeight),
+  figure: pickFirstNonEmptyString(profile.figure, profile.figur, profile.bodyType),
+  penisSize: pickFirstNonEmptyString(profile.penisSize, profile.penisgroesse),
+  braSize: pickFirstNonEmptyString(profile.braSize, profile.bhGroesse, profile.bra),
+  hairColor: pickFirstNonEmptyString(profile.hairColor, profile.haarfarbe),
+  eyeColor: pickFirstNonEmptyString(profile.eyeColor, profile.augenfarbe),
+  skinType: pickFirstNonEmptyString(profile.skinType, profile.hauttyp),
+  profilePhoto: resolveProfilePhotoValue(profile),
+  birthDay: pickFirstDefinedValue(profile.birthDay, profile.geburtsTag),
+  birthMonth: pickFirstDefinedValue(profile.birthMonth, profile.geburtsMonat),
+  birthYear: pickFirstDefinedValue(profile.birthYear, profile.geburtsJahr),
+  age: pickFirstDefinedValue(profile.age, profile.alter),
+});
+
+const hasLegacyProfileAliases = (profile = {}) => [
+  'profileImage',
+  'firstname',
+  'lastname',
+  'vorname',
+  'nachname',
+  'ort',
+  'geschlecht',
+  'sex',
+  'groesse',
+  'koerpergroesse',
+  'bodyHeight',
+  'figur',
+  'bodyType',
+  'penisgroesse',
+  'bhGroesse',
+  'bra',
+  'haarfarbe',
+  'augenfarbe',
+  'hauttyp',
+  'geburtsTag',
+  'geburtsMonat',
+  'geburtsJahr',
+  'alter',
+].some((key) => key in profile);
+
 const hasCompletedPreferenceSetup = (profile = {}) => Array.isArray(profile.preferences) && profile.preferences.length > 0;
 
 const normalizeSearchAgeValue = (value, fallback) => {
@@ -608,6 +668,7 @@ const getTravelMatchForAddress = (profile, address = '') => {
 
 const normalizeUserProfile = (profile = {}, firebaseUser = null) => {
   const defaults = createDefaultCurrentUser();
+  const aliasValues = getProfileFieldAliases(profile);
   const resolvedTravelPlans = normalizeTravelPlans(profile.travelPlans);
   const resolvedEmail = profile.email || firebaseUser?.email || defaults.email;
   const fixedAdmin = Boolean(profile.isAdmin) || profile.role === 'admin' || isFixedAdminEmail(resolvedEmail);
@@ -620,11 +681,21 @@ const normalizeUserProfile = (profile = {}, firebaseUser = null) => {
     ...profile,
     id: profile.id || firebaseUser?.uid || defaults.id,
     email: resolvedEmail,
-    gender: normalizeOptionValue(profile.gender, GENDER_OPTIONS, defaults.gender),
-    figure: normalizeOptionValue(profile.figure, FIGURE_OPTIONS, defaults.figure),
-    hairColor: normalizeOptionValue(profile.hairColor, HAIR_OPTIONS, defaults.hairColor),
-    eyeColor: normalizeOptionValue(profile.eyeColor, EYE_OPTIONS, defaults.eyeColor),
-    skinType: normalizeOptionValue(profile.skinType, SKIN_OPTIONS, defaults.skinType),
+    firstName: aliasValues.firstName || defaults.firstName,
+    lastName: aliasValues.lastName || defaults.lastName,
+    city: aliasValues.city || defaults.city,
+    birthDay: pickFirstDefinedValue(aliasValues.birthDay, defaults.birthDay),
+    birthMonth: pickFirstDefinedValue(aliasValues.birthMonth, defaults.birthMonth),
+    birthYear: pickFirstDefinedValue(aliasValues.birthYear, defaults.birthYear),
+    age: Number.isFinite(Number(aliasValues.age)) ? Number(aliasValues.age) : defaults.age,
+    gender: normalizeOptionValue(aliasValues.gender, GENDER_OPTIONS, defaults.gender),
+    height: aliasValues.height || defaults.height,
+    figure: normalizeOptionValue(aliasValues.figure, FIGURE_OPTIONS, defaults.figure),
+    penisSize: aliasValues.penisSize || defaults.penisSize,
+    braSize: aliasValues.braSize || defaults.braSize,
+    hairColor: normalizeOptionValue(aliasValues.hairColor, HAIR_OPTIONS, defaults.hairColor),
+    eyeColor: normalizeOptionValue(aliasValues.eyeColor, EYE_OPTIONS, defaults.eyeColor),
+    skinType: normalizeOptionValue(aliasValues.skinType, SKIN_OPTIONS, defaults.skinType),
     emailVerified: fixedAdmin ? true : (firebaseUser?.emailVerified ?? profile.emailVerified ?? false),
     pendingEmail: profile.pendingEmail || '',
     pendingNickname: profile.pendingNickname || '',
@@ -661,8 +732,8 @@ const normalizeUserProfile = (profile = {}, firebaseUser = null) => {
     goldDiscountPackage: false,
     purchaseHistory: Array.isArray(profile.purchaseHistory) ? profile.purchaseHistory : defaults.purchaseHistory,
     gallery: Array.isArray(profile.gallery) ? profile.gallery : defaults.gallery,
-    profilePhotoUrl: profile.profilePhotoUrl || profile.profileImageUri || '',
-    profileImageUri: profile.profilePhotoUrl || profile.profileImageUri || '',
+    profilePhotoUrl: aliasValues.profilePhoto,
+    profileImageUri: aliasValues.profilePhoto,
     profilePhotoVerified: fixedAdmin ? true : Boolean(profile.profilePhotoVerified),
     profilePhotoVerifiedAt: normalizeDateValue(profile.profilePhotoVerifiedAt),
     faceMatchSimilarity: Number.isFinite(Number(profile.faceMatchSimilarity)) ? Number(profile.faceMatchSimilarity) : 0,
@@ -687,17 +758,28 @@ const normalizeUserProfile = (profile = {}, firebaseUser = null) => {
 
 const toStoredProfile = (profile) => {
   const sanitized = { ...profile };
+  const aliasValues = getProfileFieldAliases(profile);
   const { searchAgeMin, searchAgeMax } = normalizeSearchAgeRange(profile, createDefaultCurrentUser());
   delete sanitized.password;
   delete sanitized.repeatPassword;
 
   return {
     ...sanitized,
-    gender: normalizeOptionValue(profile.gender, GENDER_OPTIONS, profile.gender),
-    figure: normalizeOptionValue(profile.figure, FIGURE_OPTIONS, profile.figure),
-    hairColor: normalizeOptionValue(profile.hairColor, HAIR_OPTIONS, profile.hairColor),
-    eyeColor: normalizeOptionValue(profile.eyeColor, EYE_OPTIONS, profile.eyeColor),
-    skinType: normalizeOptionValue(profile.skinType, SKIN_OPTIONS, profile.skinType),
+    firstName: aliasValues.firstName,
+    lastName: aliasValues.lastName,
+    city: aliasValues.city,
+    birthDay: pickFirstDefinedValue(aliasValues.birthDay, profile.birthDay, ''),
+    birthMonth: pickFirstDefinedValue(aliasValues.birthMonth, profile.birthMonth, 0),
+    birthYear: pickFirstDefinedValue(aliasValues.birthYear, profile.birthYear, ''),
+    age: Number.isFinite(Number(aliasValues.age)) ? Number(aliasValues.age) : Number(profile.age) || '',
+    gender: normalizeOptionValue(aliasValues.gender, GENDER_OPTIONS, profile.gender),
+    height: aliasValues.height,
+    figure: normalizeOptionValue(aliasValues.figure, FIGURE_OPTIONS, profile.figure),
+    penisSize: aliasValues.penisSize,
+    braSize: aliasValues.braSize,
+    hairColor: normalizeOptionValue(aliasValues.hairColor, HAIR_OPTIONS, profile.hairColor),
+    eyeColor: normalizeOptionValue(aliasValues.eyeColor, EYE_OPTIONS, profile.eyeColor),
+    skinType: normalizeOptionValue(aliasValues.skinType, SKIN_OPTIONS, profile.skinType),
     preferences: normalizeOptionList(profile.preferences, PREFERENCE_OPTIONS, []),
     taboos: normalizeOptionList(profile.taboos, TABOO_OPTIONS, []),
     travelPlans: normalizeTravelPlans(profile.travelPlans),
@@ -734,8 +816,8 @@ const toStoredProfile = (profile) => {
     moderationRateLimitUntil: profile.moderationRateLimitUntil || '',
     moderationAuditTrail: Array.isArray(profile.moderationAuditTrail) ? profile.moderationAuditTrail : [],
     verifiedMatchesOnly: Boolean(profile.verifiedMatchesOnly),
-    profileImageUri: profile.profilePhotoUrl || profile.profileImageUri || '',
-    profilePhotoUrl: profile.profilePhotoUrl || profile.profileImageUri || '',
+    profileImageUri: aliasValues.profilePhoto,
+    profilePhotoUrl: aliasValues.profilePhoto,
     profilePhotoVerified: Boolean(profile.profilePhotoVerified),
     profilePhotoVerifiedAt: profile.profilePhotoVerifiedAt || '',
     faceMatchSimilarity: Number.isFinite(Number(profile.faceMatchSimilarity)) ? Number(profile.faceMatchSimilarity) : 0,
@@ -747,7 +829,7 @@ const toStoredProfile = (profile) => {
     searchAgeMin,
     searchAgeMax,
     searchGenders: getSearchGenders(profile),
-    nicknameLower: profile.nickname?.trim().toLowerCase() || '',
+    nicknameLower: normalizeGermanComparison(profile.nickname),
     updatedAt: serverTimestamp(),
   };
 };
@@ -1692,6 +1774,7 @@ export const AffairGoProvider = ({ children }) => {
     const normalizedAuthEmail = firebaseUser.email?.trim().toLowerCase() || '';
     const normalizedStoredEmail = normalizedProfile.email?.trim().toLowerCase() || '';
     const normalizedPendingEmail = normalizedProfile.pendingEmail?.trim().toLowerCase() || '';
+    const shouldBackfillLegacyFields = hasLegacyProfileAliases(profileData);
 
     if (normalizedPendingEmail && normalizedAuthEmail && normalizedAuthEmail === normalizedPendingEmail) {
       normalizedProfile.email = normalizedAuthEmail;
@@ -1707,6 +1790,10 @@ export const AffairGoProvider = ({ children }) => {
 
       setDoc(doc(db, 'users', firebaseUser.uid), toStoredProfile(normalizedProfile), { merge: true }).catch((error) => {
         console.warn('AffairGo auth email sync warning', error);
+      });
+    } else if (shouldBackfillLegacyFields) {
+      setDoc(doc(db, 'users', firebaseUser.uid), toStoredProfile(normalizedProfile), { merge: true }).catch((error) => {
+        console.warn('AffairGo profile legacy backfill warning', error);
       });
     }
 
@@ -2509,17 +2596,30 @@ export const AffairGoProvider = ({ children }) => {
     }), 5000, 'Die Sicherheitspruefung vor der Registrierung hat zu lange gedauert. Bitte versuche es erneut.');
 
     try {
-      await withTimeout(
-        ensureNicknameAvailable(payload.nickname),
-        5000,
-        'Die Pruefung deines Spitznamens hat zu lange gedauert. Bitte versuche es erneut.'
-      );
       const normalizedEmail = payload.email.trim().toLowerCase();
       const credentials = await withTimeout(
         createUserWithEmailAndPassword(auth, normalizedEmail, payload.password),
         15000,
         'Die Registrierung hat beim Anlegen des Kontos zu lange gedauert. Bitte prüfe Netzwerk und Firebase-Konfiguration.'
       );
+
+      try {
+        await withTimeout(
+          ensureNicknameAvailable(payload.nickname, credentials.user.uid),
+          8000,
+          'Die Pruefung deines Spitznamens hat zu lange gedauert. Bitte versuche es erneut.'
+        );
+      } catch (error) {
+        await withTimeout(
+          deleteUser(credentials.user).catch(async () => {
+            await trySignOut();
+          }),
+          8000,
+          'Das neu angelegte Konto konnte nach dem fehlgeschlagenen Spitznamen-Check nicht rechtzeitig bereinigt werden.'
+        ).catch(() => undefined);
+        throw error;
+      }
+
       const uploadedProfilePhotoUrl = payload.profileImageAsset?.uri
         ? await uploadMediaAsset('profileImages', payload.profileImageAsset, credentials.user.uid)
         : '';
@@ -2814,6 +2914,7 @@ export const AffairGoProvider = ({ children }) => {
     };
 
     setCurrentUser((previous) => ({ ...previous, ...nextPatch }));
+    await persistCurrentUserPatch(nextPatch);
 
     return {
       approved: true,

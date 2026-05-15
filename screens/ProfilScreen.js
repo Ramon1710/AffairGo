@@ -7,7 +7,7 @@ import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import { buildFaceLivenessUrl } from '../constants/profilePhotoVerificationProvider';
 import { useAffairGo } from '../context/AffairGoContext';
-import { EYE_OPTIONS, FIGURE_OPTIONS, HAIR_OPTIONS, MONTH_OPTIONS, SEARCH_GENDER_OPTIONS, SKIN_OPTIONS } from '../data/mockData';
+import { EYE_OPTIONS, FIGURE_OPTIONS, GENDER_OPTIONS, HAIR_OPTIONS, MONTH_OPTIONS, SEARCH_GENDER_OPTIONS, SKIN_OPTIONS } from '../data/mockData';
 import { useNavigation, useRoute } from '../naviagtion/SimpleNavigation';
 import { allowScreenCaptureAsync, preventScreenCaptureAsync } from '../untils/screenCapture';
 
@@ -709,6 +709,19 @@ const ProfilScreen = () => {
               </View>
             ) : null}
             <FormField label="Spitzname" value={profile.nickname} onChangeText={(value) => updateField('nickname', value)} hint="Öffentlich sichtbar, nur falls verfügbar" />
+            <View style={[styles.row, isCompactWeb && styles.rowCompact]}>
+              <View style={[styles.half, isCompactWeb && styles.halfCompact]}><FormField label="Vorname" value={profile.firstName} onChangeText={(value) => updateField('firstName', value)} /></View>
+              <View style={[styles.half, isCompactWeb && styles.halfCompact]}><FormField label="Nachname" value={profile.lastName} onChangeText={(value) => updateField('lastName', value)} /></View>
+            </View>
+            <FormField label="Ort" value={profile.city} onChangeText={(value) => updateField('city', value)} />
+            <Text style={styles.pickerLabel}>Geschlecht</Text>
+            <View style={styles.chipsCompact}>
+              {GENDER_OPTIONS.map((item) => (
+                <View key={item} style={styles.chipItem}>
+                  <ToggleChip label={item} active={profile.gender === item} onPress={() => updateField('gender', item)} />
+                </View>
+              ))}
+            </View>
             <View style={[styles.row, isCompactWeb && styles.rowCompact]}>
               <View style={[styles.half, isCompactWeb && styles.halfCompact]}><FormField label="Körpergröße" value={profile.height} onChangeText={(value) => updateField('height', value)} /></View>
               <View style={[styles.half, isCompactWeb && styles.halfCompact]}><Text style={styles.pickerLabel}>Figur</Text><View style={styles.pickerWrap}><Picker selectedValue={profile.figure} onValueChange={(value) => updateField('figure', value)}>{FIGURE_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View></View>
