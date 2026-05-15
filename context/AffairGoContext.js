@@ -21,6 +21,7 @@ import {
     getDoc,
     getDocs,
     limit,
+    onSnapshot,
     orderBy,
     query,
     serverTimestamp,
@@ -766,6 +767,7 @@ const toStoredProfile = (profile) => {
 
   return {
     ...sanitized,
+    uid: profile.id || profile.uid || '',
     firstName: aliasValues.firstName,
     lastName: aliasValues.lastName,
     city: aliasValues.city,
@@ -792,6 +794,7 @@ const toStoredProfile = (profile) => {
     planPriceLabel: FREE_ACCESS_STATUS_LABEL,
     goldDiscountPackage: false,
     purchaseHistory: Array.isArray(profile.purchaseHistory) ? profile.purchaseHistory : [],
+    galleryImages: Array.isArray(profile.galleryImages) ? profile.galleryImages : (Array.isArray(profile.gallery) ? profile.gallery : []),
     pendingNickname: profile.pendingNickname || '',
     privacyConsentAccepted: Boolean(profile.privacyConsentAccepted),
     privacyConsentAcceptedAt: profile.privacyConsentAcceptedAt || '',
@@ -830,6 +833,16 @@ const toStoredProfile = (profile) => {
     searchAgeMin,
     searchAgeMax,
     searchGenders: getSearchGenders(profile),
+    emailVerified: Boolean(profile.emailVerified),
+    nicknameUnique: Boolean(profile.nickname) && !profile.pendingNickname,
+    profileCompleted: Boolean(
+      aliasValues.firstName
+      && aliasValues.lastName
+      && aliasValues.gender
+      && aliasValues.height
+      && aliasValues.figure
+      && resolveProfilePhotoValue(profile)
+    ),
     nicknameLower: normalizeGermanComparison(profile.nickname),
     updatedAt: serverTimestamp(),
   };
@@ -1378,6 +1391,40 @@ const withTimeout = async (promise, timeoutMs, timeoutMessage) => {
   }
 };
 
+const buildDebugProfilePayload = (profile = {}) => ({
+  uid: profile.uid || profile.id || '',
+  email: profile.email || '',
+  nickname: profile.nickname || '',
+  firstName: profile.firstName || '',
+  lastName: profile.lastName || '',
+  gender: profile.gender || '',
+  birthDay: profile.birthDay ?? '',
+  birthMonth: profile.birthMonth ?? '',
+  birthYear: profile.birthYear ?? '',
+  age: profile.age ?? '',
+  height: profile.height || '',
+  figure: profile.figure || '',
+  penisSize: profile.penisSize || '',
+  braSize: profile.braSize || '',
+  hairColor: profile.hairColor || '',
+  eyeColor: profile.eyeColor || '',
+  skinType: profile.skinType || '',
+  city: profile.city || '',
+  preferences: Array.isArray(profile.preferences) ? profile.preferences : [],
+  taboos: Array.isArray(profile.taboos) ? profile.taboos : [],
+  profilePhotoUrl: profile.profilePhotoUrl || '',
+  profileImageUri: profile.profileImageUri || '',
+  galleryImages: Array.isArray(profile.galleryImages)
+    ? profile.galleryImages
+    : Array.isArray(profile.gallery)
+      ? profile.gallery
+      : [],
+  emailVerified: Boolean(profile.emailVerified),
+  nicknameUnique: Boolean(profile.nicknameUnique),
+  profileCompleted: Boolean(profile.profileCompleted),
+  onboardingCompleted: Boolean(profile.onboardingCompleted),
+});
+
 const trySignOut = async () => {
   try {
     await signOut(auth);
@@ -1388,8 +1435,10 @@ const trySignOut = async () => {
 
 const tryStoreRegistrationProfile = async (profile, userId) => {
   try {
+    const storedProfile = toStoredProfile(profile);
+    console.log('AffairGo SAVE PAYLOAD register', buildDebugProfilePayload(storedProfile));
     await withTimeout(
-      setDoc(doc(db, 'users', userId), toStoredProfile(profile)),
+      setDoc(doc(db, 'users', userId), storedProfile),
       10000,
       'Das Profil konnte nicht rechtzeitig gespeichert werden.'
     );
@@ -1798,6 +1847,7 @@ export const AffairGoProvider = ({ children }) => {
       normalizedProfile.email = normalizedAuthEmail;
       normalizedProfile.pendingEmail = '';
       normalizedProfile.emailVerified = firebaseUser.emailVerified;
+      console.log('AffairGo SAVE PAYLOAD auth-sync-pending-email', buildDebugProfilePayload(toStoredProfile(normalizedProfile)));
 
       setDoc(doc(db, 'users', firebaseUser.uid), toStoredProfile(normalizedProfile), { merge: true }).catch((error) => {
         console.warn('AffairGo pending email sync warning', error);
@@ -1805,11 +1855,13 @@ export const AffairGoProvider = ({ children }) => {
     } else if (normalizedAuthEmail && normalizedStoredEmail !== normalizedAuthEmail && !normalizedPendingEmail) {
       normalizedProfile.email = normalizedAuthEmail;
       normalizedProfile.emailVerified = firebaseUser.emailVerified;
+      console.log('AffairGo SAVE PAYLOAD auth-sync-email', buildDebugProfilePayload(toStoredProfile(normalizedProfile)));
 
       setDoc(doc(db, 'users', firebaseUser.uid), toStoredProfile(normalizedProfile), { merge: true }).catch((error) => {
         console.warn('AffairGo auth email sync warning', error);
       });
     } else if (shouldBackfillLegacyFields) {
+      console.log('AffairGo SAVE PAYLOAD legacy-backfill', buildDebugProfilePayload(toStoredProfile(normalizedProfile)));
       setDoc(doc(db, 'users', firebaseUser.uid), toStoredProfile(normalizedProfile), { merge: true }).catch((error) => {
         console.warn('AffairGo profile legacy backfill warning', error);
       });
@@ -1833,6 +1885,7 @@ export const AffairGoProvider = ({ children }) => {
 
   useEffect(() => {
     let unsubscribe = () => undefined;
+    let unsubscribeProfile = () => undefined;
     let active = true;
 
     authReady.finally(() => {
@@ -1866,6 +1919,18 @@ export const AffairGoProvider = ({ children }) => {
           setIsAuthReady(true);
         }
 
+        unsubscribeProfile();
+        unsubscribeProfile = onSnapshot(doc(db, 'users', firebaseUser.uid), (profileSnapshot) => {
+          if (!active || !profileSnapshot.exists()) {
+            return;
+          }
+
+          const normalizedProfile = normalizeUserProfile({ id: profileSnapshot.id, ...profileSnapshot.data() }, firebaseUser);
+          setCurrentUser((previous) => ({ ...previous, ...normalizedProfile }));
+        }, (error) => {
+          console.warn('AffairGo profile realtime warning', error);
+        });
+
         syncCurrentUserFromFirebase(firebaseUser)
           .catch((error) => {
             console.warn('AffairGo auth bootstrap warning', error);
@@ -1891,23 +1956,36 @@ export const AffairGoProvider = ({ children }) => {
 
     return () => {
       active = false;
+      unsubscribeProfile();
       unsubscribe();
     };
   }, []);
 
   useEffect(() => {
-    let active = true;
+    const excludedUserId = currentUser.id === 'me' ? '' : currentUser.id;
+    const unsubscribeUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+      const storedUsers = snapshot.docs
+        .map((profileDoc) => ({
+          ...normalizeUserProfile({ id: profileDoc.id, ...profileDoc.data() }),
+          latitude: null,
+          longitude: null,
+        }))
+        .filter((profile) => profile.id && profile.id !== excludedUserId);
 
-    loadStoredUsers(currentUser.id === 'me' ? '' : currentUser.id).then((storedUsers) => {
-      if (!active || !storedUsers.length) {
-        return;
+      if (storedUsers.length) {
+        setUsers(storedUsers);
       }
-
-      setUsers(storedUsers);
+    }, (error) => {
+      console.warn('AffairGo users realtime warning', error);
+      loadStoredUsers(excludedUserId).then((storedUsers) => {
+        if (storedUsers.length) {
+          setUsers(storedUsers);
+        }
+      });
     });
 
     return () => {
-      active = false;
+      unsubscribeUsers();
     };
   }, [currentUser.id]);
 
@@ -2112,7 +2190,10 @@ export const AffairGoProvider = ({ children }) => {
       return;
     }
 
-    await setDoc(doc(db, 'users', userId), toStoredProfile({ ...latestCurrentUser, ...patch }), { merge: true });
+    const storedProfile = toStoredProfile({ ...latestCurrentUser, ...patch });
+    console.log('AffairGo SAVE PAYLOAD patch', buildDebugProfilePayload(storedProfile));
+
+    await setDoc(doc(db, 'users', userId), storedProfile, { merge: true });
   };
 
   const persistModerationAuditEntry = async (entry, extraPatch = {}) => {
@@ -2728,6 +2809,13 @@ export const AffairGoProvider = ({ children }) => {
     };
 
     setCurrentUser(nextUser);
+    console.log('AffairGo SAVE PAYLOAD onboarding', buildDebugProfilePayload(toStoredProfile({
+      ...latestCurrentUser,
+      preferences,
+      taboos,
+      onboardingCompleted: true,
+      searchActive: true,
+    })));
 
     Promise.all([
       persistCurrentUserPatch({ preferences, taboos, onboardingCompleted: true, searchActive: true }),
