@@ -1938,20 +1938,7 @@ export const AffairGoProvider = ({ children }) => {
     const shouldBackfillLegacyFields = hasLegacyProfileAliases(profileData);
 
     if (profileData.__profileLookup === 'missing') {
-      try {
-        await persistProfileViaFunctionFallback({
-          ...currentUserRef.current,
-          ...normalizedProfile,
-          id: firebaseUser.uid,
-          email: normalizedAuthEmail || normalizedProfile.email,
-          emailVerified: firebaseUser.emailVerified,
-        }, 'auth-sync-missing-profile');
-
-        const repairedProfileData = await loadStoredProfile(firebaseUser.uid, firebaseUser.email);
-        normalizedProfile = hydrateAuthenticatedSession(repairedProfileData, firebaseUser);
-      } catch (repairError) {
-        console.warn('AffairGo auth profile repair warning', repairError);
-      }
+      console.warn('AffairGo auth profile repair skipped because no persisted profile exists yet.');
     } else if (profileData.__profileLookup === 'error') {
       console.warn('AffairGo auth profile repair skipped because Firestore profile lookup failed.');
     }
