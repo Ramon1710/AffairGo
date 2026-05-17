@@ -81,6 +81,7 @@ const MAX_MODERATION_AUDIT_TRAIL_ENTRIES = 40;
 const FIXED_ADMIN_EMAIL = 'ramon.meyer@admin.de';
 const FIXED_ADMIN_PASSWORD = 'heihachi17';
 const SESSION_CACHE_STORAGE_KEY = 'affairgo.session.v1';
+const REGISTRATION_PROFILE_CACHE_STORAGE_KEY = 'affairgo.registration-profile.v1';
 const FREE_ACCESS_MEMBERSHIP = 'free';
 const FREE_ACCESS_STATUS_LABEL = 'Kostenfrei bis Anfang 2027';
 const MAP_LOCATIONS_COLLECTION = 'mapLocations';
@@ -149,6 +150,74 @@ const clearCachedSession = () => {
     window.localStorage.removeItem(SESSION_CACHE_STORAGE_KEY);
   } catch (error) {
     console.warn('AffairGo session cache clear warning', error);
+  }
+};
+
+const readCachedRegistrationProfile = (uid) => {
+  if (!uid || !canUseBrowserStorage()) {
+    return null;
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(REGISTRATION_PROFILE_CACHE_STORAGE_KEY);
+
+    if (!rawValue) {
+      return null;
+    }
+
+    const parsedValue = JSON.parse(rawValue);
+
+    if (!parsedValue?.profile || parsedValue.uid !== uid) {
+      return null;
+    }
+
+    return parsedValue.profile;
+  } catch (error) {
+    console.warn('AffairGo registration cache read warning', error);
+    return null;
+  }
+};
+
+const writeCachedRegistrationProfile = (uid, profile) => {
+  if (!uid || !profile || !canUseBrowserStorage()) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(REGISTRATION_PROFILE_CACHE_STORAGE_KEY, JSON.stringify({
+      uid,
+      profile,
+      cachedAt: new Date().toISOString(),
+    }));
+  } catch (error) {
+    console.warn('AffairGo registration cache write warning', error);
+  }
+};
+
+const clearCachedRegistrationProfile = (uid = '') => {
+  if (!canUseBrowserStorage()) {
+    return;
+  }
+
+  try {
+    if (!uid) {
+      window.localStorage.removeItem(REGISTRATION_PROFILE_CACHE_STORAGE_KEY);
+      return;
+    }
+
+    const rawValue = window.localStorage.getItem(REGISTRATION_PROFILE_CACHE_STORAGE_KEY);
+
+    if (!rawValue) {
+      return;
+    }
+
+    const parsedValue = JSON.parse(rawValue);
+
+    if (!parsedValue?.uid || parsedValue.uid === uid) {
+      window.localStorage.removeItem(REGISTRATION_PROFILE_CACHE_STORAGE_KEY);
+    }
+  } catch (error) {
+    console.warn('AffairGo registration cache clear warning', error);
   }
 };
 
@@ -1933,17 +2002,44 @@ export const AffairGoProvider = ({ children }) => {
   };
 
   const syncCurrentUserFromFirebase = async (firebaseUser) => {
-    const profileData = await loadStoredProfile(firebaseUser.uid, firebaseUser.email);
+    let profileData = await loadStoredProfile(firebaseUser.uid, firebaseUser.email);
+    const cachedRegistrationProfile = readCachedRegistrationProfile(firebaseUser.uid);
+
+    if (profileData.__profileLookup === 'missing' && cachedRegistrationProfile) {
+      profileData = {
+        ...cachedRegistrationProfile,
+        __profileExists: false,
+        __profileLookup: 'cached-registration',
+      };
+    }
+
     let normalizedProfile = hydrateAuthenticatedSession(profileData, firebaseUser);
     const normalizedAuthEmail = firebaseUser.email?.trim().toLowerCase() || '';
     const normalizedStoredEmail = normalizedProfile.email?.trim().toLowerCase() || '';
     const normalizedPendingEmail = normalizedProfile.pendingEmail?.trim().toLowerCase() || '';
     const shouldBackfillLegacyFields = hasLegacyProfileAliases(profileData);
 
-    if (profileData.__profileLookup === 'missing') {
+    if (profileData.__profileLookup === 'cached-registration') {
+      try {
+        await persistProfileViaFunctionFallback({
+          ...cachedRegistrationProfile,
+          id: firebaseUser.uid,
+          email: normalizedAuthEmail || cachedRegistrationProfile.email,
+          emailVerified: firebaseUser.emailVerified,
+        }, 'auth-sync-registration-cache');
+
+        const repairedProfileData = await loadStoredProfile(firebaseUser.uid, firebaseUser.email);
+        normalizedProfile = hydrateAuthenticatedSession(repairedProfileData, firebaseUser);
+        clearCachedRegistrationProfile(firebaseUser.uid);
+      } catch (repairError) {
+        console.warn('AffairGo cached registration profile restore warning', repairError);
+      }
+    } else if (profileData.__profileLookup === 'missing') {
       console.warn('AffairGo auth profile repair skipped because no persisted profile exists yet.');
     } else if (profileData.__profileLookup === 'error') {
       console.warn('AffairGo auth profile repair skipped because Firestore profile lookup failed.');
+    } else if (profileData.__profileLookup === 'found') {
+      clearCachedRegistrationProfile(firebaseUser.uid);
     }
 
     if (normalizedPendingEmail && normalizedAuthEmail && normalizedAuthEmail === normalizedPendingEmail) {
@@ -2658,6 +2754,7 @@ export const AffairGoProvider = ({ children }) => {
         });
 
         const cachedSession = readCachedSession(credentials.user.uid);
+        const cachedRegistrationProfile = readCachedRegistrationProfile(credentials.user.uid);
 
         if (cachedSession) {
           const normalizedProfile = hydrateAuthenticatedSession(cachedSession, credentials.user);
@@ -2684,8 +2781,17 @@ export const AffairGoProvider = ({ children }) => {
           return {
             id: credentials.user.uid,
             email: credentials.user.email || normalizedEmail,
+            __profileLookup: 'error',
           };
         });
+
+        if (profileData.__profileLookup === 'missing' && cachedRegistrationProfile) {
+          profileData = {
+            ...cachedRegistrationProfile,
+            __profileExists: false,
+            __profileLookup: 'cached-registration',
+          };
+        }
       }
 
       if (!fixedAdminLogin && !credentials.user.emailVerified) {
@@ -2859,6 +2965,7 @@ export const AffairGoProvider = ({ children }) => {
         profilePhotoAgeMonths: 0,
         verificationState: uploadedProfilePhotoUrl ? 'uploaded' : 'review',
       }, credentials.user.uid);
+      writeCachedRegistrationProfile(credentials.user.uid, profile);
       const profileSaved = await tryStoreRegistrationProfile(profile, credentials.user.uid, credentials.user);
 
       if (!profileSaved) {
@@ -2869,6 +2976,7 @@ export const AffairGoProvider = ({ children }) => {
           8000,
           'Das Konto konnte nach fehlgeschlagener Profilspeicherung nicht rechtzeitig bereinigt werden.'
         ).catch(() => undefined);
+        clearCachedRegistrationProfile(credentials.user.uid);
         throw new Error('Dein Profil konnte nicht in Firebase gespeichert werden. Bitte versuche die Registrierung erneut.');
       }
 
