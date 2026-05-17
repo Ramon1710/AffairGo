@@ -247,6 +247,31 @@ const mergeRegistrationPayloadWithDraft = (payload = {}) => {
   return mergedPayload;
 };
 
+const buildCachedRegistrationProfileFromDraft = (uid, email = '') => {
+  const draft = readRegistrationSubmitDraft(email);
+
+  if (!uid || !draft) {
+    return null;
+  }
+
+  try {
+    return buildRegistrationProfile({
+      ...draft,
+      email: String(draft.email || email || '').trim().toLowerCase(),
+      profileImageUri: draft.profilePhotoUrl || draft.profileImageUri || draft.profileImageAsset?.uri || '',
+      profilePhotoUrl: draft.profilePhotoUrl || draft.profileImageUri || draft.profileImageAsset?.uri || '',
+      profileImageUploaded: Boolean(draft.profileImageUploaded || draft.profileImageAsset?.uri),
+      profilePhotoVerified: Boolean(draft.profilePhotoVerified),
+      profilePhotoVerifiedAt: draft.profilePhotoVerifiedAt || '',
+      faceMatchSimilarity: Number.isFinite(Number(draft.faceMatchSimilarity)) ? Number(draft.faceMatchSimilarity) : 0,
+      profilePhotoAgeMonths: Number.isFinite(Number(draft.profilePhotoAgeMonths)) ? Number(draft.profilePhotoAgeMonths) : 0,
+    }, uid);
+  } catch (error) {
+    console.warn('AffairGo registration submit draft build warning', error);
+    return null;
+  }
+};
+
 const readCachedRegistrationProfile = (uid) => {
   if (!uid || !canUseBrowserStorage()) {
     return null;
@@ -2097,7 +2122,8 @@ export const AffairGoProvider = ({ children }) => {
 
   const syncCurrentUserFromFirebase = async (firebaseUser) => {
     let profileData = await loadStoredProfile(firebaseUser.uid, firebaseUser.email);
-    const cachedRegistrationProfile = readCachedRegistrationProfile(firebaseUser.uid);
+    const cachedRegistrationProfile = readCachedRegistrationProfile(firebaseUser.uid)
+      || buildCachedRegistrationProfileFromDraft(firebaseUser.uid, firebaseUser.email || '');
 
     if (profileData.__profileLookup === 'missing' && cachedRegistrationProfile) {
       profileData = {
@@ -2125,6 +2151,7 @@ export const AffairGoProvider = ({ children }) => {
         const repairedProfileData = await loadStoredProfile(firebaseUser.uid, firebaseUser.email);
         normalizedProfile = hydrateAuthenticatedSession(repairedProfileData, firebaseUser);
         clearCachedRegistrationProfile(firebaseUser.uid);
+        clearRegistrationSubmitDraft(firebaseUser.email || cachedRegistrationProfile.email || '');
       } catch (repairError) {
         console.warn('AffairGo cached registration profile restore warning', repairError);
       }
@@ -2134,6 +2161,7 @@ export const AffairGoProvider = ({ children }) => {
       console.warn('AffairGo auth profile repair skipped because Firestore profile lookup failed.');
     } else if (profileData.__profileLookup === 'found') {
       clearCachedRegistrationProfile(firebaseUser.uid);
+      clearRegistrationSubmitDraft(firebaseUser.email || normalizedProfile.email || '');
     }
 
     if (normalizedPendingEmail && normalizedAuthEmail && normalizedAuthEmail === normalizedPendingEmail) {
@@ -2848,7 +2876,8 @@ export const AffairGoProvider = ({ children }) => {
         });
 
         const cachedSession = readCachedSession(credentials.user.uid);
-        const cachedRegistrationProfile = readCachedRegistrationProfile(credentials.user.uid);
+        const cachedRegistrationProfile = readCachedRegistrationProfile(credentials.user.uid)
+          || buildCachedRegistrationProfileFromDraft(credentials.user.uid, credentials.user.email || normalizedEmail);
 
         if (cachedSession) {
           const normalizedProfile = hydrateAuthenticatedSession(cachedSession, credentials.user);
@@ -3085,7 +3114,6 @@ export const AffairGoProvider = ({ children }) => {
 
       setPendingVerificationId(credentials.user.uid);
       activeRegistrationUidRef.current = '';
-      clearRegistrationSubmitDraft(normalizedEmail);
       return {
         profile: normalizeUserProfile(profile, credentials.user),
         emailSent,
