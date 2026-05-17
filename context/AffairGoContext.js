@@ -2295,14 +2295,35 @@ export const AffairGoProvider = ({ children }) => {
       return;
     }
 
-    const storedProfile = toStoredProfile({ ...latestCurrentUser, ...patch });
+    let remoteProfile = null;
+
+    try {
+      const remoteSnapshot = await getDoc(doc(db, 'users', userId));
+      if (remoteSnapshot.exists()) {
+        remoteProfile = { id: userId, ...remoteSnapshot.data() };
+      }
+    } catch (error) {
+      console.warn('AffairGo patch bootstrap warning', error);
+    }
+
+    const storedProfile = toStoredProfile({
+      ...(remoteProfile || {}),
+      ...latestCurrentUser,
+      ...patch,
+      id: userId,
+    });
     console.log('AffairGo SAVE PAYLOAD patch', buildDebugProfilePayload(storedProfile));
 
     try {
       await setDoc(doc(db, 'users', userId), storedProfile, { merge: true });
     } catch (error) {
       console.warn('AffairGo patch save warning', error);
-      await persistProfileViaFunctionFallback({ ...latestCurrentUser, ...patch, id: userId }, 'patch-function-fallback');
+      await persistProfileViaFunctionFallback({
+        ...(remoteProfile || {}),
+        ...latestCurrentUser,
+        ...patch,
+        id: userId,
+      }, 'patch-function-fallback');
     }
   };
 
