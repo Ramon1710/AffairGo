@@ -40,6 +40,7 @@ const createEmptySelfieVerificationState = () => ({
 const shouldShowPenisSizeField = (gender) => gender === 'männlich' || gender === 'divers' || gender === 'paare';
 const shouldShowBraSizeField = (gender) => gender === 'weiblich' || gender === 'divers' || gender === 'paare';
 const MIN_NICKNAME_LENGTH = 3;
+const REGISTRATION_SUBMIT_DRAFT_STORAGE_KEY = 'affairgo.registration-submit-draft.v1';
 
 const RegisterScreen = () => {
   const navigation = useNavigation();
@@ -236,7 +237,7 @@ const RegisterScreen = () => {
         setIsSubmitting(false);
         return;
       }
-      const result = await register({
+      const submitPayload = {
         ...form,
         age,
         birthLabel,
@@ -249,7 +250,36 @@ const RegisterScreen = () => {
         ageVerificationCheckedAt: new Date().toISOString(),
         selfieVerified: false,
         selfieVerificationStatus: 'not_required',
+      };
+
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(REGISTRATION_SUBMIT_DRAFT_STORAGE_KEY, JSON.stringify({
+          email: String(submitPayload.email || '').trim().toLowerCase(),
+          payload: submitPayload,
+          cachedAt: new Date().toISOString(),
+        }));
+      }
+
+      console.log('Night-Whisper register submit payload', {
+        email: submitPayload.email,
+        nickname: submitPayload.nickname,
+        firstName: submitPayload.firstName,
+        lastName: submitPayload.lastName,
+        birthDay: submitPayload.birthDay,
+        birthMonth: submitPayload.birthMonth,
+        birthYear: submitPayload.birthYear,
+        height: submitPayload.height,
+        figure: submitPayload.figure,
+        penisSize: submitPayload.penisSize,
+        braSize: submitPayload.braSize,
+        hairColor: submitPayload.hairColor,
+        eyeColor: submitPayload.eyeColor,
+        skinType: submitPayload.skinType,
+        profileImageUploaded: submitPayload.profileImageUploaded,
+        profileImageAssetUri: submitPayload.profileImageAsset?.uri || '',
       });
+
+      const result = await register(submitPayload);
       let successMessage = result?.emailSent
         ? `Registrierung erfolgreich. Wir haben eine Verifizierungs-Mail an ${form.email} gesendet.`
         : `Konto angelegt für ${form.email}, aber die Verifizierungs-Mail konnte nicht gesendet werden. Bitte versuche den Login, damit wir sie erneut senden.`;

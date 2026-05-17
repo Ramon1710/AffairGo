@@ -81,6 +81,7 @@ const MAX_MODERATION_AUDIT_TRAIL_ENTRIES = 40;
 const FIXED_ADMIN_EMAIL = 'ramon.meyer@admin.de';
 const FIXED_ADMIN_PASSWORD = 'heihachi17';
 const SESSION_CACHE_STORAGE_KEY = 'affairgo.session.v1';
+const REGISTRATION_SUBMIT_DRAFT_STORAGE_KEY = 'affairgo.registration-submit-draft.v1';
 const REGISTRATION_PROFILE_CACHE_STORAGE_KEY = 'affairgo.registration-profile.v1';
 const FREE_ACCESS_MEMBERSHIP = 'free';
 const FREE_ACCESS_STATUS_LABEL = 'Kostenfrei bis Anfang 2027';
@@ -151,6 +152,99 @@ const clearCachedSession = () => {
   } catch (error) {
     console.warn('AffairGo session cache clear warning', error);
   }
+};
+
+const readRegistrationSubmitDraft = (email = '') => {
+  if (!canUseBrowserStorage()) {
+    return null;
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(REGISTRATION_SUBMIT_DRAFT_STORAGE_KEY);
+
+    if (!rawValue) {
+      return null;
+    }
+
+    const parsedValue = JSON.parse(rawValue);
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+
+    if (!parsedValue?.payload) {
+      return null;
+    }
+
+    if (normalizedEmail && parsedValue.email !== normalizedEmail) {
+      return null;
+    }
+
+    return parsedValue.payload;
+  } catch (error) {
+    console.warn('AffairGo registration submit draft read warning', error);
+    return null;
+  }
+};
+
+const clearRegistrationSubmitDraft = (email = '') => {
+  if (!canUseBrowserStorage()) {
+    return;
+  }
+
+  try {
+    if (!email) {
+      window.localStorage.removeItem(REGISTRATION_SUBMIT_DRAFT_STORAGE_KEY);
+      return;
+    }
+
+    const rawValue = window.localStorage.getItem(REGISTRATION_SUBMIT_DRAFT_STORAGE_KEY);
+
+    if (!rawValue) {
+      return;
+    }
+
+    const parsedValue = JSON.parse(rawValue);
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+
+    if (!parsedValue?.email || parsedValue.email === normalizedEmail) {
+      window.localStorage.removeItem(REGISTRATION_SUBMIT_DRAFT_STORAGE_KEY);
+    }
+  } catch (error) {
+    console.warn('AffairGo registration submit draft clear warning', error);
+  }
+};
+
+const mergeRegistrationPayloadWithDraft = (payload = {}) => {
+  const draft = readRegistrationSubmitDraft(payload.email);
+
+  if (!draft) {
+    return payload;
+  }
+
+  const mergedPayload = {
+    ...draft,
+    ...payload,
+  };
+
+  ['firstName', 'lastName', 'nickname', 'birthDay', 'height', 'penisSize', 'braSize', 'city'].forEach((key) => {
+    if (!String(mergedPayload[key] || '').trim() && String(draft[key] || '').trim()) {
+      mergedPayload[key] = draft[key];
+    }
+  });
+
+  ['birthMonth', 'birthYear', 'figure', 'hairColor', 'eyeColor', 'skinType', 'gender'].forEach((key) => {
+    if ((mergedPayload[key] === undefined || mergedPayload[key] === null || mergedPayload[key] === '') && draft[key] !== undefined) {
+      mergedPayload[key] = draft[key];
+    }
+  });
+
+  if (!mergedPayload.profileImageAsset && draft.profileImageAsset) {
+    mergedPayload.profileImageAsset = draft.profileImageAsset;
+  }
+
+  if (!mergedPayload.profileImageUploaded && draft.profileImageUploaded) {
+    mergedPayload.profileImageUploaded = draft.profileImageUploaded;
+  }
+
+  return mergedPayload;
 };
 
 const readCachedRegistrationProfile = (uid) => {
@@ -2908,25 +3002,27 @@ export const AffairGoProvider = ({ children }) => {
   };
 
   const register = async (payload) => {
-    if (payload.age < 18) {
+    const normalizedPayload = mergeRegistrationPayloadWithDraft(payload);
+
+    if (normalizedPayload.age < 18) {
       throw new Error('Registrierung erst ab 18 Jahren.');
     }
 
     await withTimeout(moderatePreAuthAction({
       actionType: 'register_attempt',
-      email: payload.email.trim().toLowerCase(),
-      nickname: payload.nickname.trim(),
+      email: normalizedPayload.email.trim().toLowerCase(),
+      nickname: normalizedPayload.nickname.trim(),
       metadata: {
-        age: payload.age,
-        ageVerified: Boolean(payload.ageVerified),
-        selfieVerified: Boolean(payload.selfieVerified),
+        age: normalizedPayload.age,
+        ageVerified: Boolean(normalizedPayload.ageVerified),
+        selfieVerified: Boolean(normalizedPayload.selfieVerified),
       },
     }), 5000, 'Die Sicherheitspruefung vor der Registrierung hat zu lange gedauert. Bitte versuche es erneut.');
 
     try {
-      const normalizedEmail = payload.email.trim().toLowerCase();
+      const normalizedEmail = normalizedPayload.email.trim().toLowerCase();
       const credentials = await withTimeout(
-        createUserWithEmailAndPassword(auth, normalizedEmail, payload.password),
+        createUserWithEmailAndPassword(auth, normalizedEmail, normalizedPayload.password),
         15000,
         'Die Registrierung hat beim Anlegen des Kontos zu lange gedauert. Bitte prüfe Netzwerk und Firebase-Konfiguration.'
       );
@@ -2936,7 +3032,7 @@ export const AffairGoProvider = ({ children }) => {
 
       try {
         await withTimeout(
-          ensureNicknameAvailable(payload.nickname, credentials.user.uid),
+          ensureNicknameAvailable(normalizedPayload.nickname, credentials.user.uid),
           8000,
           'Die Pruefung deines Spitznamens hat zu lange gedauert. Bitte versuche es erneut.'
         );
@@ -2951,14 +3047,14 @@ export const AffairGoProvider = ({ children }) => {
         throw error;
       }
 
-      const uploadedProfilePhotoUrl = payload.profileImageAsset?.uri
-        ? await uploadMediaAsset('profileImages', payload.profileImageAsset, credentials.user.uid)
+      const uploadedProfilePhotoUrl = normalizedPayload.profileImageAsset?.uri
+        ? await uploadMediaAsset('profileImages', normalizedPayload.profileImageAsset, credentials.user.uid)
         : '';
       const profile = buildRegistrationProfile({
-        ...payload,
-        profileImageUploaded: Boolean(uploadedProfilePhotoUrl || payload.profileImageUploaded),
-        profileImageUri: uploadedProfilePhotoUrl || payload.profileImageUri || '',
-        profilePhotoUrl: uploadedProfilePhotoUrl || payload.profilePhotoUrl || '',
+        ...normalizedPayload,
+        profileImageUploaded: Boolean(uploadedProfilePhotoUrl || normalizedPayload.profileImageUploaded),
+        profileImageUri: uploadedProfilePhotoUrl || normalizedPayload.profileImageUri || '',
+        profilePhotoUrl: uploadedProfilePhotoUrl || normalizedPayload.profilePhotoUrl || '',
         profilePhotoVerified: false,
         profilePhotoVerifiedAt: '',
         faceMatchSimilarity: 0,
@@ -2989,6 +3085,7 @@ export const AffairGoProvider = ({ children }) => {
 
       setPendingVerificationId(credentials.user.uid);
       activeRegistrationUidRef.current = '';
+      clearRegistrationSubmitDraft(normalizedEmail);
       return {
         profile: normalizeUserProfile(profile, credentials.user),
         emailSent,
