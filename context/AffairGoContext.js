@@ -1433,6 +1433,26 @@ const trySignOut = async () => {
   }
 };
 
+const waitForAuthenticatedUser = async (expectedUid, timeoutMs = 10000) => {
+  const currentUid = auth.currentUser?.uid;
+
+  if (expectedUid && currentUid === expectedUid) {
+    return auth.currentUser;
+  }
+
+  return withTimeout(new Promise((resolve, reject) => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (!expectedUid || firebaseUser?.uid === expectedUid) {
+        unsubscribe();
+        resolve(firebaseUser);
+      }
+    }, (error) => {
+      unsubscribe();
+      reject(error);
+    });
+  }), timeoutMs, 'Der neue Nutzerstatus konnte nicht rechtzeitig übernommen werden.');
+};
+
 const tryStoreRegistrationProfile = async (profile, userId, firebaseUser = null) => {
   const storedProfile = toStoredProfile(profile);
   const profileRef = doc(db, 'users', userId);
@@ -2730,6 +2750,8 @@ export const AffairGoProvider = ({ children }) => {
         15000,
         'Die Registrierung hat beim Anlegen des Kontos zu lange gedauert. Bitte prüfe Netzwerk und Firebase-Konfiguration.'
       );
+
+      await waitForAuthenticatedUser(credentials.user.uid, 10000);
 
       try {
         await withTimeout(

@@ -1,0 +1,128 @@
+[debug] [2026-05-17T07:26:44.648Z] ----------------------------------------------------------------------
+[debug] [2026-05-17T07:26:44.649Z] Command:       /usr/local/share/nvm/versions/node/v24.14.0/bin/node /home/codespace/nvm/current/bin/firebase functions:secrets:set AWS_ACCESS_KEY_ID
+[debug] [2026-05-17T07:26:44.650Z] CLI Version:   15.18.0
+[debug] [2026-05-17T07:26:44.650Z] Platform:      linux
+[debug] [2026-05-17T07:26:44.650Z] Node Version:  v24.14.0
+[debug] [2026-05-17T07:26:44.650Z] Time:          Sun May 17 2026 07:26:44 GMT+0000 (Coordinated Universal Time)
+[debug] [2026-05-17T07:26:44.650Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-05-17T07:26:44.652Z] >>> [apiv2][query] GET https://firebase-public.firebaseio.com/cli.json [none]
+[debug] [2026-05-17T07:26:45.112Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-05-17T07:26:45.112Z] > authorizing via signed-in user (ramonmey4@gmail.com)
+[debug] [2026-05-17T07:26:45.113Z] Checked if tokens are valid: false, expires at: 1778859548489
+[debug] [2026-05-17T07:26:45.114Z] Checked if tokens are valid: false, expires at: 1778859548489
+[debug] [2026-05-17T07:26:45.114Z] > refreshing access token with scopes: []
+[debug] [2026-05-17T07:26:45.115Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-05-17T07:26:45.115Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-05-17T07:26:45.183Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-05-17T07:26:45.183Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-05-17T07:26:45.187Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/affairgo-54ac0/services/secretmanager.googleapis.com [none]
+[debug] [2026-05-17T07:26:45.187Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/affairgo-54ac0/services/secretmanager.googleapis.com  x-goog-user-project=affairgo-54ac0
+[debug] [2026-05-17T07:26:45.366Z] <<< [apiv2][status] GET https://firebase-public.firebaseio.com/cli.json 200
+[debug] [2026-05-17T07:26:45.366Z] <<< [apiv2][body] GET https://firebase-public.firebaseio.com/cli.json {"cloudBuildErrorAfter":1594252800000,"cloudBuildWarnAfter":1590019200000,"defaultNode10After":1594252800000,"minVersion":"3.0.5","node8DeploysDisabledAfter":1613390400000,"node8RuntimeDisabledAfter":1615809600000,"node8WarnAfter":1600128000000}
+[debug] [2026-05-17T07:26:46.004Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/affairgo-54ac0/services/secretmanager.googleapis.com 200
+[debug] [2026-05-17T07:26:46.004Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/affairgo-54ac0/services/secretmanager.googleapis.com [omitted]
+[debug] [2026-05-17T07:26:46.007Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-05-17T07:26:46.007Z] > authorizing via signed-in user (ramonmey4@gmail.com)
+[debug] [2026-05-17T07:26:46.007Z] [iam] checking project affairgo-54ac0 for permissions ["firebase.projects.get","secretmanager.secrets.create","secretmanager.secrets.get","secretmanager.secrets.update","secretmanager.versions.add"]
+[debug] [2026-05-17T07:26:46.007Z] Checked if tokens are valid: true, expires at: 1779006404183
+[debug] [2026-05-17T07:26:46.007Z] Checked if tokens are valid: true, expires at: 1779006404183
+[debug] [2026-05-17T07:26:46.007Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/affairgo-54ac0:testIamPermissions [none]
+[debug] [2026-05-17T07:26:46.007Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/affairgo-54ac0:testIamPermissions  x-goog-user-project=affairgo-54ac0
+[debug] [2026-05-17T07:26:46.008Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/affairgo-54ac0:testIamPermissions {"permissions":["firebase.projects.get","secretmanager.secrets.create","secretmanager.secrets.get","secretmanager.secrets.update","secretmanager.versions.add"]}
+[debug] [2026-05-17T07:26:46.656Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/affairgo-54ac0:testIamPermissions 200
+[debug] [2026-05-17T07:26:46.657Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/affairgo-54ac0:testIamPermissions {"permissions":["firebase.projects.get","secretmanager.secrets.create","secretmanager.secrets.get","secretmanager.secrets.update","secretmanager.versions.add"]}
+[debug] [2026-05-17T07:26:46.658Z] Checked if tokens are valid: true, expires at: 1779006404183
+[debug] [2026-05-17T07:26:46.658Z] Checked if tokens are valid: true, expires at: 1779006404183
+[debug] [2026-05-17T07:26:46.658Z] >>> [apiv2][query] GET https://cloudresourcemanager.googleapis.com/v1/projects/affairgo-54ac0 [none]
+[debug] [2026-05-17T07:26:46.810Z] <<< [apiv2][status] GET https://cloudresourcemanager.googleapis.com/v1/projects/affairgo-54ac0 200
+[debug] [2026-05-17T07:26:46.810Z] <<< [apiv2][body] GET https://cloudresourcemanager.googleapis.com/v1/projects/affairgo-54ac0 {"projectNumber":"75576714453","projectId":"affairgo-54ac0","lifecycleState":"ACTIVE","name":"Night-Whisper","labels":{"firebase":"enabled","firebase-core":"disabled"},"createTime":"2025-07-14T17:32:17.045504Z"}
+[debug] [2026-05-17T07:26:46.811Z] Checked if tokens are valid: true, expires at: 1779006404183
+[debug] [2026-05-17T07:26:46.811Z] Checked if tokens are valid: true, expires at: 1779006404183
+[debug] [2026-05-17T07:26:46.811Z] >>> [apiv2][query] GET https://secretmanager.googleapis.com/v1/projects/affairgo-54ac0/secrets/AWS_ACCESS_KEY_ID [none]
+[debug] [2026-05-17T07:26:46.991Z] <<< [apiv2][status] GET https://secretmanager.googleapis.com/v1/projects/affairgo-54ac0/secrets/AWS_ACCESS_KEY_ID 200
+[debug] [2026-05-17T07:26:46.991Z] <<< [apiv2][body] GET https://secretmanager.googleapis.com/v1/projects/affairgo-54ac0/secrets/AWS_ACCESS_KEY_ID {"name":"projects/75576714453/secrets/AWS_ACCESS_KEY_ID","replication":{"automatic":{}},"createTime":"2026-05-08T11:42:46.248136Z","labels":{"firebase-managed":"functions"},"etag":"\"16514ce557096c\""}
+[debug] [2026-05-17T07:27:11.504Z] ExitPromptError: User force closed the prompt with SIGINT
+    at Interface.sigint (/usr/local/share/nvm/versions/node/v24.14.0/lib/node_modules/firebase-tools/node_modules/@inquirer/core/dist/commonjs/lib/create-prompt.js:101:37)
+    at Interface.emit (node:events:508:28)
+    at [_ttyWrite] [as _ttyWrite] (node:internal/readline/interface:1327:18)
+    at ReadStream.onkeypress (node:internal/readline/interface:284:20)
+    at ReadStream.emit (node:events:520:35)
+    at emitKeys (node:internal/readline/utils:371:14)
+    at emitKeys.next (<anonymous>)
+    at ReadStream.onData (node:internal/readline/emitKeypressEvents:64:36)
+    at ReadStream.emit (node:events:508:28)
+    at addChunk (node:internal/streams/readable:563:12)
+[error] 
+[error] Error: An unexpected error has occurred.
+[debug] [2026-05-17T07:27:12.314Z] ----------------------------------------------------------------------
+[debug] [2026-05-17T07:27:12.316Z] Command:       /usr/local/share/nvm/versions/node/v24.14.0/bin/node /home/codespace/nvm/current/bin/firebase functions:secrets:set AWS_SECRET_ACCESS_KEY
+[debug] [2026-05-17T07:27:12.316Z] CLI Version:   15.18.0
+[debug] [2026-05-17T07:27:12.317Z] Platform:      linux
+[debug] [2026-05-17T07:27:12.317Z] Node Version:  v24.14.0
+[debug] [2026-05-17T07:27:12.317Z] Time:          Sun May 17 2026 07:27:12 GMT+0000 (Coordinated Universal Time)
+[debug] [2026-05-17T07:27:12.317Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-05-17T07:27:12.598Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-05-17T07:27:12.598Z] > authorizing via signed-in user (ramonmey4@gmail.com)
+[debug] [2026-05-17T07:27:12.598Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-05-17T07:27:12.599Z] > authorizing via signed-in user (ramonmey4@gmail.com)
+[debug] [2026-05-17T07:27:12.599Z] [iam] checking project affairgo-54ac0 for permissions ["firebase.projects.get","secretmanager.secrets.create","secretmanager.secrets.get","secretmanager.secrets.update","secretmanager.versions.add"]
+[debug] [2026-05-17T07:27:12.600Z] Checked if tokens are valid: true, expires at: 1779006404183
+[debug] [2026-05-17T07:27:12.600Z] Checked if tokens are valid: true, expires at: 1779006404183
+[debug] [2026-05-17T07:27:12.600Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/affairgo-54ac0:testIamPermissions [none]
+[debug] [2026-05-17T07:27:12.601Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/affairgo-54ac0:testIamPermissions  x-goog-user-project=affairgo-54ac0
+[debug] [2026-05-17T07:27:12.601Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/affairgo-54ac0:testIamPermissions {"permissions":["firebase.projects.get","secretmanager.secrets.create","secretmanager.secrets.get","secretmanager.secrets.update","secretmanager.versions.add"]}
+[debug] [2026-05-17T07:27:12.774Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/affairgo-54ac0:testIamPermissions 200
+[debug] [2026-05-17T07:27:12.775Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/affairgo-54ac0:testIamPermissions {"permissions":["firebase.projects.get","secretmanager.secrets.create","secretmanager.secrets.get","secretmanager.secrets.update","secretmanager.versions.add"]}
+[debug] [2026-05-17T07:27:12.776Z] Checked if tokens are valid: true, expires at: 1779006404183
+[debug] [2026-05-17T07:27:12.777Z] Checked if tokens are valid: true, expires at: 1779006404183
+[debug] [2026-05-17T07:27:12.777Z] >>> [apiv2][query] GET https://cloudresourcemanager.googleapis.com/v1/projects/affairgo-54ac0 [none]
+[debug] [2026-05-17T07:27:13.271Z] <<< [apiv2][status] GET https://cloudresourcemanager.googleapis.com/v1/projects/affairgo-54ac0 200
+[debug] [2026-05-17T07:27:13.271Z] <<< [apiv2][body] GET https://cloudresourcemanager.googleapis.com/v1/projects/affairgo-54ac0 {"projectNumber":"75576714453","projectId":"affairgo-54ac0","lifecycleState":"ACTIVE","name":"Night-Whisper","labels":{"firebase":"enabled","firebase-core":"disabled"},"createTime":"2025-07-14T17:32:17.045504Z"}
+[debug] [2026-05-17T07:27:13.272Z] Checked if tokens are valid: true, expires at: 1779006404183
+[debug] [2026-05-17T07:27:13.272Z] Checked if tokens are valid: true, expires at: 1779006404183
+[debug] [2026-05-17T07:27:13.272Z] >>> [apiv2][query] GET https://secretmanager.googleapis.com/v1/projects/affairgo-54ac0/secrets/AWS_SECRET_ACCESS_KEY [none]
+[debug] [2026-05-17T07:27:13.476Z] <<< [apiv2][status] GET https://secretmanager.googleapis.com/v1/projects/affairgo-54ac0/secrets/AWS_SECRET_ACCESS_KEY 200
+[debug] [2026-05-17T07:27:13.476Z] <<< [apiv2][body] GET https://secretmanager.googleapis.com/v1/projects/affairgo-54ac0/secrets/AWS_SECRET_ACCESS_KEY {"name":"projects/75576714453/secrets/AWS_SECRET_ACCESS_KEY","replication":{"automatic":{}},"createTime":"2026-05-08T11:43:56.431370Z","labels":{"firebase-managed":"functions"},"etag":"\"16514ce985bab3\""}
+[debug] [2026-05-17T07:38:33.015Z] ExitPromptError: User force closed the prompt with SIGINT
+    at Interface.sigint (/usr/local/share/nvm/versions/node/v24.14.0/lib/node_modules/firebase-tools/node_modules/@inquirer/core/dist/commonjs/lib/create-prompt.js:101:37)
+    at Interface.emit (node:events:508:28)
+    at [_ttyWrite] [as _ttyWrite] (node:internal/readline/interface:1327:18)
+    at ReadStream.onkeypress (node:internal/readline/interface:284:20)
+    at ReadStream.emit (node:events:520:35)
+    at emitKeys (node:internal/readline/utils:371:14)
+    at emitKeys.next (<anonymous>)
+    at ReadStream.onData (node:internal/readline/emitKeypressEvents:64:36)
+    at ReadStream.emit (node:events:508:28)
+    at addChunk (node:internal/streams/readable:563:12)
+[error] 
+[error] Error: An unexpected error has occurred.
+[debug] [2026-05-17T07:38:33.721Z] ----------------------------------------------------------------------
+[debug] [2026-05-17T07:38:33.723Z] Command:       /usr/local/share/nvm/versions/node/v24.14.0/bin/node /home/codespace/nvm/current/bin/firebase functions:secrets:set PROFILE_IMAGE_VERIFICATION_SIGNING_KEY
+[debug] [2026-05-17T07:38:33.723Z] CLI Version:   15.18.0
+[debug] [2026-05-17T07:38:33.723Z] Platform:      linux
+[debug] [2026-05-17T07:38:33.723Z] Node Version:  v24.14.0
+[debug] [2026-05-17T07:38:33.723Z] Time:          Sun May 17 2026 07:38:33 GMT+0000 (Coordinated Universal Time)
+[debug] [2026-05-17T07:38:33.723Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-05-17T07:38:33.975Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-05-17T07:38:33.976Z] > authorizing via signed-in user (ramonmey4@gmail.com)
+[debug] [2026-05-17T07:38:33.976Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-05-17T07:38:33.976Z] > authorizing via signed-in user (ramonmey4@gmail.com)
+[debug] [2026-05-17T07:38:33.976Z] [iam] checking project affairgo-54ac0 for permissions ["firebase.projects.get","secretmanager.secrets.create","secretmanager.secrets.get","secretmanager.secrets.update","secretmanager.versions.add"]
+[debug] [2026-05-17T07:38:33.977Z] Checked if tokens are valid: true, expires at: 1779006404183
+[debug] [2026-05-17T07:38:33.977Z] Checked if tokens are valid: true, expires at: 1779006404183
+[debug] [2026-05-17T07:38:33.978Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/affairgo-54ac0:testIamPermissions [none]
+[debug] [2026-05-17T07:38:33.978Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/affairgo-54ac0:testIamPermissions  x-goog-user-project=affairgo-54ac0
+[debug] [2026-05-17T07:38:33.978Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/affairgo-54ac0:testIamPermissions {"permissions":["firebase.projects.get","secretmanager.secrets.create","secretmanager.secrets.get","secretmanager.secrets.update","secretmanager.versions.add"]}
+[debug] [2026-05-17T07:38:34.653Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/affairgo-54ac0:testIamPermissions 200
+[debug] [2026-05-17T07:38:34.653Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/affairgo-54ac0:testIamPermissions {"permissions":["firebase.projects.get","secretmanager.secrets.create","secretmanager.secrets.get","secretmanager.secrets.update","secretmanager.versions.add"]}
+[debug] [2026-05-17T07:38:34.654Z] Checked if tokens are valid: true, expires at: 1779006404183
+[debug] [2026-05-17T07:38:34.654Z] Checked if tokens are valid: true, expires at: 1779006404183
+[debug] [2026-05-17T07:38:34.654Z] >>> [apiv2][query] GET https://cloudresourcemanager.googleapis.com/v1/projects/affairgo-54ac0 [none]
+[debug] [2026-05-17T07:38:34.817Z] <<< [apiv2][status] GET https://cloudresourcemanager.googleapis.com/v1/projects/affairgo-54ac0 200
+[debug] [2026-05-17T07:38:34.817Z] <<< [apiv2][body] GET https://cloudresourcemanager.googleapis.com/v1/projects/affairgo-54ac0 {"projectNumber":"75576714453","projectId":"affairgo-54ac0","lifecycleState":"ACTIVE","name":"Night-Whisper","labels":{"firebase":"enabled","firebase-core":"disabled"},"createTime":"2025-07-14T17:32:17.045504Z"}
+[debug] [2026-05-17T07:38:34.818Z] Checked if tokens are valid: true, expires at: 1779006404183
+[debug] [2026-05-17T07:38:34.818Z] Checked if tokens are valid: true, expires at: 1779006404183
+[debug] [2026-05-17T07:38:34.818Z] >>> [apiv2][query] GET https://secretmanager.googleapis.com/v1/projects/affairgo-54ac0/secrets/PROFILE_IMAGE_VERIFICATION_SIGNING_KEY [none]
