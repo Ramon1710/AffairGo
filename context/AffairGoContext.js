@@ -1623,7 +1623,12 @@ const findStoredProfileByIdentifier = async (identifier) => {
 };
 
 const loadStoredProfile = async (userId, email) => {
-  let profileData = { id: userId, email, __profileExists: false };
+  let profileData = {
+    id: userId,
+    email,
+    __profileExists: false,
+    __profileLookup: 'missing',
+  };
 
   try {
     const profileRef = doc(db, 'users', userId);
@@ -1632,10 +1637,17 @@ const loadStoredProfile = async (userId, email) => {
       profileData = {
         ...profileSnapshot.data(),
         __profileExists: true,
+        __profileLookup: 'found',
       };
     }
   } catch (error) {
     console.warn('AffairGo profile bootstrap warning', error);
+    profileData = {
+      id: userId,
+      email,
+      __profileExists: false,
+      __profileLookup: 'error',
+    };
   }
 
   return profileData;
@@ -1925,7 +1937,7 @@ export const AffairGoProvider = ({ children }) => {
     const normalizedPendingEmail = normalizedProfile.pendingEmail?.trim().toLowerCase() || '';
     const shouldBackfillLegacyFields = hasLegacyProfileAliases(profileData);
 
-    if (!profileData.__profileExists) {
+    if (profileData.__profileLookup === 'missing') {
       try {
         await persistProfileViaFunctionFallback({
           ...currentUserRef.current,
@@ -1940,6 +1952,8 @@ export const AffairGoProvider = ({ children }) => {
       } catch (repairError) {
         console.warn('AffairGo auth profile repair warning', repairError);
       }
+    } else if (profileData.__profileLookup === 'error') {
+      console.warn('AffairGo auth profile repair skipped because Firestore profile lookup failed.');
     }
 
     if (normalizedPendingEmail && normalizedAuthEmail && normalizedAuthEmail === normalizedPendingEmail) {
