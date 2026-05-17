@@ -1433,19 +1433,48 @@ const trySignOut = async () => {
   }
 };
 
-const tryStoreRegistrationProfile = async (profile, userId) => {
-  try {
-    const storedProfile = toStoredProfile(profile);
-    console.log('AffairGo SAVE PAYLOAD register', buildDebugProfilePayload(storedProfile));
+const tryStoreRegistrationProfile = async (profile, userId, firebaseUser = null) => {
+  const storedProfile = toStoredProfile(profile);
+  const profileRef = doc(db, 'users', userId);
+
+  const persistOnce = async (attemptLabel) => {
+    if (firebaseUser?.getIdToken) {
+      await firebaseUser.getIdToken(true).catch((error) => {
+        console.warn(`AffairGo registration token refresh warning (${attemptLabel})`, error);
+      });
+    }
+
+    console.log(`AffairGo SAVE PAYLOAD register (${attemptLabel})`, buildDebugProfilePayload(storedProfile));
     await withTimeout(
-      setDoc(doc(db, 'users', userId), storedProfile),
+      setDoc(profileRef, storedProfile),
       10000,
       'Das Profil konnte nicht rechtzeitig gespeichert werden.'
     );
+
+    const persistedSnapshot = await withTimeout(
+      getDoc(profileRef),
+      10000,
+      'Das gespeicherte Profil konnte nicht rechtzeitig überprüft werden.'
+    );
+
+    if (!persistedSnapshot.exists()) {
+      throw new Error('Das Nutzerprofil wurde in Firestore nicht angelegt.');
+    }
+  };
+
+  try {
+    await persistOnce('initial');
     return true;
   } catch (error) {
-    console.warn('AffairGo registration profile save warning', error);
-    return false;
+    console.warn('AffairGo registration profile save warning (initial)', error);
+
+    try {
+      await persistOnce('retry');
+      return true;
+    } catch (retryError) {
+      console.warn('AffairGo registration profile save warning (retry)', retryError);
+      return false;
+    }
   }
 };
 
@@ -2733,10 +2762,20 @@ export const AffairGoProvider = ({ children }) => {
         profilePhotoAgeMonths: 0,
         verificationState: uploadedProfilePhotoUrl ? 'uploaded' : 'review',
       }, credentials.user.uid);
-      const [profileSaved, emailSent] = await Promise.all([
-        tryStoreRegistrationProfile(profile, credentials.user.uid),
-        trySendVerificationEmail(credentials.user),
-      ]);
+      const profileSaved = await tryStoreRegistrationProfile(profile, credentials.user.uid, credentials.user);
+
+      if (!profileSaved) {
+        await withTimeout(
+          deleteUser(credentials.user).catch(async () => {
+            await trySignOut();
+          }),
+          8000,
+          'Das Konto konnte nach fehlgeschlagener Profilspeicherung nicht rechtzeitig bereinigt werden.'
+        ).catch(() => undefined);
+        throw new Error('Dein Profil konnte nicht in Firebase gespeichert werden. Bitte versuche die Registrierung erneut.');
+      }
+
+      const emailSent = await trySendVerificationEmail(credentials.user);
       await withTimeout(
         trySignOut(),
         5000,
