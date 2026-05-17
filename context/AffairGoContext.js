@@ -1458,6 +1458,20 @@ const tryStoreRegistrationProfile = async (profile, userId, firebaseUser = null)
   const storedProfile = toStoredProfile(profile);
   const profileRef = doc(db, 'users', userId);
 
+  const verifyPersistedProfile = async (attemptLabel) => {
+    const persistedSnapshot = await withTimeout(
+      getDoc(profileRef),
+      10000,
+      `Das gespeicherte Profil konnte nicht rechtzeitig überprüft werden (${attemptLabel}).`
+    );
+
+    if (!persistedSnapshot.exists()) {
+      throw new Error('Das Nutzerprofil wurde in Firestore nicht angelegt.');
+    }
+
+    return true;
+  };
+
   const persistOnce = async (attemptLabel) => {
     if (firebaseUser?.getIdToken) {
       await firebaseUser.getIdToken(true).catch((error) => {
@@ -1472,46 +1486,28 @@ const tryStoreRegistrationProfile = async (profile, userId, firebaseUser = null)
       'Das Profil konnte nicht rechtzeitig gespeichert werden.'
     );
 
-    const persistedSnapshot = await withTimeout(
-      getDoc(profileRef),
-      10000,
-      'Das gespeicherte Profil konnte nicht rechtzeitig überprüft werden.'
-    );
-
-    if (!persistedSnapshot.exists()) {
-      throw new Error('Das Nutzerprofil wurde in Firestore nicht angelegt.');
-    }
+    await verifyPersistedProfile(attemptLabel);
   };
 
   try {
-    await persistOnce('initial');
+    await persistProfileViaFunctionFallback(profile, 'register-function-primary');
+    await verifyPersistedProfile('register-function-primary');
     return true;
   } catch (error) {
-    console.warn('AffairGo registration profile save warning (initial)', error);
+    console.warn('AffairGo registration profile save warning (function-primary)', error);
 
     try {
-      await persistOnce('retry');
+      await persistOnce('client-fallback-initial');
       return true;
     } catch (retryError) {
-      console.warn('AffairGo registration profile save warning (retry)', retryError);
+      console.warn('AffairGo registration profile save warning (client-fallback-initial)', retryError);
 
       try {
-        console.log('AffairGo SAVE PAYLOAD register (function-fallback)', buildDebugProfilePayload(storedProfile));
-        await withTimeout(
-          finalizeRegistrationProfileWithProvider({ profile: storedProfile }),
-          10000,
-          'Das Profil konnte serverseitig nicht rechtzeitig gespeichert werden.'
-        );
-
-        const persistedSnapshot = await withTimeout(
-          getDoc(profileRef),
-          10000,
-          'Das serverseitig gespeicherte Profil konnte nicht rechtzeitig überprüft werden.'
-        );
-
-        return persistedSnapshot.exists();
+        await persistProfileViaFunctionFallback(profile, 'register-function-retry');
+        await verifyPersistedProfile('register-function-retry');
+        return true;
       } catch (fallbackError) {
-        console.warn('AffairGo registration profile save warning (function-fallback)', fallbackError);
+        console.warn('AffairGo registration profile save warning (register-function-retry)', fallbackError);
         return false;
       }
     }
