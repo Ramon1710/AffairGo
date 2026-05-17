@@ -10,3 +10,7 @@ const callFunction = async (name, payload) => {
 export const finalizeRegistrationProfile = async ({ profile }) => callFunction('finalizeRegistrationProfile', {
   profile,
 });
+
+export const applyUserProfilePatch = async ({ patch }) => callFunction('applyUserProfilePatch', {
+  patch,
+});

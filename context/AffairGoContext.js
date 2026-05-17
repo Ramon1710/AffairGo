@@ -43,7 +43,10 @@ import { getModerationProviderLabel, hasConfiguredModerationBackend, submitModer
 import { checkNicknameAvailability as checkNicknameAvailabilityWithProvider } from '../constants/nicknameProvider';
 import { requestManagedPasswordReset } from '../constants/passwordResetProvider';
 import { getPaymentProviderLabel, getPaymentSetupInstructions, hasConfiguredPaymentBackend, startPurchaseFlow } from '../constants/paymentProvider';
-import { finalizeRegistrationProfile as finalizeRegistrationProfileWithProvider } from '../constants/profilePersistenceProvider';
+import {
+    applyUserProfilePatch as applyUserProfilePatchWithProvider,
+    finalizeRegistrationProfile as finalizeRegistrationProfileWithProvider,
+} from '../constants/profilePersistenceProvider';
 import {
     approveProfileImage as approveVerifiedProfileImage,
     createFaceLivenessSession as createProfilePhotoLivenessSession,
@@ -2296,19 +2299,7 @@ export const AffairGoProvider = ({ children }) => {
       return;
     }
 
-    let remoteProfile = null;
-
-    try {
-      const remoteSnapshot = await getDoc(doc(db, 'users', userId));
-      if (remoteSnapshot.exists()) {
-        remoteProfile = { id: userId, ...remoteSnapshot.data() };
-      }
-    } catch (error) {
-      console.warn('AffairGo patch bootstrap warning', error);
-    }
-
     const storedProfile = toStoredProfile({
-      ...(remoteProfile || {}),
       ...latestCurrentUser,
       ...patch,
       id: userId,
@@ -2316,15 +2307,15 @@ export const AffairGoProvider = ({ children }) => {
     console.log('AffairGo SAVE PAYLOAD patch', buildDebugProfilePayload(storedProfile));
 
     try {
-      await setDoc(doc(db, 'users', userId), storedProfile, { merge: true });
+      await withTimeout(
+        applyUserProfilePatchWithProvider({ patch }),
+        10000,
+        'Die Profiländerungen konnten serverseitig nicht rechtzeitig gespeichert werden.'
+      );
     } catch (error) {
       console.warn('AffairGo patch save warning', error);
-      await persistProfileViaFunctionFallback({
-        ...(remoteProfile || {}),
-        ...latestCurrentUser,
-        ...patch,
-        id: userId,
-      }, 'patch-function-fallback');
+
+      await setDoc(doc(db, 'users', userId), patch, { merge: true });
     }
   };
 

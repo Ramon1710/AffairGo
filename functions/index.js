@@ -203,6 +203,109 @@ const normalizeTravelPlans = (travelPlans = {}) => ({
   business: Array.isArray(travelPlans?.business) ? travelPlans.business : [],
   vacation: Array.isArray(travelPlans?.vacation) ? travelPlans.vacation : [],
 });
+const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value || {}, key);
+const stripUndefinedEntries = (value = {}) => Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined));
+
+const normalizeProfilePatch = (patch = {}, existingProfile = {}, uid) => {
+  const nextPatch = stripUndefinedEntries({ ...patch });
+  delete nextPatch.password;
+  delete nextPatch.repeatPassword;
+  delete nextPatch.id;
+
+  if (hasOwn(nextPatch, 'email')) {
+    nextPatch.email = normalizeOptionalString(nextPatch.email).toLowerCase();
+  }
+
+  if (hasOwn(nextPatch, 'nickname')) {
+    nextPatch.nickname = normalizeOptionalString(nextPatch.nickname);
+  }
+
+  ['firstName', 'lastName', 'birthDay', 'birthLabel', 'gender', 'height', 'figure', 'penisSize', 'braSize', 'hairColor', 'eyeColor', 'skinType', 'city', 'pendingNickname', 'privacyConsentAcceptedAt', 'ageVerificationStatus', 'ageVerificationProvider', 'ageVerificationReferenceId', 'ageVerificationCheckedAt', 'selfieVerificationStatus', 'selfieVerificationProvider', 'selfieVerificationReferenceId', 'selfieVerificationCheckedAt', 'selfieDeletionStatus', 'selfieDeletionConfirmedAt', 'selfieDeletionReceiptId', 'selfieRetentionPolicy', 'moderationState', 'moderationLastCheckedAt', 'moderationRateLimitUntil', 'profilePhotoVerifiedAt', 'accountDeletionRequestedAt', 'dataExportRequestedAt', 'premiumTrialEndsAt', 'billingCycle', 'planPriceLabel', 'joinedLabel'].forEach((key) => {
+    if (hasOwn(nextPatch, key)) {
+      nextPatch[key] = normalizeOptionalString(nextPatch[key]);
+    }
+  });
+
+  ['birthMonth', 'birthYear', 'age', 'selfieLivenessScore', 'selfieFakeScore', 'faceMatchSimilarity', 'profilePhotoAgeMonths', 'searchAgeMin', 'searchAgeMax', 'radius', 'points'].forEach((key) => {
+    if (hasOwn(nextPatch, key)) {
+      nextPatch[key] = normalizeOptionalNumber(nextPatch[key], existingProfile[key] ?? null);
+    }
+  });
+
+  ['ageVerified', 'selfieVerified', 'verified', 'emailVerified', 'profilePhotoVerified', 'onboardingCompleted', 'searchActive', 'verifiedMatchesOnly', 'premiumTrialActive', 'goldDiscountPackage', 'privacyConsentAccepted'].forEach((key) => {
+    if (hasOwn(nextPatch, key)) {
+      nextPatch[key] = Boolean(nextPatch[key]);
+    }
+  });
+
+  if (hasOwn(nextPatch, 'online')) {
+    nextPatch.online = nextPatch.online !== false;
+  }
+
+  if (hasOwn(nextPatch, 'latitude')) {
+    nextPatch.latitude = nextPatch.latitude == null ? null : normalizeOptionalNumber(nextPatch.latitude, null);
+  }
+
+  if (hasOwn(nextPatch, 'longitude')) {
+    nextPatch.longitude = nextPatch.longitude == null ? null : normalizeOptionalNumber(nextPatch.longitude, null);
+  }
+
+  ['preferences', 'taboos', 'dismissedProfileIds', 'searchGenders', 'moderationFlags', 'galleryImages'].forEach((key) => {
+    if (hasOwn(nextPatch, key)) {
+      nextPatch[key] = normalizeStringList(nextPatch[key]);
+    }
+  });
+
+  if (hasOwn(nextPatch, 'gallery')) {
+    nextPatch.galleryImages = normalizeStringList(nextPatch.gallery);
+    delete nextPatch.gallery;
+  }
+
+  if (hasOwn(nextPatch, 'travelPlans')) {
+    nextPatch.travelPlans = normalizeTravelPlans(nextPatch.travelPlans);
+  }
+
+  if (hasOwn(nextPatch, 'moderationAuditTrail') && !Array.isArray(nextPatch.moderationAuditTrail)) {
+    nextPatch.moderationAuditTrail = [];
+  }
+
+  if (hasOwn(nextPatch, 'rewardLog') && !Array.isArray(nextPatch.rewardLog)) {
+    nextPatch.rewardLog = [];
+  }
+
+  if (hasOwn(nextPatch, 'purchaseHistory') && !Array.isArray(nextPatch.purchaseHistory)) {
+    nextPatch.purchaseHistory = [];
+  }
+
+  if (hasOwn(nextPatch, 'featureSuggestions') && !Array.isArray(nextPatch.featureSuggestions)) {
+    nextPatch.featureSuggestions = [];
+  }
+
+  if (hasOwn(nextPatch, 'profilePhotoUrl') || hasOwn(nextPatch, 'profileImageUri')) {
+    const photoValue = normalizeOptionalString(nextPatch.profilePhotoUrl || nextPatch.profileImageUri);
+    nextPatch.profilePhotoUrl = photoValue;
+    nextPatch.profileImageUri = photoValue;
+  }
+
+  const mergedProfile = { ...existingProfile, ...nextPatch, uid };
+  const mergedNickname = normalizeOptionalString(mergedProfile.nickname);
+  const mergedPendingNickname = normalizeOptionalString(mergedProfile.pendingNickname);
+
+  nextPatch.uid = uid;
+  nextPatch.nicknameLower = mergedNickname ? normalizeGermanComparison(mergedNickname) : '';
+  nextPatch.nicknameUnique = Boolean(mergedNickname) && !mergedPendingNickname;
+  nextPatch.profileCompleted = Boolean(
+    normalizeOptionalString(mergedProfile.firstName)
+    && normalizeOptionalString(mergedProfile.lastName)
+    && normalizeOptionalString(mergedProfile.gender)
+    && normalizeOptionalString(mergedProfile.height)
+    && normalizeOptionalString(mergedProfile.figure)
+    && normalizeOptionalString(mergedProfile.profilePhotoUrl || mergedProfile.profileImageUri)
+  );
+  nextPatch.updatedAt = FieldValue.serverTimestamp();
+
+  return nextPatch;
+};
 
 exports.finalizeRegistrationProfile = onCall({
   region: FIREBASE_REGION,
@@ -321,6 +424,33 @@ exports.finalizeRegistrationProfile = onCall({
     saved: true,
     uid,
     profileCompleted: storedProfile.profileCompleted,
+  };
+});
+
+exports.applyUserProfilePatch = onCall({
+  region: FIREBASE_REGION,
+}, async (request) => {
+  const uid = assertAuthenticated(request);
+  const patch = request.data?.patch;
+
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+    throw new HttpsError('invalid-argument', 'Patch-Payload fehlt.');
+  }
+
+  const userRef = getFirestore().collection('users').doc(uid);
+  const existingSnapshot = await userRef.get();
+  const existingProfile = existingSnapshot.exists ? existingSnapshot.data() : {};
+  const normalizedPatch = normalizeProfilePatch(patch, existingProfile, uid);
+
+  if (!existingSnapshot.exists) {
+    normalizedPatch.createdAt = FieldValue.serverTimestamp();
+  }
+
+  await userRef.set(normalizedPatch, { merge: true });
+
+  return {
+    saved: true,
+    uid,
   };
 });
 
