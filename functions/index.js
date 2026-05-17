@@ -193,6 +193,137 @@ const normalizeGermanComparison = (value = '') => String(value)
   .replaceAll('ü', 'ue')
   .replaceAll('ß', 'ss');
 
+const normalizeOptionalString = (value) => (typeof value === 'string' ? value.trim() : '');
+const normalizeOptionalNumber = (value, fallback = null) => {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : fallback;
+};
+const normalizeStringList = (value) => (Array.isArray(value) ? value.map((entry) => String(entry || '').trim()).filter(Boolean) : []);
+const normalizeTravelPlans = (travelPlans = {}) => ({
+  business: Array.isArray(travelPlans?.business) ? travelPlans.business : [],
+  vacation: Array.isArray(travelPlans?.vacation) ? travelPlans.vacation : [],
+});
+
+exports.finalizeRegistrationProfile = onCall({
+  region: FIREBASE_REGION,
+}, async (request) => {
+  const uid = assertAuthenticated(request);
+  const profile = request.data?.profile;
+
+  if (!profile || typeof profile !== 'object') {
+    throw new HttpsError('invalid-argument', 'Profil-Payload fehlt.');
+  }
+
+  const email = assertString(profile.email, 'email').toLowerCase();
+  const nickname = assertString(profile.nickname, 'nickname');
+  const userRef = getFirestore().collection('users').doc(uid);
+  const existingSnapshot = await userRef.get();
+  const storedProfile = {
+    uid,
+    email,
+    nickname,
+    nicknameLower: normalizeGermanComparison(nickname),
+    pendingNickname: '',
+    firstName: normalizeOptionalString(profile.firstName),
+    lastName: normalizeOptionalString(profile.lastName),
+    birthDay: normalizeOptionalString(profile.birthDay),
+    birthMonth: normalizeOptionalNumber(profile.birthMonth, 0),
+    birthYear: normalizeOptionalNumber(profile.birthYear, ''),
+    birthLabel: normalizeOptionalString(profile.birthLabel),
+    age: normalizeOptionalNumber(profile.age, 18),
+    gender: normalizeOptionalString(profile.gender),
+    height: normalizeOptionalString(profile.height),
+    figure: normalizeOptionalString(profile.figure),
+    penisSize: normalizeOptionalString(profile.penisSize),
+    braSize: normalizeOptionalString(profile.braSize),
+    hairColor: normalizeOptionalString(profile.hairColor),
+    eyeColor: normalizeOptionalString(profile.eyeColor),
+    skinType: normalizeOptionalString(profile.skinType),
+    city: normalizeOptionalString(profile.city),
+    preferences: normalizeStringList(profile.preferences),
+    taboos: normalizeStringList(profile.taboos),
+    dismissedProfileIds: normalizeStringList(profile.dismissedProfileIds),
+    searchGenders: normalizeStringList(profile.searchGenders),
+    travelPlans: normalizeTravelPlans(profile.travelPlans),
+    verified: Boolean(profile.verified),
+    emailVerified: Boolean(profile.emailVerified),
+    ageVerified: Boolean(profile.ageVerified),
+    ageVerificationStatus: normalizeOptionalString(profile.ageVerificationStatus) || 'not_started',
+    ageVerificationProvider: normalizeOptionalString(profile.ageVerificationProvider),
+    ageVerificationReferenceId: normalizeOptionalString(profile.ageVerificationReferenceId),
+    ageVerificationCheckedAt: normalizeOptionalString(profile.ageVerificationCheckedAt),
+    selfieVerified: Boolean(profile.selfieVerified),
+    selfieVerificationStatus: normalizeOptionalString(profile.selfieVerificationStatus) || 'not_started',
+    selfieVerificationProvider: normalizeOptionalString(profile.selfieVerificationProvider),
+    selfieVerificationReferenceId: normalizeOptionalString(profile.selfieVerificationReferenceId),
+    selfieVerificationCheckedAt: normalizeOptionalString(profile.selfieVerificationCheckedAt),
+    selfieLivenessScore: normalizeOptionalNumber(profile.selfieLivenessScore, 0),
+    selfieFakeScore: normalizeOptionalNumber(profile.selfieFakeScore, 0),
+    selfieDeletionStatus: normalizeOptionalString(profile.selfieDeletionStatus) || 'not_requested',
+    selfieDeletionConfirmedAt: normalizeOptionalString(profile.selfieDeletionConfirmedAt),
+    selfieDeletionReceiptId: normalizeOptionalString(profile.selfieDeletionReceiptId),
+    selfieRetentionPolicy: normalizeOptionalString(profile.selfieRetentionPolicy),
+    moderationState: normalizeOptionalString(profile.moderationState) || 'clear',
+    moderationFlags: normalizeStringList(profile.moderationFlags),
+    moderationLastCheckedAt: normalizeOptionalString(profile.moderationLastCheckedAt),
+    moderationRateLimitUntil: normalizeOptionalString(profile.moderationRateLimitUntil),
+    moderationAuditTrail: Array.isArray(profile.moderationAuditTrail) ? profile.moderationAuditTrail : [],
+    profileImageUri: normalizeOptionalString(profile.profilePhotoUrl || profile.profileImageUri),
+    profilePhotoUrl: normalizeOptionalString(profile.profilePhotoUrl || profile.profileImageUri),
+    profilePhotoVerified: Boolean(profile.profilePhotoVerified),
+    profilePhotoVerifiedAt: normalizeOptionalString(profile.profilePhotoVerifiedAt),
+    faceMatchSimilarity: normalizeOptionalNumber(profile.faceMatchSimilarity, 0),
+    profilePhotoAgeMonths: normalizeOptionalNumber(profile.profilePhotoAgeMonths, 0),
+    galleryImages: normalizeStringList(profile.galleryImages || profile.gallery),
+    privacyConsentAccepted: Boolean(profile.privacyConsentAccepted),
+    privacyConsentAcceptedAt: normalizeOptionalString(profile.privacyConsentAcceptedAt),
+    onboardingCompleted: Boolean(profile.onboardingCompleted),
+    searchAgeMin: normalizeOptionalNumber(profile.searchAgeMin, 25),
+    searchAgeMax: normalizeOptionalNumber(profile.searchAgeMax, 55),
+    radius: normalizeOptionalNumber(profile.radius, 25),
+    searchActive: Boolean(profile.searchActive),
+    verifiedMatchesOnly: Boolean(profile.verifiedMatchesOnly),
+    online: profile.online !== false,
+    points: normalizeOptionalNumber(profile.points, 0),
+    rewardLog: Array.isArray(profile.rewardLog) ? profile.rewardLog : [],
+    membership: normalizeOptionalString(profile.membership) || 'free',
+    premiumTrialActive: Boolean(profile.premiumTrialActive),
+    premiumTrialEndsAt: normalizeOptionalString(profile.premiumTrialEndsAt),
+    billingCycle: normalizeOptionalString(profile.billingCycle) || 'free',
+    planPriceLabel: normalizeOptionalString(profile.planPriceLabel) || 'Kostenfrei bis Anfang 2027',
+    goldDiscountPackage: Boolean(profile.goldDiscountPackage),
+    purchaseHistory: Array.isArray(profile.purchaseHistory) ? profile.purchaseHistory : [],
+    joinedLabel: normalizeOptionalString(profile.joinedLabel) || 'Heute',
+    featureSuggestions: Array.isArray(profile.featureSuggestions) ? profile.featureSuggestions : [],
+    accountDeletionRequestedAt: normalizeOptionalString(profile.accountDeletionRequestedAt),
+    dataExportRequestedAt: normalizeOptionalString(profile.dataExportRequestedAt),
+    latitude: null,
+    longitude: null,
+    nicknameUnique: true,
+    profileCompleted: Boolean(
+      normalizeOptionalString(profile.firstName)
+      && normalizeOptionalString(profile.lastName)
+      && normalizeOptionalString(profile.gender)
+      && normalizeOptionalString(profile.height)
+      && normalizeOptionalString(profile.figure)
+      && normalizeOptionalString(profile.profilePhotoUrl || profile.profileImageUri)
+    ),
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+
+  if (!existingSnapshot.exists) {
+    storedProfile.createdAt = FieldValue.serverTimestamp();
+  }
+
+  await userRef.set(storedProfile, { merge: true });
+
+  return {
+    saved: true,
+    uid,
+    profileCompleted: storedProfile.profileCompleted,
+  };
+});
+
 exports.checkNicknameAvailability = onCall({
   region: FIREBASE_REGION,
 }, async (request) => {

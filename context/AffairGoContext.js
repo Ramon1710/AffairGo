@@ -43,6 +43,7 @@ import { getModerationProviderLabel, hasConfiguredModerationBackend, submitModer
 import { checkNicknameAvailability as checkNicknameAvailabilityWithProvider } from '../constants/nicknameProvider';
 import { requestManagedPasswordReset } from '../constants/passwordResetProvider';
 import { getPaymentProviderLabel, getPaymentSetupInstructions, hasConfiguredPaymentBackend, startPurchaseFlow } from '../constants/paymentProvider';
+import { finalizeRegistrationProfile as finalizeRegistrationProfileWithProvider } from '../constants/profilePersistenceProvider';
 import {
     approveProfileImage as approveVerifiedProfileImage,
     createFaceLivenessSession as createProfilePhotoLivenessSession,
@@ -1493,7 +1494,26 @@ const tryStoreRegistrationProfile = async (profile, userId, firebaseUser = null)
       return true;
     } catch (retryError) {
       console.warn('AffairGo registration profile save warning (retry)', retryError);
-      return false;
+
+      try {
+        console.log('AffairGo SAVE PAYLOAD register (function-fallback)', buildDebugProfilePayload(storedProfile));
+        await withTimeout(
+          finalizeRegistrationProfileWithProvider({ profile: storedProfile }),
+          10000,
+          'Das Profil konnte serverseitig nicht rechtzeitig gespeichert werden.'
+        );
+
+        const persistedSnapshot = await withTimeout(
+          getDoc(profileRef),
+          10000,
+          'Das serverseitig gespeicherte Profil konnte nicht rechtzeitig überprüft werden.'
+        );
+
+        return persistedSnapshot.exists();
+      } catch (fallbackError) {
+        console.warn('AffairGo registration profile save warning (function-fallback)', fallbackError);
+        return false;
+      }
     }
   }
 };
