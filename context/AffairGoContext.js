@@ -1849,6 +1849,7 @@ export const AffairGoProvider = ({ children }) => {
   const [locationError, setLocationError] = useState('');
   const [publicMapLocations, setPublicMapLocations] = useState([]);
   const currentUserRef = useRef(currentUser);
+  const activeRegistrationUidRef = useRef('');
 
   useEffect(() => {
     currentUserRef.current = currentUser;
@@ -1993,6 +1994,7 @@ export const AffairGoProvider = ({ children }) => {
 
       unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
         if (!firebaseUser) {
+          activeRegistrationUidRef.current = '';
           setIsAuthenticated(false);
           setCurrentUser(createDefaultCurrentUser());
           setChats(clone(INITIAL_CHATS));
@@ -2006,6 +2008,11 @@ export const AffairGoProvider = ({ children }) => {
           setPublicMapLocations([]);
           setUsers(clone(INITIAL_USERS));
           clearCachedSession();
+          setIsAuthReady(true);
+          return;
+        }
+
+        if (activeRegistrationUidRef.current && activeRegistrationUidRef.current === firebaseUser.uid) {
           setIsAuthReady(true);
           return;
         }
@@ -2804,6 +2811,7 @@ export const AffairGoProvider = ({ children }) => {
         15000,
         'Die Registrierung hat beim Anlegen des Kontos zu lange gedauert. Bitte prüfe Netzwerk und Firebase-Konfiguration.'
       );
+      activeRegistrationUidRef.current = credentials.user.uid;
 
       await waitForAuthenticatedUser(credentials.user.uid, 10000);
 
@@ -2859,12 +2867,14 @@ export const AffairGoProvider = ({ children }) => {
       );
 
       setPendingVerificationId(credentials.user.uid);
+      activeRegistrationUidRef.current = '';
       return {
         profile: normalizeUserProfile(profile, credentials.user),
         emailSent,
         profileSaved,
       };
     } catch (error) {
+      activeRegistrationUidRef.current = '';
       throw new Error(mapAuthError(error, error?.message || 'Registrierung fehlgeschlagen.'));
     }
   };
