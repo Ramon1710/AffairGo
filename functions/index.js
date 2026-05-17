@@ -215,14 +215,14 @@ exports.finalizeRegistrationProfile = onCall({
   }
 
   const email = assertString(profile.email, 'email').toLowerCase();
-  const nickname = assertString(profile.nickname, 'nickname');
+  const nickname = normalizeOptionalString(profile.nickname);
   const userRef = getFirestore().collection('users').doc(uid);
   const existingSnapshot = await userRef.get();
   const storedProfile = {
     uid,
     email,
     nickname,
-    nicknameLower: normalizeGermanComparison(nickname),
+    nicknameLower: nickname ? normalizeGermanComparison(nickname) : '',
     pendingNickname: '',
     firstName: normalizeOptionalString(profile.firstName),
     lastName: normalizeOptionalString(profile.lastName),
@@ -299,7 +299,7 @@ exports.finalizeRegistrationProfile = onCall({
     dataExportRequestedAt: normalizeOptionalString(profile.dataExportRequestedAt),
     latitude: null,
     longitude: null,
-    nicknameUnique: true,
+    nicknameUnique: Boolean(nickname),
     profileCompleted: Boolean(
       normalizeOptionalString(profile.firstName)
       && normalizeOptionalString(profile.lastName)
