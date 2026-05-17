@@ -1518,6 +1518,19 @@ const tryStoreRegistrationProfile = async (profile, userId, firebaseUser = null)
   }
 };
 
+const persistProfileViaFunctionFallback = async (profile, attemptLabel = 'function-fallback') => {
+  const storedProfile = toStoredProfile(profile);
+
+  console.log(`AffairGo SAVE PAYLOAD ${attemptLabel}`, buildDebugProfilePayload(storedProfile));
+  await withTimeout(
+    finalizeRegistrationProfileWithProvider({ profile: storedProfile }),
+    10000,
+    'Das Profil konnte serverseitig nicht rechtzeitig gespeichert werden.'
+  );
+
+  return storedProfile;
+};
+
 const ensureFixedAdminProfileStored = async (firebaseUser) => {
   const adminProfile = buildFixedAdminProfile(firebaseUser?.uid || 'affairgo-admin');
 
@@ -1614,13 +1627,16 @@ const findStoredProfileByIdentifier = async (identifier) => {
 };
 
 const loadStoredProfile = async (userId, email) => {
-  let profileData = { id: userId, email };
+  let profileData = { id: userId, email, __profileExists: false };
 
   try {
     const profileRef = doc(db, 'users', userId);
     const profileSnapshot = await getDoc(profileRef);
     if (profileSnapshot.exists()) {
-      profileData = profileSnapshot.data();
+      profileData = {
+        ...profileSnapshot.data(),
+        __profileExists: true,
+      };
     }
   } catch (error) {
     console.warn('AffairGo profile bootstrap warning', error);
@@ -1906,11 +1922,28 @@ export const AffairGoProvider = ({ children }) => {
 
   const syncCurrentUserFromFirebase = async (firebaseUser) => {
     const profileData = await loadStoredProfile(firebaseUser.uid, firebaseUser.email);
-    const normalizedProfile = hydrateAuthenticatedSession(profileData, firebaseUser);
+    let normalizedProfile = hydrateAuthenticatedSession(profileData, firebaseUser);
     const normalizedAuthEmail = firebaseUser.email?.trim().toLowerCase() || '';
     const normalizedStoredEmail = normalizedProfile.email?.trim().toLowerCase() || '';
     const normalizedPendingEmail = normalizedProfile.pendingEmail?.trim().toLowerCase() || '';
     const shouldBackfillLegacyFields = hasLegacyProfileAliases(profileData);
+
+    if (!profileData.__profileExists) {
+      try {
+        await persistProfileViaFunctionFallback({
+          ...currentUserRef.current,
+          ...normalizedProfile,
+          id: firebaseUser.uid,
+          email: normalizedAuthEmail || normalizedProfile.email,
+          emailVerified: firebaseUser.emailVerified,
+        }, 'auth-sync-missing-profile');
+
+        const repairedProfileData = await loadStoredProfile(firebaseUser.uid, firebaseUser.email);
+        normalizedProfile = hydrateAuthenticatedSession(repairedProfileData, firebaseUser);
+      } catch (repairError) {
+        console.warn('AffairGo auth profile repair warning', repairError);
+      }
+    }
 
     if (normalizedPendingEmail && normalizedAuthEmail && normalizedAuthEmail === normalizedPendingEmail) {
       normalizedProfile.email = normalizedAuthEmail;
@@ -2262,7 +2295,12 @@ export const AffairGoProvider = ({ children }) => {
     const storedProfile = toStoredProfile({ ...latestCurrentUser, ...patch });
     console.log('AffairGo SAVE PAYLOAD patch', buildDebugProfilePayload(storedProfile));
 
-    await setDoc(doc(db, 'users', userId), storedProfile, { merge: true });
+    try {
+      await setDoc(doc(db, 'users', userId), storedProfile, { merge: true });
+    } catch (error) {
+      console.warn('AffairGo patch save warning', error);
+      await persistProfileViaFunctionFallback({ ...latestCurrentUser, ...patch, id: userId }, 'patch-function-fallback');
+    }
   };
 
   const persistModerationAuditEntry = async (entry, extraPatch = {}) => {
