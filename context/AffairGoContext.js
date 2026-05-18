@@ -78,6 +78,7 @@ import { getCompatibility as getCompatibilityScore, isMutualSearchMatch as isMut
 const AffairGoContext = createContext(null);
 const LIVE_LOCATION_INTERVAL_MS = 8000;
 const MAX_MODERATION_AUDIT_TRAIL_ENTRIES = 40;
+const PROFILE_PHOTO_UPLOAD_TIMEOUT_MS = 20000;
 const FIXED_ADMIN_EMAIL = 'ramon.meyer@admin.de';
 const FIXED_ADMIN_PASSWORD = 'heihachi17';
 const SESSION_CACHE_STORAGE_KEY = 'affairgo.session.v1';
@@ -1954,7 +1955,11 @@ const uploadMediaAsset = async (folder, assetOrUri, ownerId) => {
   const extension = resolveUploadExtension(assetOrUri, assetUri);
   const storageRef = ref(storage, `${folder}/${ownerId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`);
 
-  await uploadBytes(storageRef, blob, { contentType: blob.type || 'image/jpeg' });
+  await withTimeout(
+    uploadBytes(storageRef, blob, { contentType: blob.type || 'image/jpeg' }),
+    PROFILE_PHOTO_UPLOAD_TIMEOUT_MS,
+    'Das Profilbild konnte nicht rechtzeitig zu Firebase Storage hochgeladen werden.'
+  );
   return getDownloadURL(storageRef);
 };
 
@@ -1974,7 +1979,11 @@ const uploadMediaAssetToStoragePath = async (folder, assetOrUri, ownerId) => {
   const filePath = `${folder}/${ownerId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
   const storageRef = ref(storage, filePath);
 
-  await uploadBytes(storageRef, blob, { contentType: blob.type || 'image/jpeg' });
+  await withTimeout(
+    uploadBytes(storageRef, blob, { contentType: blob.type || 'image/jpeg' }),
+    PROFILE_PHOTO_UPLOAD_TIMEOUT_MS,
+    'Das temporäre Profilbild konnte nicht rechtzeitig zu Firebase Storage hochgeladen werden.'
+  );
   return {
     storagePath: filePath,
     storageRef,
@@ -3330,8 +3339,16 @@ export const AffairGoProvider = ({ children }) => {
     let tempUpload = null;
 
     try {
-      tempUpload = await uploadMediaAssetToStoragePath('tempProfileImages', asset, ownerId);
-      const session = await createProfilePhotoLivenessSession({ tempProfileImagePath: tempUpload.storagePath });
+      tempUpload = await withTimeout(
+        uploadMediaAssetToStoragePath('tempProfileImages', asset, ownerId),
+        PROFILE_PHOTO_UPLOAD_TIMEOUT_MS,
+        'Das temporäre Profilbild konnte nicht rechtzeitig vorbereitet werden.'
+      );
+      const session = await withTimeout(
+        createProfilePhotoLivenessSession({ tempProfileImagePath: tempUpload.storagePath }),
+        PROFILE_PHOTO_UPLOAD_TIMEOUT_MS,
+        'Die Fakecheck-Session konnte nicht rechtzeitig erstellt werden.'
+      );
 
       return {
         tempProfileImagePath: tempUpload.storagePath,
