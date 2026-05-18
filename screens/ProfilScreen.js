@@ -83,6 +83,7 @@ const ProfilScreen = () => {
   const [reportDescription, setReportDescription] = useState('');
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
   const autoOpenedLivenessSessionRef = useRef('');
+  const webLivenessPopupRef = useRef(null);
 
   useEffect(() => {
     if (isOwnProfile) {
@@ -96,6 +97,52 @@ const ProfilScreen = () => {
   }, [currentUser, isOwnProfile, viewedProfile]);
 
   const updateField = (key, value) => setDraft((previous) => ({ ...previous, [key]: value }));
+  const closePendingWebLivenessPopup = () => {
+    if (Platform.OS !== 'web') {
+      return;
+    }
+
+    const popup = webLivenessPopupRef.current;
+
+    if (popup && !popup.closed) {
+      popup.close();
+    }
+
+    webLivenessPopupRef.current = null;
+  };
+
+  const openWebLivenessPlaceholderPopup = () => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') {
+      return null;
+    }
+
+    const popup = window.open('', '_blank', 'noopener,noreferrer,width=480,height=820');
+
+    if (!popup) {
+      throw new Error('Das Popup fuer den Fakecheck wurde vom Browser blockiert. Bitte erlaube Popups fuer diese Seite.');
+    }
+
+    popup.document.write(`<!doctype html><html lang="de"><head><meta charset="utf-8"><title>Night-Whisper Fakecheck</title><style>body{margin:0;font-family:Arial,sans-serif;background:#111827;color:#f9fafb;display:grid;place-items:center;min-height:100vh;padding:24px;text-align:center}div{max-width:320px}strong{display:block;font-size:20px;margin-bottom:12px}span{opacity:.82;line-height:1.5}</style></head><body><div><strong>Fakecheck startet...</strong><span>Das Profilbild wird hochgeladen und die Live-Selfie-Pruefung vorbereitet.</span></div></body></html>`);
+    popup.document.close();
+    webLivenessPopupRef.current = popup;
+    return popup;
+  };
+
+  const navigatePendingWebLivenessPopup = (url) => {
+    if (Platform.OS !== 'web' || !url) {
+      return false;
+    }
+
+    const popup = webLivenessPopupRef.current;
+
+    if (!popup || popup.closed) {
+      return false;
+    }
+
+    popup.location.replace(url);
+    return true;
+  };
+
   const updateSearchAgeField = (key, value) => {
     const numericValue = Number.parseInt(String(value).replace(/\D/g, ''), 10);
 
@@ -246,6 +293,8 @@ const ProfilScreen = () => {
   };
 
   const handleUploadProfilePhoto = async () => {
+    let openedPopup = false;
+
     try {
       setIsUploadingMedia(true);
       const asset = await pickImageAsset();
@@ -253,9 +302,18 @@ const ProfilScreen = () => {
         return;
       }
 
+      if (Platform.OS === 'web') {
+        openWebLivenessPlaceholderPopup();
+        openedPopup = true;
+      }
+
       const verificationSession = await updateProfilePhoto(asset);
 
       if (verificationSession.directUpload) {
+        if (openedPopup) {
+          closePendingWebLivenessPopup();
+        }
+
         setPendingProfilePhotoVerification(null);
         setDraft((previous) => ({
           ...previous,
@@ -286,6 +344,10 @@ const ProfilScreen = () => {
       }));
       Alert.alert('Fakecheck startet', 'Die Live-Selfie-Prüfung wird jetzt automatisch geöffnet. Nach Abschluss wird die Verifikation direkt fortgesetzt.');
     } catch (error) {
+      if (openedPopup) {
+        closePendingWebLivenessPopup();
+      }
+
       Alert.alert('Profilbild konnte nicht hochgeladen werden', error.message || 'Bitte versuche es erneut.');
     } finally {
       setIsUploadingMedia(false);
@@ -424,6 +486,7 @@ const ProfilScreen = () => {
     }
 
     autoOpenedLivenessSessionRef.current = '';
+    closePendingWebLivenessPopup();
     setProfilePhotoLivenessModalOpen(false);
     setProfilePhotoLivenessUrl('');
   }, [pendingProfilePhotoVerification]);
@@ -446,7 +509,21 @@ const ProfilScreen = () => {
           verificationToken: pendingProfilePhotoVerification.verificationToken,
         });
 
-        if (!livenessUrl || Platform.OS === 'web') {
+        if (Platform.OS === 'web') {
+          if (!livenessUrl) {
+            throw new Error('Die Fakecheck-Seite ist noch nicht konfiguriert.');
+          }
+
+          if (!navigatePendingWebLivenessPopup(livenessUrl)) {
+            await launchProfilePhotoLivenessFlow({
+              sessionId: pendingProfilePhotoVerification.sessionId,
+              verificationToken: pendingProfilePhotoVerification.verificationToken,
+            });
+          }
+          return;
+        }
+
+        if (!livenessUrl) {
           await launchProfilePhotoLivenessFlow({
             sessionId: pendingProfilePhotoVerification.sessionId,
             verificationToken: pendingProfilePhotoVerification.verificationToken,

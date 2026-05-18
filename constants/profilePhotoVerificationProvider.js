@@ -7,6 +7,7 @@ const { expo } = require('../app.json');
 const PROFILE_PHOTO_LIVENESS_WEB_URL = (process.env.EXPO_PUBLIC_PROFILE_PHOTO_LIVENESS_WEB_URL || '/api/profile-photo-liveness').trim().replace(/\/$/, '');
 const DEFAULT_WEBSITE_URL = (process.env.EXPO_PUBLIC_WEBSITE_URL || expo?.extra?.websiteUrl || '').trim().replace(/\/$/, '');
 const PROFILE_PHOTO_VERIFICATION_DISABLED = String(process.env.EXPO_PUBLIC_PROFILE_PHOTO_VERIFICATION_DISABLED || '').trim().toLowerCase() === 'true';
+const FUNCTION_CALL_TIMEOUT_MS = 20000;
 
 const looksLikePlaceholder = (value) => !value || /your_|paste_|placeholder/i.test(value);
 const isAbsoluteUrl = (value) => /^https?:\/\//i.test(value);
@@ -33,7 +34,12 @@ const resolveProfilePhotoLivenessBaseUrl = () => {
 
 const callFunction = async (name, payload) => {
   const callable = httpsCallable(functions, name);
-  const result = await callable(payload);
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => {
+      reject(new Error('Die Verifikation antwortet gerade nicht. Bitte pruefe, ob die Cloud Functions deployed sind, und versuche es dann erneut.'));
+    }, FUNCTION_CALL_TIMEOUT_MS);
+  });
+  const result = await Promise.race([callable(payload), timeoutPromise]);
   return result.data;
 };
 
@@ -84,7 +90,12 @@ export const openFaceLivenessFlow = async ({ sessionId, verificationToken }) => 
   }
 
   if (Platform.OS === 'web') {
-    window.open(url, '_blank', 'noopener,noreferrer');
+    const popup = window.open(url, '_blank', 'noopener,noreferrer');
+
+    if (!popup) {
+      throw new Error('Das Popup fuer den Fakecheck wurde vom Browser blockiert. Bitte erlaube Popups fuer diese Seite.');
+    }
+
     return url;
   }
 
