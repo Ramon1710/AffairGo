@@ -1906,6 +1906,19 @@ const readBlobFromUri = async (assetUri) => {
   });
 };
 
+const resolveUploadBlob = async (assetOrUri) => {
+  if (assetOrUri && typeof assetOrUri !== 'string') {
+    const fileLikeObject = assetOrUri.file || assetOrUri.blob || null;
+
+    if (fileLikeObject instanceof Blob) {
+      return fileLikeObject;
+    }
+  }
+
+  const assetUri = typeof assetOrUri === 'string' ? assetOrUri : assetOrUri?.uri;
+  return readBlobFromUri(assetUri);
+};
+
 const resolveUploadExtension = (assetOrUri, assetUri) => {
   const fileName = typeof assetOrUri === 'string' ? '' : assetOrUri?.fileName || assetOrUri?.name || '';
   const mimeType = typeof assetOrUri === 'string' ? '' : assetOrUri?.mimeType || '';
@@ -1937,7 +1950,7 @@ const uploadMediaAsset = async (folder, assetOrUri, ownerId) => {
     return assetUri;
   }
 
-  const blob = await readBlobFromUri(assetUri);
+  const blob = await resolveUploadBlob(assetOrUri);
   const extension = resolveUploadExtension(assetOrUri, assetUri);
   const storageRef = ref(storage, `${folder}/${ownerId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`);
 
@@ -1956,7 +1969,7 @@ const uploadMediaAssetToStoragePath = async (folder, assetOrUri, ownerId) => {
     throw new Error('Für die Verifizierung sind nur lokale Bilddateien erlaubt.');
   }
 
-  const blob = await readBlobFromUri(assetUri);
+  const blob = await resolveUploadBlob(assetOrUri);
   const extension = resolveUploadExtension(assetOrUri, assetUri);
   const filePath = `${folder}/${ownerId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
   const storageRef = ref(storage, filePath);
