@@ -209,13 +209,52 @@ module.exports = async (req, res) => {
     <script type="module">
       const config = ${serializeForInlineScript(pageConfig)};
 
-      import React, { useMemo, useState } from 'https://esm.sh/react@18.2.0';
-      import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
-      import { ThemeProvider, Loader } from 'https://esm.sh/@aws-amplify/ui-react?deps=react@18.2.0,react-dom@18.2.0';
-      import { FaceLivenessDetectorCore } from 'https://esm.sh/@aws-amplify/ui-react-liveness?deps=react@18.2.0,react-dom@18.2.0';
-      import { fromCognitoIdentityPool } from 'https://esm.sh/@aws-sdk/credential-providers';
+      const rootElement = document.getElementById('root');
 
-      const e = React.createElement;
+      const renderBootstrapState = ({
+        title,
+        message,
+        details = '',
+        tone = 'neutral',
+      }) => {
+        const toneClass = tone === 'error' ? 'error' : tone === 'success' ? 'success' : '';
+
+        rootElement.innerHTML = `
+          <main class="shell">
+            <section class="card">
+              <header class="header">
+                <p class="eyebrow">AffairGo Identity Check</p>
+                <h1 class="title">Live-Selfie und Gesichtsabgleich</h1>
+                <p class="subtitle">Die Aufnahme wird nur fuer diese Verifikation genutzt. Selfie-Rohdaten werden danach nicht dauerhaft gespeichert.</p>
+              </header>
+              <div class="content">
+                <div class="meta">
+                  <div class="meta-item">
+                    <span class="meta-label">Session</span>
+                    <span class="meta-value">${escapeHtml(sessionId || 'nicht gesetzt')}</span>
+                  </div>
+                  <div class="meta-item">
+                    <span class="meta-label">AWS Region</span>
+                    <span class="meta-value">${escapeHtml(pageConfig.region)}</span>
+                  </div>
+                </div>
+                <div class="panel">
+                  <div class="status-box ${toneClass}">
+                    <strong>${escapeHtml(title)}</strong>
+                    <p class="helper" style="margin-top:10px;color:inherit;">${escapeHtml(message)}</p>
+                    ${details ? `<p class="helper" style="margin-top:10px;font-family:monospace;white-space:pre-wrap;word-break:break-word;">${escapeHtml(details)}</p>` : ''}
+                  </div>
+                </div>
+              </div>
+            </section>
+          </main>
+        `;
+      };
+
+      renderBootstrapState({
+        title: 'Fakecheck startet',
+        message: 'Die Kamera-Komponente wird geladen. Wenn der Browser nach Kamerazugriff fragt, bitte erlauben.',
+      });
 
       const notifyParent = (payload) => {
         const message = { type: 'affairgo-face-liveness', ...payload };
@@ -233,141 +272,186 @@ module.exports = async (req, res) => {
         window.close();
       };
 
-      function StatusView({ title, message, tone = 'success', actions = [] }) {
-        return e('div', { className: 'status-box ' + tone }, [
-          e('strong', { key: 'title' }, title),
-          e('p', { key: 'message', className: 'helper', style: { marginTop: '10px', color: 'inherit' } }, message),
-          actions.length
-            ? e('div', { key: 'actions', className: 'button-row' }, actions.map((action) => (
-                e('button', {
-                  key: action.label,
-                  type: 'button',
-                  className: 'button' + (action.variant === 'secondary' ? ' secondary' : ''),
-                  onClick: action.onClick,
-                }, action.label)
-              )))
-            : null,
-        ]);
-      }
+      const bootstrap = async () => {
+        try {
+          const [
+            reactModule,
+            reactDomModule,
+            amplifyUiModule,
+            livenessModule,
+            credentialProviderModule,
+          ] = await Promise.all([
+            import('https://esm.sh/react@18.2.0'),
+            import('https://esm.sh/react-dom@18.2.0/client'),
+            import('https://esm.sh/@aws-amplify/ui-react?deps=react@18.2.0,react-dom@18.2.0'),
+            import('https://esm.sh/@aws-amplify/ui-react-liveness?deps=react@18.2.0,react-dom@18.2.0'),
+            import('https://esm.sh/@aws-sdk/credential-providers'),
+          ]);
 
-      function App() {
-        const [status, setStatus] = useState('ready');
-        const [errorMessage, setErrorMessage] = useState('');
+          const React = reactModule.default || reactModule;
+          const { useMemo, useState } = reactModule;
+          const { createRoot } = reactDomModule;
+          const { ThemeProvider, Loader } = amplifyUiModule;
+          const { FaceLivenessDetectorCore } = livenessModule;
+          const { fromCognitoIdentityPool } = credentialProviderModule;
+          const e = React.createElement;
 
-        const credentialProvider = useMemo(() => {
-          if (!config.identityPoolId) {
-            return null;
+          function StatusView({ title, message, tone = 'success', actions = [] }) {
+            return e('div', { className: 'status-box ' + tone }, [
+              e('strong', { key: 'title' }, title),
+              e('p', { key: 'message', className: 'helper', style: { marginTop: '10px', color: 'inherit' } }, message),
+              actions.length
+                ? e('div', { key: 'actions', className: 'button-row' }, actions.map((action) => (
+                    e('button', {
+                      key: action.label,
+                      type: 'button',
+                      className: 'button' + (action.variant === 'secondary' ? ' secondary' : ''),
+                      onClick: action.onClick,
+                    }, action.label)
+                  )))
+                : null,
+            ]);
           }
 
-          return fromCognitoIdentityPool({
-            clientConfig: { region: config.region },
-            identityPoolId: config.identityPoolId,
-          });
-        }, []);
+          function App() {
+            const [status, setStatus] = useState('ready');
+            const [errorMessage, setErrorMessage] = useState('');
 
-        const missingConfigMessage = !config.identityPoolId
-          ? 'Setze in Vercel oder deiner Hosting-Umgebung AWS_COGNITO_IDENTITY_POOL_ID. Ohne eine Identity Pool ID kann das AWS Face Liveness Web-Capture nicht starten.'
-          : !config.sessionId || !config.verificationToken
-            ? 'Die Seite wurde ohne gültige Session geöffnet. Starte die Profilbild-Prüfung erneut in AffairGo.'
-            : '';
+            const credentialProvider = useMemo(() => {
+              if (!config.identityPoolId) {
+                return null;
+              }
 
-        const content = missingConfigMessage
-          ? e(StatusView, {
-              title: 'Liveness-Konfiguration fehlt',
-              message: missingConfigMessage,
-              tone: 'error',
-              actions: [{ label: 'Fenster schließen', onClick: closeWindow }],
-            })
-          : status === 'complete'
-            ? e(StatusView, {
-                title: 'Live-Selfie abgeschlossen',
-                message: 'Die Aufnahme ist abgeschlossen. Wenn AffairGo im Browser geöffnet ist, wird die Profilbild-Prüfung automatisch fortgesetzt. Andernfalls wechsle zurück in die App und schließe dort die Prüfung ab.',
-                tone: 'success',
-                actions: [{ label: 'Fenster schließen', onClick: closeWindow }],
-              })
-            : status === 'error'
+              return fromCognitoIdentityPool({
+                clientConfig: { region: config.region },
+                identityPoolId: config.identityPoolId,
+              });
+            }, []);
+
+            const missingConfigMessage = !config.identityPoolId
+              ? 'Setze in Vercel oder deiner Hosting-Umgebung AWS_COGNITO_IDENTITY_POOL_ID. Ohne eine Identity Pool ID kann das AWS Face Liveness Web-Capture nicht starten.'
+              : !config.sessionId || !config.verificationToken
+                ? 'Die Seite wurde ohne gueltige Session geoeffnet. Starte die Profilbild-Pruefung erneut in AffairGo.'
+                : '';
+
+            const content = missingConfigMessage
               ? e(StatusView, {
-                  title: 'Live-Selfie fehlgeschlagen',
-                  message: errorMessage || 'Der Liveness-Flow konnte nicht abgeschlossen werden. Starte die Profilbild-Prüfung in AffairGo erneut.',
+                  title: 'Liveness-Konfiguration fehlt',
+                  message: missingConfigMessage,
                   tone: 'error',
-                  actions: [
-                    { label: 'Fenster schließen', onClick: closeWindow },
-                    { label: 'Seite neu laden', variant: 'secondary', onClick: () => window.location.reload() },
-                  ],
+                  actions: [{ label: 'Fenster schliessen', onClick: closeWindow }],
                 })
-              : e('div', { className: 'detector-wrap' },
-                  e(FaceLivenessDetectorCore, {
-                    sessionId: config.sessionId,
-                    region: config.region,
-                    onAnalysisComplete: async () => {
-                      setStatus('complete');
-                      notifyParent({
-                        status: 'analysis_complete',
-                        sessionId: config.sessionId,
-                        verificationToken: config.verificationToken,
-                      });
-                    },
-                    onUserCancel: () => {
-                      setStatus('error');
-                      setErrorMessage('Die Live-Selfie-Prüfung wurde abgebrochen.');
-                      notifyParent({
-                        status: 'cancelled',
-                        sessionId: config.sessionId,
-                        verificationToken: config.verificationToken,
-                      });
-                    },
-                    onError: (livenessError) => {
-                      const nextMessage = livenessError?.error?.message || 'Beim Face-Liveness-Check ist ein Fehler aufgetreten.';
-                      setStatus('error');
-                      setErrorMessage(nextMessage);
-                      notifyParent({
-                        status: 'error',
-                        sessionId: config.sessionId,
-                        verificationToken: config.verificationToken,
-                        errorMessage: nextMessage,
-                      });
-                    },
-                    config: {
-                      credentialProvider,
-                    },
+              : status === 'complete'
+                ? e(StatusView, {
+                    title: 'Live-Selfie abgeschlossen',
+                    message: 'Die Aufnahme ist abgeschlossen. Wenn AffairGo im Browser geoeffnet ist, wird die Profilbild-Pruefung automatisch fortgesetzt. Andernfalls wechsle zurueck in die App und schliesse dort die Pruefung ab.',
+                    tone: 'success',
+                    actions: [{ label: 'Fenster schliessen', onClick: closeWindow }],
                   })
-                );
+                : status === 'error'
+                  ? e(StatusView, {
+                      title: 'Live-Selfie fehlgeschlagen',
+                      message: errorMessage || 'Der Liveness-Flow konnte nicht abgeschlossen werden. Starte die Profilbild-Pruefung in AffairGo erneut.',
+                      tone: 'error',
+                      actions: [
+                        { label: 'Fenster schliessen', onClick: closeWindow },
+                        { label: 'Seite neu laden', variant: 'secondary', onClick: () => window.location.reload() },
+                      ],
+                    })
+                  : e('div', { className: 'detector-wrap' },
+                      e(FaceLivenessDetectorCore, {
+                        sessionId: config.sessionId,
+                        region: config.region,
+                        onAnalysisComplete: async () => {
+                          setStatus('complete');
+                          notifyParent({
+                            status: 'analysis_complete',
+                            sessionId: config.sessionId,
+                            verificationToken: config.verificationToken,
+                          });
+                        },
+                        onUserCancel: () => {
+                          setStatus('error');
+                          setErrorMessage('Die Live-Selfie-Pruefung wurde abgebrochen.');
+                          notifyParent({
+                            status: 'cancelled',
+                            sessionId: config.sessionId,
+                            verificationToken: config.verificationToken,
+                          });
+                        },
+                        onError: (livenessError) => {
+                          const nextMessage = livenessError?.error?.message || 'Beim Face-Liveness-Check ist ein Fehler aufgetreten.';
+                          setStatus('error');
+                          setErrorMessage(nextMessage);
+                          notifyParent({
+                            status: 'error',
+                            sessionId: config.sessionId,
+                            verificationToken: config.verificationToken,
+                            errorMessage: nextMessage,
+                          });
+                        },
+                        config: {
+                          credentialProvider,
+                        },
+                      })
+                    );
 
-        return e(ThemeProvider, null,
-          e('main', { className: 'shell' },
-            e('section', { className: 'card' }, [
-              e('header', { key: 'header', className: 'header' }, [
-                e('p', { key: 'eyebrow', className: 'eyebrow' }, 'AffairGo Identity Check'),
-                e('h1', { key: 'title', className: 'title' }, 'Live-Selfie und Gesichtsabgleich'),
-                e('p', { key: 'subtitle', className: 'subtitle' }, 'Die Aufnahme wird nur für diese Verifikation genutzt. Selfie-Rohdaten werden danach nicht dauerhaft gespeichert.'),
-              ]),
-              e('div', { key: 'content', className: 'content' }, [
-                e('div', { key: 'meta', className: 'meta' }, [
-                  e('div', { key: 'session', className: 'meta-item' }, [
-                    e('span', { key: 'label', className: 'meta-label' }, 'Session'),
-                    e('span', { key: 'value', className: 'meta-value' }, config.sessionId || 'nicht gesetzt'),
+            return e(ThemeProvider, null,
+              e('main', { className: 'shell' },
+                e('section', { className: 'card' }, [
+                  e('header', { key: 'header', className: 'header' }, [
+                    e('p', { key: 'eyebrow', className: 'eyebrow' }, 'AffairGo Identity Check'),
+                    e('h1', { key: 'title', className: 'title' }, 'Live-Selfie und Gesichtsabgleich'),
+                    e('p', { key: 'subtitle', className: 'subtitle' }, 'Die Aufnahme wird nur fuer diese Verifikation genutzt. Selfie-Rohdaten werden danach nicht dauerhaft gespeichert.'),
                   ]),
-                  e('div', { key: 'region', className: 'meta-item' }, [
-                    e('span', { key: 'label', className: 'meta-label' }, 'AWS Region'),
-                    e('span', { key: 'value', className: 'meta-value' }, config.region),
+                  e('div', { key: 'content', className: 'content' }, [
+                    e('div', { key: 'meta', className: 'meta' }, [
+                      e('div', { key: 'session', className: 'meta-item' }, [
+                        e('span', { key: 'label', className: 'meta-label' }, 'Session'),
+                        e('span', { key: 'value', className: 'meta-value' }, config.sessionId || 'nicht gesetzt'),
+                      ]),
+                      e('div', { key: 'region', className: 'meta-item' }, [
+                        e('span', { key: 'label', className: 'meta-label' }, 'AWS Region'),
+                        e('span', { key: 'value', className: 'meta-value' }, config.region),
+                      ]),
+                    ]),
+                    e('div', { key: 'panel', className: 'panel' }, [
+                      status === 'ready'
+                        ? e('div', { key: 'loading', style: { marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '12px' } }, [
+                            e(Loader, { key: 'loader', variation: 'linear', width: '120px' }),
+                            e('span', { key: 'text', className: 'helper', style: { marginTop: 0 } }, 'Kamera wird initialisiert. Erlaube den Kamerazugriff, wenn der Browser fragt.'),
+                          ])
+                        : null,
+                      content,
+                    ]),
                   ]),
-                ]),
-                e('div', { key: 'panel', className: 'panel' }, [
-                  status === 'ready'
-                    ? e('div', { key: 'loading', style: { marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '12px' } }, [
-                        e(Loader, { key: 'loader', variation: 'linear', width: '120px' }),
-                        e('span', { key: 'text', className: 'helper', style: { marginTop: 0 } }, 'Kamera wird initialisiert. Erlaube den Kamerazugriff, wenn der Browser fragt.'),
-                      ])
-                    : null,
-                  content,
-                ]),
-              ]),
-            ])
-          )
-        );
-      }
+                ])
+              )
+            );
+          }
 
-      createRoot(document.getElementById('root')).render(e(App));
+          createRoot(rootElement).render(e(App));
+        } catch (error) {
+          const nextMessage = error?.message || 'Die Kamera-Komponente konnte nicht geladen werden.';
+
+          console.error('AffairGo liveness bootstrap failed', error);
+          notifyParent({
+            status: 'error',
+            sessionId: config.sessionId,
+            verificationToken: config.verificationToken,
+            errorMessage: nextMessage,
+          });
+
+          renderBootstrapState({
+            title: 'Fakecheck konnte nicht geladen werden',
+            message: 'Die Selfie-Komponente wurde nicht erfolgreich initialisiert.',
+            details: nextMessage,
+            tone: 'error',
+          });
+        }
+      };
+
+      bootstrap();
     </script>
   </body>
 </html>`);
