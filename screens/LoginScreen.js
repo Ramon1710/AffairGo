@@ -9,7 +9,7 @@ import { useNavigation, useRoute } from '../naviagtion/SimpleNavigation';
 const LoginScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
-  const { login, requestPasswordReset, resendVerificationEmail, changePassword } = useAffairGo();
+  const { login, requestPasswordReset, resendVerificationEmail, changePassword, isAuthenticated, isAuthReady } = useAffairGo();
   const [identifier, setIdentifier] = useState(route.params?.prefillEmail || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -22,6 +22,7 @@ const LoginScreen = () => {
   const [forcePasswordChangeOpen, setForcePasswordChangeOpen] = useState(false);
   const [passwordChangeError, setPasswordChangeError] = useState('');
   const [pendingNextRoute, setPendingNextRoute] = useState('Dashboard');
+  const [pendingLoginRoute, setPendingLoginRoute] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResetSubmitting, setIsResetSubmitting] = useState(false);
   const [isResendingVerification, setIsResendingVerification] = useState(false);
@@ -39,10 +40,20 @@ const LoginScreen = () => {
     setSuccessOpen(Boolean(route.params?.showSuccessModal));
   }, [route.params]);
 
+  useEffect(() => {
+    if (!isAuthReady || !isAuthenticated || !pendingLoginRoute || forcePasswordChangeOpen) {
+      return;
+    }
+
+    navigation.reset({ index: 0, routes: [{ name: pendingLoginRoute }] });
+    setPendingLoginRoute('');
+  }, [forcePasswordChangeOpen, isAuthReady, isAuthenticated, navigation, pendingLoginRoute]);
+
   const handleLogin = async () => {
     try {
       setError('');
       setInfo('');
+      setPendingLoginRoute('');
       setIsSubmitting(true);
       const result = await login({ identifier, password });
       if (result.requiresPasswordChange) {
@@ -51,9 +62,10 @@ const LoginScreen = () => {
         setInfo('Bitte ändere jetzt dein Passwort, bevor du die App weiter nutzt.');
         return;
       }
-      navigation.reset({ index: 0, routes: [{ name: result.needsOnboarding ? 'Onboarding' : 'Dashboard' }] });
+      setPendingLoginRoute(result.needsOnboarding ? 'Onboarding' : 'Dashboard');
     } catch (loginError) {
       setError(loginError.message);
+      setPendingLoginRoute('');
     } finally {
       setIsSubmitting(false);
     }
