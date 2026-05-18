@@ -338,14 +338,46 @@ const ProfilScreen = () => {
         ...verificationSession,
         previewUri: asset.uri,
       };
+      const livenessUrl = buildFaceLivenessUrl({
+        sessionId: nextPendingVerification.sessionId,
+        verificationToken: nextPendingVerification.verificationToken,
+      });
 
       setPendingProfilePhotoVerification(nextPendingVerification);
       setDraft((previous) => ({
         ...previous,
         verificationState: 'review',
       }));
-      Alert.alert('Fakecheck startet', 'Die Live-Selfie-Prüfung wird jetzt automatisch geöffnet. Nach Abschluss wird die Verifikation direkt fortgesetzt.');
+
+      autoOpenedLivenessSessionRef.current = nextPendingVerification.sessionId;
+
+      if (Platform.OS === 'web') {
+        if (!livenessUrl) {
+          throw new Error('Die Fakecheck-Seite ist noch nicht konfiguriert.');
+        }
+
+        if (!navigatePendingWebLivenessPopup(livenessUrl)) {
+          await launchProfilePhotoLivenessFlow({
+            sessionId: nextPendingVerification.sessionId,
+            verificationToken: nextPendingVerification.verificationToken,
+          });
+        }
+
+        return;
+      }
+
+      if (!livenessUrl) {
+        await launchProfilePhotoLivenessFlow({
+          sessionId: nextPendingVerification.sessionId,
+          verificationToken: nextPendingVerification.verificationToken,
+        });
+        return;
+      }
+
+      setProfilePhotoLivenessUrl(livenessUrl);
+      setProfilePhotoLivenessModalOpen(true);
     } catch (error) {
+      autoOpenedLivenessSessionRef.current = '';
       if (openedPopup) {
         closePendingWebLivenessPopup();
       }
