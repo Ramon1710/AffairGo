@@ -116,7 +116,7 @@ const ProfilScreen = () => {
       return null;
     }
 
-    const popup = window.open('', '_blank', 'noopener,noreferrer,width=480,height=820');
+    const popup = window.open('', 'affairgo-profile-photo-liveness', 'width=480,height=820');
 
     if (!popup) {
       throw new Error('Das Popup fuer den Fakecheck wurde vom Browser blockiert. Bitte erlaube Popups fuer diese Seite.');
@@ -124,6 +124,7 @@ const ProfilScreen = () => {
 
     popup.document.write(`<!doctype html><html lang="de"><head><meta charset="utf-8"><title>Night-Whisper Fakecheck</title><style>body{margin:0;font-family:Arial,sans-serif;background:#111827;color:#f9fafb;display:grid;place-items:center;min-height:100vh;padding:24px;text-align:center}div{max-width:320px}strong{display:block;font-size:20px;margin-bottom:12px}span{opacity:.82;line-height:1.5}</style></head><body><div><strong>Fakecheck startet...</strong><span>Das Profilbild wird hochgeladen und die Live-Selfie-Pruefung vorbereitet.</span></div></body></html>`);
     popup.document.close();
+    popup.focus?.();
     webLivenessPopupRef.current = popup;
     return popup;
   };
@@ -139,7 +140,8 @@ const ProfilScreen = () => {
       return false;
     }
 
-    popup.location.replace(url);
+    popup.location.href = url;
+    popup.focus?.();
     return true;
   };
 

@@ -90,11 +90,13 @@ export const openFaceLivenessFlow = async ({ sessionId, verificationToken }) => 
   }
 
   if (Platform.OS === 'web') {
-    const popup = window.open(url, '_blank', 'noopener,noreferrer');
+    const popup = window.open(url, 'affairgo-profile-photo-liveness', 'width=480,height=820');
 
     if (!popup) {
       throw new Error('Das Popup fuer den Fakecheck wurde vom Browser blockiert. Bitte erlaube Popups fuer diese Seite.');
     }
+
+    popup.focus?.();
 
     return url;
   }
