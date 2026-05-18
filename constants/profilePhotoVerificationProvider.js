@@ -6,7 +6,7 @@ const { expo } = require('../app.json');
 
 const PROFILE_PHOTO_LIVENESS_WEB_URL = (process.env.EXPO_PUBLIC_PROFILE_PHOTO_LIVENESS_WEB_URL || '/api/profile-photo-liveness').trim().replace(/\/$/, '');
 const DEFAULT_WEBSITE_URL = (process.env.EXPO_PUBLIC_WEBSITE_URL || expo?.extra?.websiteUrl || '').trim().replace(/\/$/, '');
-const PROFILE_PHOTO_VERIFICATION_DISABLED = true;
+const PROFILE_PHOTO_VERIFICATION_DISABLED = String(process.env.EXPO_PUBLIC_PROFILE_PHOTO_VERIFICATION_DISABLED || '').trim().toLowerCase() === 'true';
 
 const looksLikePlaceholder = (value) => !value || /your_|paste_|placeholder/i.test(value);
 const isAbsoluteUrl = (value) => /^https?:\/\//i.test(value);

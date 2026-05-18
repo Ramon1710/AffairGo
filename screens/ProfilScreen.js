@@ -1,6 +1,6 @@
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader, StatusPill, ToggleChip } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
@@ -82,6 +82,7 @@ const ProfilScreen = () => {
   const [reportReason, setReportReason] = useState(REPORT_REASONS[0].value);
   const [reportDescription, setReportDescription] = useState('');
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
+  const autoOpenedLivenessSessionRef = useRef('');
 
   useEffect(() => {
     if (isOwnProfile) {
@@ -283,36 +284,7 @@ const ProfilScreen = () => {
         ...previous,
         verificationState: 'review',
       }));
-
-      const livenessUrl = buildFaceLivenessUrl({
-        sessionId: verificationSession.sessionId,
-        verificationToken: verificationSession.verificationToken,
-      });
-
-      if (!livenessUrl) {
-        await launchProfilePhotoLivenessFlow({
-          sessionId: verificationSession.sessionId,
-          verificationToken: verificationSession.verificationToken,
-        });
-
-        Alert.alert('Live-Selfie starten', 'Die Live-Selfie-Prüfung wurde geöffnet. Kehre danach zurück und tippe auf "Prüfung abschließen".');
-        return;
-      }
-
-      if (Platform.OS === 'web') {
-        await launchProfilePhotoLivenessFlow({
-          sessionId: verificationSession.sessionId,
-          verificationToken: verificationSession.verificationToken,
-        });
-
-        Alert.alert('Live-Selfie starten', 'Die Live-Selfie-Prüfung wurde geöffnet. Kehre danach zurück und tippe auf "Prüfung abschließen".');
-        return;
-      }
-
-      setProfilePhotoLivenessUrl(livenessUrl);
-      setProfilePhotoLivenessModalOpen(true);
-
-      Alert.alert('Live-Selfie starten', 'Das Kamera-Fenster wurde geöffnet. Nach Abschluss wird die Prüfung automatisch fortgesetzt.');
+      Alert.alert('Fakecheck startet', 'Die Live-Selfie-Prüfung wird jetzt automatisch geöffnet. Nach Abschluss wird die Verifikation direkt fortgesetzt.');
     } catch (error) {
       Alert.alert('Profilbild konnte nicht hochgeladen werden', error.message || 'Bitte versuche es erneut.');
     } finally {
@@ -451,9 +423,47 @@ const ProfilScreen = () => {
       return;
     }
 
+    autoOpenedLivenessSessionRef.current = '';
     setProfilePhotoLivenessModalOpen(false);
     setProfilePhotoLivenessUrl('');
   }, [pendingProfilePhotoVerification]);
+
+  useEffect(() => {
+    if (!pendingProfilePhotoVerification?.sessionId) {
+      return;
+    }
+
+    if (autoOpenedLivenessSessionRef.current === pendingProfilePhotoVerification.sessionId) {
+      return;
+    }
+
+    autoOpenedLivenessSessionRef.current = pendingProfilePhotoVerification.sessionId;
+
+    const openAutomatically = async () => {
+      try {
+        const livenessUrl = buildFaceLivenessUrl({
+          sessionId: pendingProfilePhotoVerification.sessionId,
+          verificationToken: pendingProfilePhotoVerification.verificationToken,
+        });
+
+        if (!livenessUrl || Platform.OS === 'web') {
+          await launchProfilePhotoLivenessFlow({
+            sessionId: pendingProfilePhotoVerification.sessionId,
+            verificationToken: pendingProfilePhotoVerification.verificationToken,
+          });
+          return;
+        }
+
+        setProfilePhotoLivenessUrl(livenessUrl);
+        setProfilePhotoLivenessModalOpen(true);
+      } catch (error) {
+        autoOpenedLivenessSessionRef.current = '';
+        Alert.alert('Fakecheck konnte nicht gestartet werden', error.message || 'Die Live-Selfie-Prüfung konnte nicht automatisch geöffnet werden.');
+      }
+    };
+
+    openAutomatically();
+  }, [launchProfilePhotoLivenessFlow, pendingProfilePhotoVerification]);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || !pendingProfilePhotoVerification) {
