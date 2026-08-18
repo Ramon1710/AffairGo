@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
+import { auth } from '../firebase';
 import { useCurrentRoute, useNavigation } from './SimpleNavigation';
 
 import ChatScreen from '../screens/ChatScreen';
@@ -45,6 +46,7 @@ const StackNavigator = () => {
       return;
     }
 
+    const hasFirebaseSession = Boolean(auth.currentUser);
     const hasCompletedOnboarding = Boolean(currentUser.onboardingCompleted || currentUser.preferences?.length);
     const hasProfilePhoto = Boolean(currentUser.profilePhotoUrl || currentUser.profileImageUri);
     const nextAuthenticatedRoute = hasCompletedOnboarding ? 'Dashboard' : 'Onboarding';
@@ -60,7 +62,7 @@ const StackNavigator = () => {
       return;
     }
 
-    if (!isAuthenticated && !isPublicRoute) {
+    if (!isAuthenticated && !hasFirebaseSession && !isPublicRoute) {
       navigation.reset({ index: 0, routes: [{ name: 'Landing' }] });
     }
   }, [currentUser.onboardingCompleted, currentUser.preferences, currentUser.profilePhotoUrl, currentUser.profileImageUri, isAuthenticated, isAuthReady, navigation, route.name]);
