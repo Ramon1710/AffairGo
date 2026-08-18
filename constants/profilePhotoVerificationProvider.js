@@ -4,7 +4,7 @@ import { functions } from '../firebase';
 
 const { expo } = require('../app.json');
 
-const PROFILE_PHOTO_LIVENESS_WEB_URL = (process.env.EXPO_PUBLIC_PROFILE_PHOTO_LIVENESS_WEB_URL || '/api/profile-photo-liveness').trim().replace(/\/$/, '');
+const PROFILE_PHOTO_LIVENESS_WEB_URL = (process.env.EXPO_PUBLIC_PROFILE_PHOTO_LIVENESS_WEB_URL || '').trim().replace(/\/$/, '');
 const DEFAULT_WEBSITE_URL = (process.env.EXPO_PUBLIC_WEBSITE_URL || expo?.extra?.websiteUrl || '').trim().replace(/\/$/, '');
 const PROFILE_PHOTO_VERIFICATION_DISABLED = String(process.env.EXPO_PUBLIC_PROFILE_PHOTO_VERIFICATION_DISABLED || '').trim().toLowerCase() === 'true';
 const FUNCTION_CALL_TIMEOUT_MS = 20000;
@@ -46,7 +46,7 @@ const callFunction = async (name, payload) => {
 export const hasConfiguredProfilePhotoVerification = () => !PROFILE_PHOTO_VERIFICATION_DISABLED && Boolean(resolveProfilePhotoLivenessBaseUrl());
 
 export const getProfilePhotoVerificationSetupInstructions = () => (
-  'Setze AWS_COGNITO_IDENTITY_POOL_ID fuer die eingebaute Liveness-Webseite und optional EXPO_PUBLIC_PROFILE_PHOTO_LIVENESS_WEB_URL fuer eine eigene Route. Fuer Mobilgeraete muss die Liveness-Seite ueber eine absolute HTTPS-URL erreichbar sein, z. B. ueber EXPO_PUBLIC_WEBSITE_URL oder die websiteUrl in app.json. CompareFaces und die finale Bildfreigabe laufen weiterhin ausschließlich über Firebase Cloud Functions.'
+  'Setze EXPO_PUBLIC_PROFILE_PHOTO_LIVENESS_WEB_URL explizit auf deine Liveness-Seite und hinterlege AWS_COGNITO_IDENTITY_POOL_ID fuer die eingebaute Web-Variante. Fuer Mobilgeraete muss die Liveness-Seite ueber eine absolute HTTPS-URL erreichbar sein, z. B. ueber EXPO_PUBLIC_WEBSITE_URL oder die websiteUrl in app.json. CompareFaces und die finale Bildfreigabe laufen weiterhin ausschließlich über Firebase Cloud Functions.'
 );
 
 export const createFaceLivenessSession = async ({ tempProfileImagePath }) => callFunction('createFaceLivenessSession', {
