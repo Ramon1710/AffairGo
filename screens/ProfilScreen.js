@@ -11,6 +11,8 @@ import { EYE_OPTIONS, FIGURE_OPTIONS, GENDER_OPTIONS, HAIR_OPTIONS, MONTH_OPTION
 import { useNavigation, useRoute } from '../naviagtion/SimpleNavigation';
 import { allowScreenCaptureAsync, preventScreenCaptureAsync } from '../untils/screenCapture';
 
+const IMAGE_MEDIA_TYPE = ImagePicker.MediaTypeOptions?.Images ?? ImagePicker.MediaType?.Images;
+
 let NativeWebView = null;
 
 if (Platform.OS !== 'web') {
@@ -282,7 +284,7 @@ const ProfilScreen = () => {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
+      mediaTypes: IMAGE_MEDIA_TYPE,
       allowsEditing: true,
       quality: 0.85,
     });

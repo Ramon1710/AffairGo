@@ -9,6 +9,8 @@ import { useAffairGo } from '../context/AffairGoContext';
 import { EYE_OPTIONS, FIGURE_OPTIONS, GENDER_OPTIONS, HAIR_OPTIONS, MONTH_OPTIONS, SKIN_OPTIONS } from '../data/mockData';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
 
+const IMAGE_MEDIA_TYPE = ImagePicker.MediaTypeOptions?.Images ?? ImagePicker.MediaType?.Images;
+
 const { expo } = require('../app.json');
 
 const currentYear = new Date().getFullYear();
@@ -170,7 +172,7 @@ const RegisterScreen = () => {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
+      mediaTypes: IMAGE_MEDIA_TYPE,
       allowsEditing,
       quality: 0.85,
     });
