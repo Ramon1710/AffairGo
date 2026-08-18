@@ -37,14 +37,19 @@ const formatBirthDetails = (profile) => {
     return profile.birthLabel;
   }
 
-  const hasBirthDate = Number.isFinite(Number(profile?.birthDay))
-    && Number.isFinite(Number(profile?.birthMonth))
-    && Number.isFinite(Number(profile?.birthYear));
+  const birthDay = Number(profile?.birthDay);
+  const birthMonthIndex = Number(profile?.birthMonth);
+  const birthYear = Number(profile?.birthYear);
+  const hasBirthDate = Number.isInteger(birthDay)
+    && birthDay >= 1
+    && Number.isInteger(birthMonthIndex)
+    && birthMonthIndex >= 0
+    && birthMonthIndex < MONTH_OPTIONS.length
+    && Number.isInteger(birthYear)
+    && birthYear >= 1900;
 
   if (hasBirthDate) {
-    const birthDay = Number(profile.birthDay);
-    const birthMonth = MONTH_OPTIONS[Number(profile.birthMonth)] || String(Number(profile.birthMonth) + 1);
-    const birthYear = Number(profile.birthYear);
+    const birthMonth = MONTH_OPTIONS[birthMonthIndex] || String(birthMonthIndex + 1);
     const ageSuffix = Number.isFinite(Number(profile?.age)) ? ` (${profile.age} Jahre)` : '';
     return `${birthDay}, ${birthMonth} ${birthYear}${ageSuffix}`;
   }
@@ -78,6 +83,7 @@ const ProfilScreen = () => {
   const [isRequestingDeletion, setIsRequestingDeletion] = useState(false);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState('');
+  const [uploadFeedback, setUploadFeedback] = useState('');
   const [pendingProfilePhotoVerification, setPendingProfilePhotoVerification] = useState(null);
   const [profilePhotoLivenessModalOpen, setProfilePhotoLivenessModalOpen] = useState(false);
   const [profilePhotoLivenessUrl, setProfilePhotoLivenessUrl] = useState('');
@@ -310,6 +316,7 @@ const ProfilScreen = () => {
 
   const handleUploadProfilePhoto = async () => {
     try {
+      setUploadFeedback('');
       setIsUploadingMedia(true);
       const asset = await pickImageAsset();
       if (!asset) {
@@ -328,12 +335,14 @@ const ProfilScreen = () => {
         profilePhotoAgeMonths: 0,
         verificationState: uploadResult.verificationState || 'uploaded',
       }));
+      setUploadFeedback('Profilbild gespeichert.');
       Alert.alert(
         'Profilbild aktualisiert',
         'Das Profilbild wurde gespeichert.'
       );
     } catch (error) {
       autoOpenedLivenessSessionRef.current = '';
+      setUploadFeedback(error.message || 'Profilbild konnte nicht hochgeladen werden.');
       Alert.alert('Profilbild konnte nicht hochgeladen werden', error.message || 'Bitte versuche es erneut.');
     } finally {
       setIsUploadingMedia(false);
@@ -686,6 +695,7 @@ const ProfilScreen = () => {
           )}
         </View>
         {isOwnProfile ? <AccentButton label={isUploadingMedia ? 'Bild wird hochgeladen...' : 'Profilbild ändern'} variant="secondary" onPress={handleUploadProfilePhoto} disabled={isUploadingMedia} style={styles.avatarButton} /> : null}
+        {isOwnProfile && uploadFeedback ? <Text style={styles.uploadFeedback}>{uploadFeedback}</Text> : null}
         {isOwnProfile && pendingProfilePhotoVerification ? <AccentButton label="Live-Selfie öffnen" variant="secondary" onPress={openPendingProfilePhotoLiveness} disabled={isUploadingMedia} style={styles.avatarButton} /> : null}
         {isOwnProfile && pendingProfilePhotoVerification ? <AccentButton label={isUploadingMedia ? 'Prüfung läuft...' : 'Prüfung abschließen'} onPress={handleCompleteProfilePhotoVerification} disabled={isUploadingMedia} style={styles.avatarButton} /> : null}
         {isOwnProfile && pendingProfilePhotoVerification ? <AccentButton label="Temporäres Bild verwerfen" variant="secondary" onPress={handleDiscardPendingProfilePhotoVerification} disabled={isUploadingMedia} style={styles.avatarButton} /> : null}
@@ -993,6 +1003,11 @@ const styles = StyleSheet.create({
   },
   avatarButton: {
     marginBottom: 12,
+  },
+  uploadFeedback: {
+    color: affairGoTheme.colors.accentSoft,
+    marginBottom: 12,
+    textAlign: 'center',
   },
   nameLine: {
     color: affairGoTheme.colors.text,

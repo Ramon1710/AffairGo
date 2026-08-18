@@ -968,6 +968,7 @@ const toStoredProfile = (profile) => {
     firstName: aliasValues.firstName,
     lastName: aliasValues.lastName,
     city: aliasValues.city,
+    birthLabel: typeof profile.birthLabel === 'string' ? profile.birthLabel : '',
     birthDay: pickFirstDefinedValue(aliasValues.birthDay, profile.birthDay, ''),
     birthMonth: pickFirstDefinedValue(aliasValues.birthMonth, profile.birthMonth, 0),
     birthYear: pickFirstDefinedValue(aliasValues.birthYear, profile.birthYear, ''),
@@ -2960,17 +2961,13 @@ export const AffairGoProvider = ({ children }) => {
       }
 
       if (!fixedAdminLogin && !credentials.user.emailVerified) {
-        const resendWorked = await trySendVerificationEmail(credentials.user);
-        await trySignOut();
-        if (resendWorked) {
-          throw new Error('Bitte bestätige zuerst deine E-Mail-Adresse. Wir haben dir soeben erneut eine Verifizierungs-Mail gesendet. Bitte prüfe auch deinen Spam-Ordner.');
-        }
-        throw new Error('Dein Konto wurde angelegt, aber die Verifizierungs-Mail konnte nicht gesendet werden. Bitte prüfe die Firebase-E-Mail-Vorlagen und versuche es erneut.');
+        trySendVerificationEmail(credentials.user).catch(() => undefined);
       }
 
       const normalizedProfile = hydrateAuthenticatedSession(profileData, credentials.user);
 
       return {
+        emailVerificationPending: !fixedAdminLogin && !credentials.user.emailVerified,
         requiresPasswordChange: normalizedProfile.isAdmin ? false : normalizedProfile.forcePasswordChange,
         needsOnboarding: normalizedProfile.isAdmin ? false : !normalizedProfile.onboardingCompleted,
       };
@@ -3336,7 +3333,14 @@ export const AffairGoProvider = ({ children }) => {
     }
 
     const uploadedProfilePhotoUrl = await uploadMediaAsset('profileImages', asset, ownerId);
+
+    if (!uploadedProfilePhotoUrl) {
+      throw new Error('Das Profilbild wurde hochgeladen, aber die Bild-URL konnte nicht ermittelt werden.');
+    }
+
     const nextPatch = {
+      profileImageUploaded: true,
+      verified: true,
       profilePhotoUrl: uploadedProfilePhotoUrl,
       profileImageUri: uploadedProfilePhotoUrl,
       profilePhotoVerified: false,
