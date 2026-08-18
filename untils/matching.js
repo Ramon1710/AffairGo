@@ -22,6 +22,61 @@ const parseSizeToNumber = (value) => {
   return match ? Number.parseFloat(match[0]) : null;
 };
 
+const normalizeMatchingList = (values = []) => {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  return [...new Set(values
+    .filter((entry) => typeof entry === 'string' && entry.trim())
+    .map((entry) => entry.trim()))];
+};
+
+const getSharedPreferences = (sourcePreferences = [], targetPreferences = []) => {
+  const normalizedSource = normalizeMatchingList(sourcePreferences);
+  const normalizedTargetSet = new Set(normalizeMatchingList(targetPreferences));
+
+  return normalizedSource.filter((entry) => normalizedTargetSet.has(entry));
+};
+
+const getSharedPreferenceCount = (sourcePreferences = [], targetPreferences = []) => getSharedPreferences(sourcePreferences, targetPreferences).length;
+
+const hasPreferenceTabooConflict = (sourceProfile = {}, targetProfile = {}) => {
+  const sourcePreferences = normalizeMatchingList(sourceProfile.preferences);
+  const targetPreferences = normalizeMatchingList(targetProfile.preferences);
+  const sourceTaboos = new Set(normalizeMatchingList(sourceProfile.taboos));
+  const targetTaboos = new Set(normalizeMatchingList(targetProfile.taboos));
+
+  return sourcePreferences.some((entry) => targetTaboos.has(entry))
+    || targetPreferences.some((entry) => sourceTaboos.has(entry));
+};
+
+const hasRequiredPreferenceMatch = (sourceProfile = {}, targetProfile = {}, minimumSharedPreferences = 2) => (
+  getSharedPreferenceCount(sourceProfile.preferences, targetProfile.preferences) >= minimumSharedPreferences
+  && !hasPreferenceTabooConflict(sourceProfile, targetProfile)
+);
+
+const isWithinExtendedSearchRadius = (sourceProfile = {}, targetProfile = {}, distanceKm = targetProfile?.distanceKm) => {
+  const normalizedDistance = Number(distanceKm);
+
+  if (!Number.isFinite(normalizedDistance)) {
+    return true;
+  }
+
+  const sourceRadius = Number(sourceProfile.radius);
+  const targetRadius = Number(targetProfile.radius);
+  const resolvedRadius = Math.max(
+    Number.isFinite(sourceRadius) ? sourceRadius : 0,
+    Number.isFinite(targetRadius) ? targetRadius : 0,
+  );
+
+  if (resolvedRadius <= 0) {
+    return true;
+  }
+
+  return normalizedDistance <= resolvedRadius;
+};
+
 const getPreferenceCompatibility = (sourcePreferences = [], targetPreferences = []) => {
   const base = sourcePreferences.length || 1;
   const shared = sourcePreferences.filter((entry) => targetPreferences.includes(entry)).length;
@@ -143,10 +198,11 @@ const isMutualSearchMatch = (currentUser, targetUser, helpers) => (
 
 export {
     getCompatibility,
-    isMutualAgeMatch,
+    getSharedPreferenceCount,
+    hasPreferenceTabooConflict,
+    hasRequiredPreferenceMatch, isMutualAgeMatch,
     isMutualGenderMatch,
-    isMutualSearchMatch,
-    parseHeightToCentimeters,
+    isMutualSearchMatch, isWithinExtendedSearchRadius, parseHeightToCentimeters,
     parseSizeToNumber
 };
 

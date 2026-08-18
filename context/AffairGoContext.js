@@ -72,7 +72,12 @@ import {
     VISIBILITY_OPTIONS,
 } from '../data/mockData';
 import { auth, authReady, db, storage } from '../firebase';
-import { getCompatibility as getCompatibilityScore, isMutualSearchMatch as isMutualSearchVisibilityMatch } from '../untils/matching';
+import {
+    getCompatibility as getCompatibilityScore,
+    hasRequiredPreferenceMatch as hasRequiredPreferenceVisibilityMatch,
+    isMutualSearchMatch as isMutualSearchVisibilityMatch,
+    isWithinExtendedSearchRadius as isWithinExtendedSearchVisibilityRadius,
+} from '../untils/matching';
 
 const AffairGoContext = createContext(null);
 const LIVE_LOCATION_INTERVAL_MS = 8000;
@@ -151,6 +156,32 @@ const upsertChatThread = (chatList, { ownerUserId = '', partnerUserId, appendMes
 };
 
 const removeChatThread = (chatList, partnerUserId) => normalizeStoredChats(chatList).filter((chat) => chat.userId !== partnerUserId);
+const getDismissedSwipeIds = (history = []) => {
+  if (!Array.isArray(history)) {
+    return [];
+  }
+
+  return history.reduce((result, entry) => {
+    if (entry?.action !== 'dismiss' || typeof entry?.profileId !== 'string' || !entry.profileId) {
+      return result;
+    }
+
+    return addUniqueId(result, entry.profileId);
+  }, []);
+};
+
+const getVisibilityDismissedIds = (profile = {}, chatListOverride = null) => {
+  const dismissedIds = normalizeIdList(profile.dismissedProfileIds);
+  const activeChatPartnerIds = normalizeStoredChats(chatListOverride ?? profile.chats)
+    .filter((chat) => chat.match)
+    .map((chat) => chat.userId);
+
+  if (!activeChatPartnerIds.length) {
+    return dismissedIds;
+  }
+
+  return dismissedIds.filter((profileId) => !activeChatPartnerIds.includes(profileId));
+};
 
 const PROFILE_VERIFICATION_FAILURE_MESSAGES = {
   FACE_MISMATCH: 'Das Profilbild passt nicht zum Live-Selfie. Das temporäre Bild wurde verworfen.',
@@ -2202,6 +2233,13 @@ const isMutualSearchMatch = (currentUser, targetUser) => isMutualSearchVisibilit
   searchGenderOptions: SEARCH_GENDER_OPTIONS,
 });
 
+const hasRequiredPreferenceMatch = (currentUser, targetUser) => hasRequiredPreferenceVisibilityMatch(currentUser, targetUser, 2);
+
+const isWithinSearchVisibilityRadius = (currentUser, targetUser, radiusKm = null) => isWithinExtendedSearchVisibilityRadius({
+  ...currentUser,
+  radius: Number.isFinite(Number(radiusKm)) ? Number(radiusKm) : currentUser?.radius,
+}, targetUser, targetUser?.distanceKm);
+
 export const AffairGoProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(createDefaultCurrentUser());
   const [users, setUsers] = useState(clone(INITIAL_USERS));
@@ -2283,7 +2321,7 @@ export const AffairGoProvider = ({ children }) => {
     setCurrentUser(normalizedProfile);
   setChats(normalizeStoredChats(sessionData?.chats));
     setSwipeHistory(Array.isArray(sessionData?.swipeHistory) ? sessionData.swipeHistory : []);
-    setDismissedProfiles(normalizeIdList(sessionData?.dismissedProfileIds));
+    setDismissedProfiles(getDismissedSwipeIds(sessionData?.swipeHistory));
     setCurrentRadius(normalizedProfile.radius || INITIAL_CURRENT_USER.radius);
     setIsAuthenticated(true);
 
@@ -2906,8 +2944,8 @@ export const AffairGoProvider = ({ children }) => {
   };
 
   const hasMutualDismiss = (profile) => {
-    const ownDismissedIds = normalizeIdList(currentUser.dismissedProfileIds);
-    const targetDismissedIds = normalizeIdList(profile.dismissedProfileIds);
+    const ownDismissedIds = getVisibilityDismissedIds(currentUser, chats);
+    const targetDismissedIds = getVisibilityDismissedIds(profile);
 
     return ownDismissedIds.includes(profile.id) || targetDismissedIds.includes(currentUser.id);
   };
@@ -2958,7 +2996,7 @@ export const AffairGoProvider = ({ children }) => {
       if (hasMutualDismiss(user)) {
         return false;
       }
-      if (user.distanceKm > currentRadius) {
+      if (!isWithinSearchVisibilityRadius(currentUser, user, currentRadius)) {
         return false;
       }
       if (photoAgeFilter && user.profilePhotoAgeMonths < photoAgeFilter) {
@@ -2970,7 +3008,7 @@ export const AffairGoProvider = ({ children }) => {
       if (!isMutualSearchMatch(currentUser, user)) {
         return false;
       }
-      return getCompatibility(currentUser, user) >= 30;
+      return hasRequiredPreferenceMatch(currentUser, user);
     })
     .sort((left, right) => {
       const priorityDifference = getTravelPriorityScore(currentUser, right) - getTravelPriorityScore(currentUser, left);
@@ -3711,11 +3749,13 @@ export const AffairGoProvider = ({ children }) => {
     });
 
     const nextSwipeHistory = [...swipeHistory, { profileId, action }];
-    const nextDismissedProfiles = [...dismissedProfiles, profileId];
+    const nextDismissedProfiles = action === 'dismiss'
+      ? addUniqueId(dismissedProfiles, profileId)
+      : dismissedProfiles.filter((id) => id !== profileId);
 
     setSwipeHistory(nextSwipeHistory);
     setDismissedProfiles(nextDismissedProfiles);
-    persistCurrentUserPatch({ swipeHistory: nextSwipeHistory, dismissedProfileIds: nextDismissedProfiles }).catch((error) => {
+    persistCurrentUserPatch({ swipeHistory: nextSwipeHistory }).catch((error) => {
       console.warn('AffairGo swipe persist warning', error);
     });
 
@@ -3756,10 +3796,10 @@ export const AffairGoProvider = ({ children }) => {
     }
     const lastSwipe = swipeHistory[swipeHistory.length - 1];
     const nextSwipeHistory = swipeHistory.slice(0, -1);
-    const nextDismissedProfiles = dismissedProfiles.filter((id, index) => id !== lastSwipe.profileId || index !== dismissedProfiles.lastIndexOf(lastSwipe.profileId));
+    const nextDismissedProfiles = getDismissedSwipeIds(nextSwipeHistory);
     setSwipeHistory(nextSwipeHistory);
     setDismissedProfiles(nextDismissedProfiles);
-    persistCurrentUserPatch({ swipeHistory: nextSwipeHistory, dismissedProfileIds: nextDismissedProfiles }).catch((error) => {
+    persistCurrentUserPatch({ swipeHistory: nextSwipeHistory }).catch((error) => {
       console.warn('AffairGo swipe rewind persist warning', error);
     });
 
