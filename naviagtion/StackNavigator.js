@@ -48,12 +48,13 @@ const StackNavigator = () => {
 
     const hasFirebaseSession = Boolean(auth.currentUser);
     const hasActiveSession = isAuthenticated || hasFirebaseSession;
+    const hasVerifiedSession = currentUser.isAdmin || auth.currentUser?.emailVerified !== false;
     const hasCompletedOnboarding = Boolean(currentUser.onboardingCompleted || currentUser.preferences?.length);
     const hasProfilePhoto = Boolean(currentUser.profilePhotoUrl || currentUser.profileImageUri);
     const nextAuthenticatedRoute = hasCompletedOnboarding ? 'Dashboard' : 'Onboarding';
     const isPublicRoute = PUBLIC_ROUTES.has(route.name);
 
-    if (hasActiveSession && isPublicRoute) {
+    if (hasActiveSession && hasVerifiedSession && isPublicRoute) {
       navigation.reset({ index: 0, routes: [{ name: nextAuthenticatedRoute }] });
       return;
     }
