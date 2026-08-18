@@ -315,7 +315,15 @@ const ChatScreen = () => {
             return (
               <Pressable key={chat.id} onPress={() => setSelectedChatId(chat.id)} style={[styles.chatItem, selectedChat?.id === chat.id && styles.chatItemActive]}>
                 <Text style={styles.chatName}>{partner?.nickname || 'Match'}</Text>
-                <Text style={styles.chatMeta}>{chat.inactivityDays > 7 ? 'Ghost-Warnung' : chat.match ? 'Match aktiv' : 'Vor Match'}</Text>
+                <Text style={styles.chatMeta}>
+                  {chat.unreadCount > 0
+                    ? `${chat.unreadCount} neu`
+                    : chat.inactivityDays > 7
+                      ? 'Ghost-Warnung'
+                      : chat.match
+                        ? 'Match aktiv'
+                        : 'Vor Match'}
+                </Text>
               </Pressable>
             );
           }) : <EmptyState title={EMPTY_STATE_COPY.chats.title} detail={EMPTY_STATE_COPY.chats.detail} />}

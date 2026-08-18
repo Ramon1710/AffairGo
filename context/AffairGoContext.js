@@ -29,7 +29,7 @@ import {
     startAt,
     where
 } from 'firebase/firestore';
-import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { geohashForLocation, geohashQueryBounds } from 'geofire-common';
 import {
     createContext,
@@ -49,12 +49,11 @@ import {
 } from '../constants/profilePersistenceProvider';
 import {
     approveProfileImage as approveVerifiedProfileImage,
-    createFaceLivenessSession as createProfilePhotoLivenessSession,
     getFaceLivenessResultAndCompareProfileImage as getProfilePhotoLivenessResultAndCompare,
     getProfilePhotoVerificationSetupInstructions,
     hasConfiguredProfilePhotoVerification,
     openFaceLivenessFlow,
-    rejectAndDeleteTempProfileImage as rejectTempProfileImage,
+    rejectAndDeleteTempProfileImage as rejectTempProfileImage
 } from '../constants/profilePhotoVerificationProvider';
 import {
     EXPLORE_CITIES,
@@ -95,6 +94,64 @@ const LOCATION_OBFUSCATION_MAX_METERS = 450;
 const EVENT_FALLBACK_GEOKM = 2;
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
+const createLocalEntityId = (prefix) => `${prefix}${Date.now()}${Math.random().toString(36).slice(2, 8)}`;
+const buildDirectChatId = (firstUserId = '', secondUserId = '') => `chat_${[firstUserId, secondUserId].filter(Boolean).sort().join('__')}`;
+
+const normalizeStoredMessages = (messages = []) => {
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+
+  return messages
+    .filter((message) => typeof message?.text === 'string' && message.text.trim())
+    .map((message) => ({
+      id: message.id || createLocalEntityId('m'),
+      from: typeof message.from === 'string' && message.from ? message.from : 'system',
+      text: message.text.trim(),
+      time: typeof message.time === 'string' && message.time ? message.time : 'Jetzt',
+    }));
+};
+
+const normalizeStoredChats = (rawChats = []) => {
+  if (!Array.isArray(rawChats)) {
+    return [];
+  }
+
+  return rawChats
+    .filter((chat) => typeof chat?.userId === 'string' && chat.userId)
+    .map((chat, index) => ({
+      id: chat.id || `c_${chat.userId}_${index}`,
+      userId: chat.userId,
+      match: chat.match !== false,
+      inactivityDays: Number.isFinite(Number(chat.inactivityDays)) ? Number(chat.inactivityDays) : 0,
+      unreadCount: Number.isFinite(Number(chat.unreadCount)) ? Math.max(0, Number(chat.unreadCount)) : 0,
+      messages: normalizeStoredMessages(chat.messages),
+    }));
+};
+
+const upsertChatThread = (chatList, { ownerUserId = '', partnerUserId, appendMessage = null, unreadCount }) => {
+  const normalizedChats = normalizeStoredChats(chatList);
+  const existingChat = normalizedChats.find((chat) => chat.userId === partnerUserId);
+  const resolvedUnreadCount = Number.isFinite(Number(unreadCount))
+    ? Math.max(0, Number(unreadCount))
+    : (Number(existingChat?.unreadCount) || 0);
+
+  const nextChat = {
+    id: existingChat?.id || buildDirectChatId(ownerUserId, partnerUserId),
+    userId: partnerUserId,
+    match: true,
+    inactivityDays: 0,
+    unreadCount: resolvedUnreadCount,
+    messages: appendMessage
+      ? [...(existingChat?.messages || []), appendMessage]
+      : (existingChat?.messages || []),
+  };
+
+  return [nextChat, ...normalizedChats.filter((chat) => chat.userId !== partnerUserId)];
+};
+
+const removeChatThread = (chatList, partnerUserId) => normalizeStoredChats(chatList).filter((chat) => chat.userId !== partnerUserId);
+
 const PROFILE_VERIFICATION_FAILURE_MESSAGES = {
   FACE_MISMATCH: 'Das Profilbild passt nicht zum Live-Selfie. Das temporäre Bild wurde verworfen.',
   LIVENESS_FAILED: 'Die Live-Selfie-Prüfung war nicht erfolgreich. Das temporäre Bild wurde verworfen.',
@@ -2224,7 +2281,7 @@ export const AffairGoProvider = ({ children }) => {
     const normalizedProfile = normalizeUserProfile(resolvedProfile, firebaseUser);
 
     setCurrentUser(normalizedProfile);
-    setChats(Array.isArray(sessionData?.chats) ? sessionData.chats : []);
+  setChats(normalizeStoredChats(sessionData?.chats));
     setSwipeHistory(Array.isArray(sessionData?.swipeHistory) ? sessionData.swipeHistory : []);
     setDismissedProfiles(normalizeIdList(sessionData?.dismissedProfileIds));
     setCurrentRadius(normalizedProfile.radius || INITIAL_CURRENT_USER.radius);
@@ -2371,8 +2428,10 @@ export const AffairGoProvider = ({ children }) => {
             return;
           }
 
-          const normalizedProfile = normalizeUserProfile({ id: profileSnapshot.id, ...profileSnapshot.data() }, firebaseUser);
+          const snapshotData = profileSnapshot.data();
+          const normalizedProfile = normalizeUserProfile({ id: profileSnapshot.id, ...snapshotData }, firebaseUser);
           setCurrentUser((previous) => ({ ...previous, ...normalizedProfile }));
+          setChats(normalizeStoredChats(snapshotData?.chats));
         }, (error) => {
           console.warn('AffairGo profile realtime warning', error);
         });
@@ -2658,6 +2717,20 @@ export const AffairGoProvider = ({ children }) => {
     } catch (error) {
       console.warn('AffairGo patch save warning', error);
     }
+  };
+
+  const updateChatsForUser = async (ownerUserId, updater) => {
+    if (!ownerUserId || ownerUserId === 'me') {
+      return [];
+    }
+
+    const profileRef = doc(db, 'users', ownerUserId);
+    const profileSnapshot = await getDoc(profileRef);
+    const existingChats = normalizeStoredChats(profileSnapshot.exists() ? profileSnapshot.data()?.chats : []);
+    const nextChats = normalizeStoredChats(updater(existingChats));
+
+    await setDoc(profileRef, { chats: nextChats }, { merge: true });
+    return nextChats;
   };
 
   const persistModerationAuditEntry = async (entry, extraPatch = {}) => {
@@ -3651,25 +3724,29 @@ export const AffairGoProvider = ({ children }) => {
     }
 
     if (action === 'like') {
-      const existingChat = chats.find((chat) => chat.userId === profileId);
-      if (!existingChat) {
-        const nextChats = [
-          {
-            id: `c${Date.now()}`,
-            userId: profileId,
-            match: true,
-            inactivityDays: 0,
-            messages: [
-              { id: `m${Date.now()}`, from: profileId, text: 'Match! Lass uns direkt entspannt starten.', time: 'Jetzt' },
-            ],
-          },
-          ...chats,
-        ];
-        setChats(nextChats);
-        persistCurrentUserPatch({ chats: nextChats }).catch((error) => {
-          console.warn('AffairGo chat bootstrap persist warning', error);
+      const activeUserId = auth.currentUser?.uid || currentUser.id;
+      const nextChats = upsertChatThread(chats, {
+        ownerUserId: activeUserId,
+        partnerUserId: profileId,
+        unreadCount: 0,
+      });
+
+      setChats(nextChats);
+      persistCurrentUserPatch({ chats: nextChats }).catch((error) => {
+        console.warn('AffairGo chat bootstrap persist warning', error);
+      });
+
+      updateChatsForUser(profileId, (remoteChats) => {
+        const existingRemoteChat = remoteChats.find((chat) => chat.userId === activeUserId);
+
+        return upsertChatThread(remoteChats, {
+          ownerUserId: profileId,
+          partnerUserId: activeUserId,
+          unreadCount: existingRemoteChat ? Number(existingRemoteChat.unreadCount) || 0 : 1,
         });
-      }
+      }).catch((error) => {
+        console.warn('AffairGo reciprocal chat bootstrap warning', error);
+      });
     }
   };
 
@@ -3694,42 +3771,44 @@ export const AffairGoProvider = ({ children }) => {
   };
 
   const sendMessage = async (userId, text) => {
-    if (!text.trim()) {
+    const trimmedText = text.trim();
+
+    if (!trimmedText) {
       return;
     }
 
     await moderateAuthenticatedAction({
       actionType: 'send_message',
       targetUserId: userId,
-      content: text.trim(),
-      metadata: { textLength: text.trim().length },
+      content: trimmedText,
+      metadata: { textLength: trimmedText.length },
     });
 
-    const existing = chats.find((chat) => chat.userId === userId);
-    const nextChats = !existing
-      ? [
-          {
-            id: `c${Date.now()}`,
-            userId,
-            match: true,
-            inactivityDays: 0,
-            messages: [{ id: `m${Date.now()}`, from: 'me', text: text.trim(), time: 'Jetzt' }],
-          },
-          ...chats,
-        ]
-      : chats.map((chat) =>
-          chat.userId === userId
-            ? {
-                ...chat,
-                inactivityDays: 0,
-                messages: [...chat.messages, { id: `m${Date.now()}`, from: 'me', text: text.trim(), time: 'Jetzt' }],
-              }
-            : chat
-        );
+    const activeUserId = auth.currentUser?.uid || currentUser.id;
+    const localMessage = { id: createLocalEntityId('m'), from: 'me', text: trimmedText, time: 'Jetzt' };
+    const nextChats = upsertChatThread(chats, {
+      ownerUserId: activeUserId,
+      partnerUserId: userId,
+      appendMessage: localMessage,
+      unreadCount: 0,
+    });
 
     setChats(nextChats);
     persistCurrentUserPatch({ chats: nextChats }).catch((error) => {
       console.warn('AffairGo chat persist warning', error);
+    });
+
+    updateChatsForUser(userId, (remoteChats) => {
+      const existingRemoteChat = remoteChats.find((chat) => chat.userId === activeUserId);
+
+      return upsertChatThread(remoteChats, {
+        ownerUserId: userId,
+        partnerUserId: activeUserId,
+        appendMessage: { ...localMessage, from: activeUserId },
+        unreadCount: (Number(existingRemoteChat?.unreadCount) || 0) + 1,
+      });
+    }).catch((error) => {
+      console.warn('AffairGo reciprocal chat persist warning', error);
     });
   };
 
@@ -3740,13 +3819,19 @@ export const AffairGoProvider = ({ children }) => {
       metadata: { reason },
     });
 
-    const nextChats = chats.filter((chat) => chat.userId !== userId);
+    const nextChats = removeChatThread(chats, userId);
     setChats(nextChats);
     setDismissedProfiles((previous) => [...previous, userId]);
     persistCurrentUserPatch({ chats: nextChats }).catch((error) => {
       console.warn('AffairGo soft block persist warning', error);
     });
     setMutualDismissState(userId, true);
+
+    const activeUserId = auth.currentUser?.uid || currentUser.id;
+
+    updateChatsForUser(userId, (remoteChats) => removeChatThread(remoteChats, activeUserId)).catch((error) => {
+      console.warn('AffairGo reciprocal soft block warning', error);
+    });
   };
 
   const createEvent = async (payload) => {
