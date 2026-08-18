@@ -1920,6 +1920,14 @@ const resolveUploadBlob = async (assetOrUri) => {
   return readBlobFromUri(assetUri);
 };
 
+const hasUploadBinarySource = (assetOrUri) => {
+  if (!assetOrUri || typeof assetOrUri === 'string') {
+    return false;
+  }
+
+  return assetOrUri.file instanceof Blob || assetOrUri.blob instanceof Blob;
+};
+
 const resolveUploadExtension = (assetOrUri, assetUri) => {
   const fileName = typeof assetOrUri === 'string' ? '' : assetOrUri?.fileName || assetOrUri?.name || '';
   const mimeType = typeof assetOrUri === 'string' ? '' : assetOrUri?.mimeType || '';
@@ -1943,11 +1951,11 @@ const resolveUploadExtension = (assetOrUri, assetUri) => {
 const uploadMediaAsset = async (folder, assetOrUri, ownerId) => {
   const assetUri = typeof assetOrUri === 'string' ? assetOrUri : assetOrUri?.uri;
 
-  if (!assetUri) {
-    return '';
+  if (!assetUri && !hasUploadBinarySource(assetOrUri)) {
+    throw new Error('Die ausgewaehlte Bilddatei enthaelt keine nutzbaren Upload-Daten. Bitte waehle das Bild erneut aus.');
   }
 
-  if (/^https?:\/\//i.test(assetUri)) {
+  if (assetUri && /^https?:\/\//i.test(assetUri)) {
     return assetUri;
   }
 
@@ -1966,11 +1974,11 @@ const uploadMediaAsset = async (folder, assetOrUri, ownerId) => {
 const uploadMediaAssetToStoragePath = async (folder, assetOrUri, ownerId) => {
   const assetUri = typeof assetOrUri === 'string' ? assetOrUri : assetOrUri?.uri;
 
-  if (!assetUri) {
+  if (!assetUri && !hasUploadBinarySource(assetOrUri)) {
     throw new Error('Es wurde kein Bild zum Hochladen ausgewählt.');
   }
 
-  if (/^https?:\/\//i.test(assetUri)) {
+  if (assetUri && /^https?:\/\//i.test(assetUri)) {
     throw new Error('Für die Verifizierung sind nur lokale Bilddateien erlaubt.');
   }
 

@@ -60,7 +60,7 @@ const ProfilScreen = () => {
   const { width } = useWindowDimensions();
   const navigation = useNavigation();
   const route = useRoute();
-  const { currentUser, users, chats, updateCurrentUser, addGalleryItem, logout, preferenceOptions, tabooOptions, getCompatibility, changePassword, getProfileTravelSummary, verifyPendingEmail, accessStatusLabel, confirmPendingNickname, exportMyData, requestAccountDeletion, updateProfilePhoto, completeProfilePhotoVerification, discardPendingProfilePhotoVerification, launchProfilePhotoLivenessFlow, reportUser, moderationBackendConfigured, moderationAuditTrail, moderationFlags } = useAffairGo();
+  const { currentUser, users, chats, updateCurrentUser, addGalleryItem, logout, preferenceOptions, tabooOptions, getCompatibility, changePassword, getProfileTravelSummary, verifyPendingEmail, accessStatusLabel, confirmPendingNickname, exportMyData, requestAccountDeletion, updateProfilePhoto, completeProfilePhotoVerification, discardPendingProfilePhotoVerification, launchProfilePhotoLivenessFlow, profilePhotoVerificationConfigured, reportUser, moderationBackendConfigured, moderationAuditTrail, moderationFlags } = useAffairGo();
   const isCompactWeb = Platform.OS === 'web' && width < 768;
   const viewedProfile = useMemo(() => (route.params?.profileId ? users.find((entry) => entry.id === route.params.profileId) : currentUser), [currentUser, route.params?.profileId, users]);
   const isOwnProfile = !route.params?.profileId || route.params.profileId === currentUser.id;
@@ -306,7 +306,7 @@ const ProfilScreen = () => {
         return;
       }
 
-      if (Platform.OS === 'web') {
+      if (Platform.OS === 'web' && profilePhotoVerificationConfigured) {
         openWebLivenessPlaceholderPopup();
         openedPopup = true;
       }
