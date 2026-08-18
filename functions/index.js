@@ -199,6 +199,60 @@ const normalizeOptionalNumber = (value, fallback = null) => {
   return Number.isFinite(numericValue) ? numericValue : fallback;
 };
 const normalizeStringList = (value) => (Array.isArray(value) ? value.map((entry) => String(entry || '').trim()).filter(Boolean) : []);
+const createChatEntityId = (prefix) => `${prefix}${Date.now()}${Math.random().toString(36).slice(2, 8)}`;
+const buildDirectChatId = (firstUserId = '', secondUserId = '') => `chat_${[firstUserId, secondUserId].filter(Boolean).sort().join('__')}`;
+const normalizeStoredMessages = (messages = []) => {
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+
+  return messages
+    .filter((message) => typeof message?.text === 'string' && message.text.trim())
+    .map((message) => ({
+      id: normalizeOptionalString(message.id) || createChatEntityId('m'),
+      from: normalizeOptionalString(message.from) || 'system',
+      text: normalizeOptionalString(message.text),
+      time: normalizeOptionalString(message.time) || 'Jetzt',
+    }));
+};
+const normalizeStoredChats = (chats = []) => {
+  if (!Array.isArray(chats)) {
+    return [];
+  }
+
+  return chats
+    .filter((chat) => normalizeOptionalString(chat?.userId))
+    .map((chat, index) => ({
+      id: normalizeOptionalString(chat.id) || `c_${normalizeOptionalString(chat.userId)}_${index}`,
+      userId: normalizeOptionalString(chat.userId),
+      match: chat.match !== false,
+      inactivityDays: normalizeOptionalNumber(chat.inactivityDays, 0) || 0,
+      unreadCount: Math.max(0, normalizeOptionalNumber(chat.unreadCount, 0) || 0),
+      messages: normalizeStoredMessages(chat.messages),
+    }));
+};
+const upsertChatThread = (chatList, { ownerUserId = '', partnerUserId, appendMessage = null, unreadCount = null, unreadIncrement = 0 }) => {
+  const normalizedChats = normalizeStoredChats(chatList);
+  const existingChat = normalizedChats.find((chat) => chat.userId === partnerUserId);
+  const baseUnreadCount = Number(existingChat?.unreadCount) || 0;
+  const resolvedUnreadCount = Number.isFinite(Number(unreadCount))
+    ? Math.max(0, Number(unreadCount))
+    : Math.max(0, baseUnreadCount + (Number(unreadIncrement) || 0));
+
+  const nextChat = {
+    id: existingChat?.id || buildDirectChatId(ownerUserId, partnerUserId),
+    userId: partnerUserId,
+    match: true,
+    inactivityDays: 0,
+    unreadCount: resolvedUnreadCount,
+    messages: appendMessage
+      ? [...(existingChat?.messages || []), appendMessage]
+      : (existingChat?.messages || []),
+  };
+
+  return [nextChat, ...normalizedChats.filter((chat) => chat.userId !== partnerUserId)];
+};
+const removeChatThread = (chatList, partnerUserId) => normalizeStoredChats(chatList).filter((chat) => chat.userId !== partnerUserId);
 const normalizeTravelPlans = (travelPlans = {}) => ({
   business: Array.isArray(travelPlans?.business) ? travelPlans.business : [],
   vacation: Array.isArray(travelPlans?.vacation) ? travelPlans.vacation : [],
@@ -451,6 +505,71 @@ exports.applyUserProfilePatch = onCall({
   return {
     saved: true,
     uid,
+  };
+});
+
+exports.syncPeerChatState = onCall({
+  region: FIREBASE_REGION,
+}, async (request) => {
+  const uid = assertAuthenticated(request);
+  const targetUserId = assertString(request.data?.targetUserId, 'targetUserId');
+  const action = assertString(request.data?.action, 'action');
+
+  if (targetUserId === uid) {
+    throw new HttpsError('invalid-argument', 'Peer-Chat-Sync benötigt ein anderes Zielprofil.');
+  }
+
+  const firestore = getFirestore();
+  const targetUserRef = firestore.collection('users').doc(targetUserId);
+
+  await firestore.runTransaction(async (transaction) => {
+    const targetUserSnapshot = await transaction.get(targetUserRef);
+
+    if (!targetUserSnapshot.exists) {
+      throw new HttpsError('not-found', 'Das Zielprofil wurde nicht gefunden.');
+    }
+
+    const existingChats = normalizeStoredChats(targetUserSnapshot.data()?.chats);
+    let nextChats = existingChats;
+
+    if (action === 'ensure_match') {
+      nextChats = upsertChatThread(existingChats, {
+        ownerUserId: targetUserId,
+        partnerUserId: uid,
+        unreadCount: normalizeOptionalNumber(request.data?.unreadCount, 0) || 0,
+      });
+    } else if (action === 'append_message') {
+      const rawMessage = request.data?.message;
+      const text = normalizeOptionalString(rawMessage?.text);
+
+      if (!text) {
+        throw new HttpsError('invalid-argument', 'Nachrichtentext fehlt.');
+      }
+
+      nextChats = upsertChatThread(existingChats, {
+        ownerUserId: targetUserId,
+        partnerUserId: uid,
+        appendMessage: {
+          id: normalizeOptionalString(rawMessage?.id) || createChatEntityId('m'),
+          from: uid,
+          text,
+          time: normalizeOptionalString(rawMessage?.time) || 'Jetzt',
+        },
+        unreadIncrement: normalizeOptionalNumber(request.data?.unreadIncrement, 1) || 1,
+      });
+    } else if (action === 'remove_chat') {
+      nextChats = removeChatThread(existingChats, uid);
+    } else {
+      throw new HttpsError('invalid-argument', 'Unbekannte Peer-Chat-Aktion.');
+    }
+
+    transaction.set(targetUserRef, { chats: nextChats }, { merge: true });
+  });
+
+  return {
+    saved: true,
+    targetUserId,
+    action,
   };
 });
 

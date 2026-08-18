@@ -14,3 +14,11 @@ export const finalizeRegistrationProfile = async ({ profile }) => callFunction('
 export const applyUserProfilePatch = async ({ patch }) => callFunction('applyUserProfilePatch', {
   patch,
 });
+
+export const syncPeerChatState = async ({ targetUserId, action, message = null, unreadCount = null, unreadIncrement = null }) => callFunction('syncPeerChatState', {
+  targetUserId,
+  action,
+  message,
+  unreadCount,
+  unreadIncrement,
+});

@@ -46,6 +46,7 @@ import { getPaymentProviderLabel, getPaymentSetupInstructions, hasConfiguredPaym
 import {
     applyUserProfilePatch as applyUserProfilePatchWithProvider,
     finalizeRegistrationProfile as finalizeRegistrationProfileWithProvider,
+    syncPeerChatState as syncPeerChatStateWithProvider,
 } from '../constants/profilePersistenceProvider';
 import {
     approveProfileImage as approveVerifiedProfileImage,
@@ -2757,18 +2758,15 @@ export const AffairGoProvider = ({ children }) => {
     }
   };
 
-  const updateChatsForUser = async (ownerUserId, updater) => {
+  const updateChatsForUser = async (ownerUserId, payload) => {
     if (!ownerUserId || ownerUserId === 'me') {
-      return [];
+      return { skipped: true };
     }
 
-    const profileRef = doc(db, 'users', ownerUserId);
-    const profileSnapshot = await getDoc(profileRef);
-    const existingChats = normalizeStoredChats(profileSnapshot.exists() ? profileSnapshot.data()?.chats : []);
-    const nextChats = normalizeStoredChats(updater(existingChats));
-
-    await setDoc(profileRef, { chats: nextChats }, { merge: true });
-    return nextChats;
+    return syncPeerChatStateWithProvider({
+      targetUserId: ownerUserId,
+      ...payload,
+    });
   };
 
   const persistModerationAuditEntry = async (entry, extraPatch = {}) => {
@@ -3776,14 +3774,9 @@ export const AffairGoProvider = ({ children }) => {
         console.warn('AffairGo chat bootstrap persist warning', error);
       });
 
-      updateChatsForUser(profileId, (remoteChats) => {
-        const existingRemoteChat = remoteChats.find((chat) => chat.userId === activeUserId);
-
-        return upsertChatThread(remoteChats, {
-          ownerUserId: profileId,
-          partnerUserId: activeUserId,
-          unreadCount: existingRemoteChat ? Number(existingRemoteChat.unreadCount) || 0 : 1,
-        });
+      updateChatsForUser(profileId, {
+        action: 'ensure_match',
+        unreadCount: 1,
       }).catch((error) => {
         console.warn('AffairGo reciprocal chat bootstrap warning', error);
       });
@@ -3838,15 +3831,10 @@ export const AffairGoProvider = ({ children }) => {
       console.warn('AffairGo chat persist warning', error);
     });
 
-    updateChatsForUser(userId, (remoteChats) => {
-      const existingRemoteChat = remoteChats.find((chat) => chat.userId === activeUserId);
-
-      return upsertChatThread(remoteChats, {
-        ownerUserId: userId,
-        partnerUserId: activeUserId,
-        appendMessage: { ...localMessage, from: activeUserId },
-        unreadCount: (Number(existingRemoteChat?.unreadCount) || 0) + 1,
-      });
+    updateChatsForUser(userId, {
+      action: 'append_message',
+      message: { ...localMessage, from: activeUserId },
+      unreadIncrement: 1,
     }).catch((error) => {
       console.warn('AffairGo reciprocal chat persist warning', error);
     });
@@ -3869,7 +3857,9 @@ export const AffairGoProvider = ({ children }) => {
 
     const activeUserId = auth.currentUser?.uid || currentUser.id;
 
-    updateChatsForUser(userId, (remoteChats) => removeChatThread(remoteChats, activeUserId)).catch((error) => {
+    updateChatsForUser(userId, {
+      action: 'remove_chat',
+    }).catch((error) => {
       console.warn('AffairGo reciprocal soft block warning', error);
     });
   };
