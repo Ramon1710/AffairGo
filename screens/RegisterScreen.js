@@ -16,6 +16,7 @@ const { expo } = require('../app.json');
 const currentYear = new Date().getFullYear();
 const yearOptions = Array.from({ length: 82 }, (_, index) => currentYear - 18 - index);
 const PRIVACY_POLICY_URL = `${String(process.env.EXPO_PUBLIC_WEBSITE_URL || expo?.extra?.websiteUrl || 'https://night-whisper.com').replace(/\/$/, '')}/datenschutz`;
+const hasUploadableAssetData = (asset) => Boolean(asset?.uri || asset?.file instanceof Blob || asset?.blob instanceof Blob);
 
 const createEmptyAgeVerificationState = () => ({
   ageVerified: false,
@@ -157,7 +158,7 @@ const RegisterScreen = () => {
       ...previous,
       [key]: asset,
       ...(key === 'profileImageAsset'
-        ? { profileImageUploaded: Boolean(asset?.uri), ...createEmptySelfieVerificationState() }
+        ? { profileImageUploaded: hasUploadableAssetData(asset), ...createEmptySelfieVerificationState() }
         : key === 'documentAsset'
           ? createEmptyAgeVerificationState()
           : { ...createEmptyAgeVerificationState(), ...createEmptySelfieVerificationState() }),

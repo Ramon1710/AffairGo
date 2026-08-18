@@ -245,6 +245,10 @@ const mergeRegistrationPayloadWithDraft = (payload = {}) => {
     mergedPayload.profileImageUploaded = draft.profileImageUploaded;
   }
 
+  if (!mergedPayload.profileImageUploaded && (mergedPayload.profileImageAsset?.uri || mergedPayload.profileImageAsset?.file instanceof Blob || mergedPayload.profileImageAsset?.blob instanceof Blob)) {
+    mergedPayload.profileImageUploaded = true;
+  }
+
   return mergedPayload;
 };
 
@@ -261,7 +265,7 @@ const buildCachedRegistrationProfileFromDraft = (uid, email = '') => {
       email: String(draft.email || email || '').trim().toLowerCase(),
       profileImageUri: draft.profilePhotoUrl || draft.profileImageUri || draft.profileImageAsset?.uri || '',
       profilePhotoUrl: draft.profilePhotoUrl || draft.profileImageUri || draft.profileImageAsset?.uri || '',
-      profileImageUploaded: Boolean(draft.profileImageUploaded || draft.profileImageAsset?.uri),
+      profileImageUploaded: Boolean(draft.profileImageUploaded || draft.profileImageAsset?.uri || draft.profileImageAsset?.file instanceof Blob || draft.profileImageAsset?.blob instanceof Blob),
       profilePhotoVerified: Boolean(draft.profilePhotoVerified),
       profilePhotoVerifiedAt: draft.profilePhotoVerifiedAt || '',
       faceMatchSimilarity: Number.isFinite(Number(draft.faceMatchSimilarity)) ? Number(draft.faceMatchSimilarity) : 0,
@@ -1928,6 +1932,18 @@ const hasUploadBinarySource = (assetOrUri) => {
   return assetOrUri.file instanceof Blob || assetOrUri.blob instanceof Blob;
 };
 
+const hasUploadableAssetData = (assetOrUri) => {
+  if (!assetOrUri) {
+    return false;
+  }
+
+  if (typeof assetOrUri === 'string') {
+    return Boolean(assetOrUri.trim());
+  }
+
+  return Boolean(assetOrUri.uri) || hasUploadBinarySource(assetOrUri);
+};
+
 const resolveUploadExtension = (assetOrUri, assetUri) => {
   const fileName = typeof assetOrUri === 'string' ? '' : assetOrUri?.fileName || assetOrUri?.name || '';
   const mimeType = typeof assetOrUri === 'string' ? '' : assetOrUri?.mimeType || '';
@@ -3106,7 +3122,7 @@ export const AffairGoProvider = ({ children }) => {
         throw error;
       }
 
-      const uploadedProfilePhotoUrl = normalizedPayload.profileImageAsset?.uri
+      const uploadedProfilePhotoUrl = hasUploadableAssetData(normalizedPayload.profileImageAsset)
         ? await uploadMediaAsset('profileImages', normalizedPayload.profileImageAsset, credentials.user.uid)
         : '';
       const profile = buildRegistrationProfile({
