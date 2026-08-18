@@ -1686,26 +1686,18 @@ const tryStoreRegistrationProfile = async (profile, userId, firebaseUser = null)
   };
 
   try {
-    await persistProfileViaFunctionFallback(profile, 'register-function-primary');
-    await verifyPersistedProfile('register-function-primary');
+    await persistOnce('client-primary');
     return true;
-  } catch (error) {
-    console.warn('AffairGo registration profile save warning (function-primary)', error);
+  } catch (clientError) {
+    console.warn('AffairGo registration profile save warning (client-primary)', clientError);
 
     try {
-      await persistOnce('client-fallback-initial');
+      await persistProfileViaFunctionFallback(profile, 'register-function-fallback');
+      await verifyPersistedProfile('register-function-fallback');
       return true;
-    } catch (retryError) {
-      console.warn('AffairGo registration profile save warning (client-fallback-initial)', retryError);
-
-      try {
-        await persistProfileViaFunctionFallback(profile, 'register-function-retry');
-        await verifyPersistedProfile('register-function-retry');
-        return true;
-      } catch (fallbackError) {
-        console.warn('AffairGo registration profile save warning (register-function-retry)', fallbackError);
-        return false;
-      }
+    } catch (fallbackError) {
+      console.warn('AffairGo registration profile save warning (register-function-fallback)', fallbackError);
+      return false;
     }
   }
 };
@@ -2571,6 +2563,12 @@ export const AffairGoProvider = ({ children }) => {
     console.log('AffairGo SAVE PAYLOAD patch', buildDebugProfilePayload(storedProfile));
 
     try {
+      await setDoc(doc(db, 'users', userId), patch, { merge: true });
+    } catch (error) {
+      console.warn('AffairGo direct patch save warning', error);
+    }
+
+    try {
       await withTimeout(
         applyUserProfilePatchWithProvider({ patch }),
         10000,
@@ -2578,8 +2576,6 @@ export const AffairGoProvider = ({ children }) => {
       );
     } catch (error) {
       console.warn('AffairGo patch save warning', error);
-
-      await setDoc(doc(db, 'users', userId), patch, { merge: true });
     }
   };
 
