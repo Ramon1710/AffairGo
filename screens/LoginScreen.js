@@ -22,7 +22,6 @@ const LoginScreen = () => {
   const [forcePasswordChangeOpen, setForcePasswordChangeOpen] = useState(false);
   const [passwordChangeError, setPasswordChangeError] = useState('');
   const [pendingNextRoute, setPendingNextRoute] = useState('Dashboard');
-  const [pendingLoginRoute, setPendingLoginRoute] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResetSubmitting, setIsResetSubmitting] = useState(false);
   const [isResendingVerification, setIsResendingVerification] = useState(false);
@@ -40,32 +39,24 @@ const LoginScreen = () => {
     setSuccessOpen(Boolean(route.params?.showSuccessModal));
   }, [route.params]);
 
-  useEffect(() => {
-    if (!isAuthReady || !isAuthenticated || !pendingLoginRoute || forcePasswordChangeOpen) {
-      return;
-    }
-
-    navigation.reset({ index: 0, routes: [{ name: pendingLoginRoute }] });
-    setPendingLoginRoute('');
-  }, [forcePasswordChangeOpen, isAuthReady, isAuthenticated, navigation, pendingLoginRoute]);
-
   const handleLogin = async () => {
     try {
       setError('');
       setInfo('');
-      setPendingLoginRoute('');
       setIsSubmitting(true);
       const result = await login({ identifier, password });
+      const nextRoute = result.needsOnboarding ? 'Onboarding' : 'Dashboard';
+
       if (result.requiresPasswordChange) {
-        setPendingNextRoute(result.needsOnboarding ? 'Onboarding' : 'Dashboard');
+        setPendingNextRoute(nextRoute);
         setForcePasswordChangeOpen(true);
         setInfo('Bitte ändere jetzt dein Passwort, bevor du die App weiter nutzt.');
         return;
       }
-      setPendingLoginRoute(result.needsOnboarding ? 'Onboarding' : 'Dashboard');
+
+      navigation.reset({ index: 0, routes: [{ name: nextRoute }] });
     } catch (loginError) {
       setError(loginError.message);
-      setPendingLoginRoute('');
     } finally {
       setIsSubmitting(false);
     }
@@ -171,6 +162,8 @@ const LoginScreen = () => {
           onChangeText={setPassword}
           placeholder="Passwort"
           secureTextEntry={!showPassword}
+          onSubmitEditing={handleLogin}
+          returnKeyType="go"
           right={
             <Pressable onPress={() => setShowPassword((value) => !value)}>
               <Ionicons name={passwordIcon} size={20} color={affairGoTheme.colors.textMuted} />
