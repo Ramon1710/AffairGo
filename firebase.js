@@ -8,16 +8,12 @@ import { getStorage } from 'firebase/storage';
 
 const normalizeStorageBucket = (value, projectId) => {
   if (!value) {
-    return `${projectId}.appspot.com`;
+    return `${projectId}.firebasestorage.app`;
   }
 
   const normalizedValue = value
     .replace(/^https?:\/\//i, '')
     .replace(/\/.*$/, '');
-
-  if (/\.firebasestorage\.app$/i.test(normalizedValue)) {
-    return normalizedValue.replace(/\.firebasestorage\.app$/i, '.appspot.com');
-  }
 
   return normalizedValue;
 };
