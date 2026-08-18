@@ -345,6 +345,70 @@ const clearCachedRegistrationProfile = (uid = '') => {
   }
 };
 
+const REGISTRATION_PROFILE_REPAIR_FIELDS = [
+  'nickname',
+  'firstName',
+  'lastName',
+  'birthDay',
+  'birthMonth',
+  'birthYear',
+  'birthLabel',
+  'age',
+  'gender',
+  'height',
+  'figure',
+  'penisSize',
+  'braSize',
+  'hairColor',
+  'eyeColor',
+  'skinType',
+  'profilePhotoUrl',
+  'profileImageUri',
+  'profileImageUploaded',
+  'verified',
+  'privacyConsentAccepted',
+  'privacyConsentAcceptedAt',
+  'ageVerified',
+  'ageVerificationStatus',
+  'ageVerificationProvider',
+  'ageVerificationCheckedAt',
+];
+
+const isMissingRegistrationProfileCore = (profile = {}) => {
+  const hasName = String(profile.firstName || '').trim() && String(profile.lastName || '').trim();
+  const hasBirthData = String(profile.birthLabel || '').trim() || (String(profile.birthDay || '').trim() && String(profile.birthYear || '').trim());
+  const hasPhysicalProfile = String(profile.height || '').trim() && String(profile.gender || '').trim() && String(profile.figure || '').trim();
+
+  return !(hasName && hasBirthData && hasPhysicalProfile);
+};
+
+const mergeRegistrationCacheIntoProfile = (profileData = {}, cachedRegistrationProfile = null) => {
+  if (!cachedRegistrationProfile) {
+    return profileData;
+  }
+
+  const mergedProfile = { ...profileData };
+
+  REGISTRATION_PROFILE_REPAIR_FIELDS.forEach((field) => {
+    const currentValue = mergedProfile[field];
+    const cachedValue = cachedRegistrationProfile[field];
+    const hasCurrentString = typeof currentValue === 'string' && currentValue.trim();
+    const hasCachedString = typeof cachedValue === 'string' && cachedValue.trim();
+    const hasCurrentNumber = Number.isFinite(Number(currentValue)) && String(currentValue).trim() !== '';
+    const hasCachedNumber = Number.isFinite(Number(cachedValue)) && String(cachedValue).trim() !== '';
+
+    if (hasCurrentString || hasCurrentNumber || currentValue === true) {
+      return;
+    }
+
+    if (hasCachedString || hasCachedNumber || cachedValue === true) {
+      mergedProfile[field] = cachedValue;
+    }
+  });
+
+  return mergedProfile;
+};
+
 const createEmptyTravelPlanEntry = () => ({
   id: '',
   startDate: '',
@@ -363,21 +427,28 @@ const createEmptyTravelPlans = () => ({
 });
 
 const createDefaultCurrentUser = () => ({
-  ...clone(INITIAL_CURRENT_USER),
   id: 'me',
   email: '',
+  password: '',
   nickname: '',
   firstName: '',
   lastName: '',
+  birthLabel: '',
   birthDay: '',
   birthMonth: 0,
   birthYear: new Date().getFullYear() - 18,
   age: 18,
+  gender: '',
   height: '',
+  figure: '',
+  hairColor: '',
+  eyeColor: '',
+  skinType: '',
   braSize: '',
   penisSize: '',
   city: '',
   gallery: [],
+  profileImageUploaded: false,
   preferences: [],
   taboos: [],
   verified: false,
@@ -420,10 +491,13 @@ const createDefaultCurrentUser = () => ({
   points: 0,
   rewardLog: [],
   joinedLabel: 'Neu',
+  radius: INITIAL_CURRENT_USER.radius,
   profileImageUri: '',
   profilePhotoUrl: '',
+  verificationState: 'review',
   profilePhotoVerified: false,
   profilePhotoVerifiedAt: '',
+  profilePhotoAgeMonths: 0,
   faceMatchSimilarity: 0,
   moderationState: 'clear',
   moderationFlags: [],
@@ -2170,6 +2244,12 @@ export const AffairGoProvider = ({ children }) => {
         __profileExists: false,
         __profileLookup: 'cached-registration',
       };
+    } else if (profileData.__profileLookup === 'found' && cachedRegistrationProfile && isMissingRegistrationProfileCore(profileData)) {
+      profileData = {
+        ...mergeRegistrationCacheIntoProfile(profileData, cachedRegistrationProfile),
+        __profileExists: true,
+        __profileLookup: 'cached-registration-repair',
+      };
     }
 
     let normalizedProfile = hydrateAuthenticatedSession(profileData, firebaseUser);
@@ -2178,19 +2258,19 @@ export const AffairGoProvider = ({ children }) => {
     const normalizedPendingEmail = normalizedProfile.pendingEmail?.trim().toLowerCase() || '';
     const shouldBackfillLegacyFields = hasLegacyProfileAliases(profileData);
 
-    if (profileData.__profileLookup === 'cached-registration') {
+    if (profileData.__profileLookup === 'cached-registration' || profileData.__profileLookup === 'cached-registration-repair') {
       try {
-        await persistProfileViaFunctionFallback({
-          ...cachedRegistrationProfile,
+        await setDoc(doc(db, 'users', firebaseUser.uid), toStoredProfile({
+          ...profileData,
           id: firebaseUser.uid,
-          email: normalizedAuthEmail || cachedRegistrationProfile.email,
+          email: normalizedAuthEmail || profileData.email,
           emailVerified: firebaseUser.emailVerified,
-        }, 'auth-sync-registration-cache');
+        }), { merge: true });
 
         const repairedProfileData = await loadStoredProfile(firebaseUser.uid, firebaseUser.email);
         normalizedProfile = hydrateAuthenticatedSession(repairedProfileData, firebaseUser);
         clearCachedRegistrationProfile(firebaseUser.uid);
-        clearRegistrationSubmitDraft(firebaseUser.email || cachedRegistrationProfile.email || '');
+        clearRegistrationSubmitDraft(firebaseUser.email || cachedRegistrationProfile?.email || profileData.email || '');
       } catch (repairError) {
         console.warn('AffairGo cached registration profile restore warning', repairError);
       }
@@ -2956,6 +3036,12 @@ export const AffairGoProvider = ({ children }) => {
             ...cachedRegistrationProfile,
             __profileExists: false,
             __profileLookup: 'cached-registration',
+          };
+        } else if (profileData.__profileLookup === 'found' && cachedRegistrationProfile && isMissingRegistrationProfileCore(profileData)) {
+          profileData = {
+            ...mergeRegistrationCacheIntoProfile(profileData, cachedRegistrationProfile),
+            __profileExists: true,
+            __profileLookup: 'cached-registration-repair',
           };
         }
       }
