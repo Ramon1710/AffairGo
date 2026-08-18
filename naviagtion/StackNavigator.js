@@ -47,22 +47,23 @@ const StackNavigator = () => {
     }
 
     const hasFirebaseSession = Boolean(auth.currentUser);
+    const hasActiveSession = isAuthenticated || hasFirebaseSession;
     const hasCompletedOnboarding = Boolean(currentUser.onboardingCompleted || currentUser.preferences?.length);
     const hasProfilePhoto = Boolean(currentUser.profilePhotoUrl || currentUser.profileImageUri);
     const nextAuthenticatedRoute = hasCompletedOnboarding ? 'Dashboard' : 'Onboarding';
     const isPublicRoute = PUBLIC_ROUTES.has(route.name);
 
-    if (isAuthenticated && isPublicRoute) {
+    if (hasActiveSession && isPublicRoute) {
       navigation.reset({ index: 0, routes: [{ name: nextAuthenticatedRoute }] });
       return;
     }
 
-    if (isAuthenticated && PROFILE_PHOTO_REQUIRED_ROUTES.has(route.name) && !hasProfilePhoto) {
+    if (hasActiveSession && PROFILE_PHOTO_REQUIRED_ROUTES.has(route.name) && !hasProfilePhoto) {
       navigation.reset({ index: 0, routes: [{ name: 'Profil' }] });
       return;
     }
 
-    if (!isAuthenticated && !hasFirebaseSession && !isPublicRoute) {
+    if (!hasActiveSession && !isPublicRoute) {
       navigation.reset({ index: 0, routes: [{ name: 'Landing' }] });
     }
   }, [currentUser.onboardingCompleted, currentUser.preferences, currentUser.profilePhotoUrl, currentUser.profileImageUri, isAuthenticated, isAuthReady, navigation, route.name]);
