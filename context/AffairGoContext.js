@@ -3320,58 +3320,27 @@ export const AffairGoProvider = ({ children }) => {
     const ownerId = auth.currentUser?.uid || currentUser.id;
 
     if (!ownerId || ownerId === 'me') {
-      throw new Error('Du musst eingeloggt sein, um dein Profilbild zu verifizieren.');
+      throw new Error('Du musst eingeloggt sein, um dein Profilbild hochzuladen.');
     }
 
-    if (!hasConfiguredProfilePhotoVerification()) {
-      const uploadedProfilePhotoUrl = await uploadMediaAsset('profileImages', asset, ownerId);
-      const nextPatch = {
-        profilePhotoUrl: uploadedProfilePhotoUrl,
-        profileImageUri: uploadedProfilePhotoUrl,
-        profilePhotoVerified: false,
-        profilePhotoVerifiedAt: '',
-        faceMatchSimilarity: 0,
-        profilePhotoAgeMonths: 0,
-        verificationState: 'uploaded',
-      };
+    const uploadedProfilePhotoUrl = await uploadMediaAsset('profileImages', asset, ownerId);
+    const nextPatch = {
+      profilePhotoUrl: uploadedProfilePhotoUrl,
+      profileImageUri: uploadedProfilePhotoUrl,
+      profilePhotoVerified: false,
+      profilePhotoVerifiedAt: '',
+      faceMatchSimilarity: 0,
+      profilePhotoAgeMonths: 0,
+      verificationState: 'uploaded',
+    };
 
-      setCurrentUser((previous) => ({ ...previous, ...nextPatch }));
-      await persistCurrentUserPatch(nextPatch);
+    setCurrentUser((previous) => ({ ...previous, ...nextPatch }));
+    await persistCurrentUserPatch(nextPatch);
 
-      return {
-        directUpload: true,
-        ...nextPatch,
-      };
-    }
-
-    let tempUpload = null;
-
-    try {
-      tempUpload = await withTimeout(
-        uploadMediaAssetToStoragePath('tempProfileImages', asset, ownerId),
-        PROFILE_PHOTO_UPLOAD_TIMEOUT_MS,
-        'Das temporäre Profilbild konnte nicht rechtzeitig vorbereitet werden.'
-      );
-      const session = await withTimeout(
-        createProfilePhotoLivenessSession({ tempProfileImagePath: tempUpload.storagePath }),
-        PROFILE_PHOTO_UPLOAD_TIMEOUT_MS,
-        'Die Fakecheck-Session konnte nicht rechtzeitig erstellt werden.'
-      );
-
-      return {
-        tempProfileImagePath: tempUpload.storagePath,
-        sessionId: session.sessionId,
-        verificationToken: session.verificationToken,
-        similarityThreshold: session.similarityThreshold,
-        awsRegion: session.awsRegion,
-      };
-    } catch (error) {
-      if (tempUpload?.storageRef) {
-        await deleteObject(tempUpload.storageRef).catch(() => undefined);
-      }
-
-      throw error;
-    }
+    return {
+      directUpload: true,
+      ...nextPatch,
+    };
   };
 
   const completeProfilePhotoVerification = async ({ tempProfileImagePath, sessionId, verificationToken }) => {

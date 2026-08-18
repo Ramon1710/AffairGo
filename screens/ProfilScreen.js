@@ -60,7 +60,7 @@ const ProfilScreen = () => {
   const { width } = useWindowDimensions();
   const navigation = useNavigation();
   const route = useRoute();
-  const { currentUser, users, chats, updateCurrentUser, addGalleryItem, logout, preferenceOptions, tabooOptions, getCompatibility, changePassword, getProfileTravelSummary, verifyPendingEmail, accessStatusLabel, confirmPendingNickname, exportMyData, requestAccountDeletion, updateProfilePhoto, completeProfilePhotoVerification, discardPendingProfilePhotoVerification, launchProfilePhotoLivenessFlow, profilePhotoVerificationConfigured, reportUser, moderationBackendConfigured, moderationAuditTrail, moderationFlags } = useAffairGo();
+  const { currentUser, users, chats, updateCurrentUser, addGalleryItem, logout, preferenceOptions, tabooOptions, getCompatibility, changePassword, getProfileTravelSummary, verifyPendingEmail, accessStatusLabel, confirmPendingNickname, exportMyData, requestAccountDeletion, updateProfilePhoto, completeProfilePhotoVerification, discardPendingProfilePhotoVerification, launchProfilePhotoLivenessFlow, reportUser, moderationBackendConfigured, moderationAuditTrail, moderationFlags } = useAffairGo();
   const isCompactWeb = Platform.OS === 'web' && width < 768;
   const viewedProfile = useMemo(() => (route.params?.profileId ? users.find((entry) => entry.id === route.params.profileId) : currentUser), [currentUser, route.params?.profileId, users]);
   const isOwnProfile = !route.params?.profileId || route.params.profileId === currentUser.id;
@@ -77,6 +77,7 @@ const ProfilScreen = () => {
   const [isExportingData, setIsExportingData] = useState(false);
   const [isRequestingDeletion, setIsRequestingDeletion] = useState(false);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [saveFeedback, setSaveFeedback] = useState('');
   const [pendingProfilePhotoVerification, setPendingProfilePhotoVerification] = useState(null);
   const [profilePhotoLivenessModalOpen, setProfilePhotoLivenessModalOpen] = useState(false);
   const [profilePhotoLivenessUrl, setProfilePhotoLivenessUrl] = useState('');
@@ -98,7 +99,10 @@ const ProfilScreen = () => {
     }
   }, [currentUser, isOwnProfile, viewedProfile]);
 
-  const updateField = (key, value) => setDraft((previous) => ({ ...previous, [key]: value }));
+  const updateField = (key, value) => {
+    setSaveFeedback('');
+    setDraft((previous) => ({ ...previous, [key]: value }));
+  };
   const closePendingWebLivenessPopup = () => {
     if (Platform.OS !== 'web') {
       return;
@@ -154,8 +158,10 @@ const ProfilScreen = () => {
       ...previous,
       [key]: Number.isFinite(numericValue) ? numericValue : '',
     }));
+    setSaveFeedback('');
   };
   const toggleListValue = (key, value) => {
+    setSaveFeedback('');
     setDraft((previous) => ({
       ...previous,
       [key]: previous[key].includes(value) ? previous[key].filter((entry) => entry !== value) : [...previous[key], value],
@@ -163,24 +169,30 @@ const ProfilScreen = () => {
   };
   const save = async () => {
     try {
+      setSaveFeedback('');
       const result = await updateCurrentUser(draft);
       if (result?.changed && result?.pendingEmail) {
+        setSaveFeedback(`Aenderung gespeichert. Bitte bestaetige jetzt ${result.pendingEmail} per E-Mail.`);
         Alert.alert('Bestätigung erforderlich', `Deine neue E-Mail-Adresse ${result.pendingEmail} muss erst bestätigt werden. Bitte prüfe dein Postfach.`);
         return;
       }
 
       if (result?.pendingEmailCleared) {
+        setSaveFeedback('Profil gespeichert. Die ausstehende E-Mail-Aenderung wurde entfernt.');
         Alert.alert('Gespeichert', 'Die ausstehende E-Mail-Änderung wurde entfernt. Deine bisherige E-Mail-Adresse bleibt aktiv.');
         return;
       }
 
       if (result?.pendingNickname) {
+        setSaveFeedback(`Profil gespeichert. Spitzname ${result.pendingNickname} ist vorgemerkt.`);
         Alert.alert('Spitzname vorgemerkt', `Dein neuer Spitzname ${result.pendingNickname} ist vorgemerkt. Übernimm ihn danach separat im Profil.`);
         return;
       }
 
+      setSaveFeedback('Deine Profilaenderungen wurden gespeichert.');
       Alert.alert('Gespeichert', 'Dein Profil wurde aktualisiert.');
     } catch (saveError) {
+      setSaveFeedback('');
       Alert.alert('Fehler', saveError.message || 'Profil konnte nicht gespeichert werden.');
     }
   };
@@ -297,8 +309,6 @@ const ProfilScreen = () => {
   };
 
   const handleUploadProfilePhoto = async () => {
-    let openedPopup = false;
-
     try {
       setIsUploadingMedia(true);
       const asset = await pickImageAsset();
@@ -306,84 +316,24 @@ const ProfilScreen = () => {
         return;
       }
 
-      if (Platform.OS === 'web' && profilePhotoVerificationConfigured) {
-        openWebLivenessPlaceholderPopup();
-        openedPopup = true;
-      }
-
-      const verificationSession = await updateProfilePhoto(asset);
-
-      if (verificationSession.directUpload) {
-        if (openedPopup) {
-          closePendingWebLivenessPopup();
-        }
-
-        setPendingProfilePhotoVerification(null);
-        setDraft((previous) => ({
-          ...previous,
-          profilePhotoUrl: verificationSession.profilePhotoUrl,
-          profileImageUri: verificationSession.profileImageUri,
-          profilePhotoVerified: Boolean(verificationSession.profilePhotoVerified),
-          profilePhotoVerifiedAt: verificationSession.profilePhotoVerifiedAt || '',
-          faceMatchSimilarity: Number(verificationSession.faceMatchSimilarity || 0),
-          profilePhotoAgeMonths: 0,
-          verificationState: verificationSession.verificationState || 'uploaded',
-        }));
-        Alert.alert(
-          'Profilbild aktualisiert',
-          'Das Profilbild wurde gespeichert.'
-        );
-        return;
-      }
-
-      const nextPendingVerification = {
-        ...verificationSession,
-        previewUri: asset.uri,
-      };
-      const livenessUrl = buildFaceLivenessUrl({
-        sessionId: nextPendingVerification.sessionId,
-        verificationToken: nextPendingVerification.verificationToken,
-      });
-
-      setPendingProfilePhotoVerification(nextPendingVerification);
+      const uploadResult = await updateProfilePhoto(asset);
+      setPendingProfilePhotoVerification(null);
       setDraft((previous) => ({
         ...previous,
-        verificationState: 'review',
+        profilePhotoUrl: uploadResult.profilePhotoUrl,
+        profileImageUri: uploadResult.profileImageUri,
+        profilePhotoVerified: Boolean(uploadResult.profilePhotoVerified),
+        profilePhotoVerifiedAt: uploadResult.profilePhotoVerifiedAt || '',
+        faceMatchSimilarity: Number(uploadResult.faceMatchSimilarity || 0),
+        profilePhotoAgeMonths: 0,
+        verificationState: uploadResult.verificationState || 'uploaded',
       }));
-
-      autoOpenedLivenessSessionRef.current = nextPendingVerification.sessionId;
-
-      if (Platform.OS === 'web') {
-        if (!livenessUrl) {
-          throw new Error('Die Fakecheck-Seite ist noch nicht konfiguriert.');
-        }
-
-        if (!navigatePendingWebLivenessPopup(livenessUrl)) {
-          await launchProfilePhotoLivenessFlow({
-            sessionId: nextPendingVerification.sessionId,
-            verificationToken: nextPendingVerification.verificationToken,
-          });
-        }
-
-        return;
-      }
-
-      if (!livenessUrl) {
-        await launchProfilePhotoLivenessFlow({
-          sessionId: nextPendingVerification.sessionId,
-          verificationToken: nextPendingVerification.verificationToken,
-        });
-        return;
-      }
-
-      setProfilePhotoLivenessUrl(livenessUrl);
-      setProfilePhotoLivenessModalOpen(true);
+      Alert.alert(
+        'Profilbild aktualisiert',
+        'Das Profilbild wurde gespeichert.'
+      );
     } catch (error) {
       autoOpenedLivenessSessionRef.current = '';
-      if (openedPopup) {
-        closePendingWebLivenessPopup();
-      }
-
       Alert.alert('Profilbild konnte nicht hochgeladen werden', error.message || 'Bitte versuche es erneut.');
     } finally {
       setIsUploadingMedia(false);
@@ -679,8 +629,20 @@ const ProfilScreen = () => {
   const canSeeSensitiveMatchDetails = isOwnProfile || chats.some((chat) => chat.userId === profile?.id && chat.match);
   const moderationProfile = isOwnProfile ? currentUser : profile;
   const travelSummary = getProfileTravelSummary(profile);
-  const verificationTone = profile.verificationState === 'expired' ? 'danger' : profile.verificationState === 'review' ? 'warning' : 'success';
-  const verificationLabel = profile.verificationState === 'expired' ? 'Foto veraltet' : profile.verificationState === 'review' ? 'Prüfung offen' : 'Verifiziert';
+  const verificationTone = profile.verificationState === 'expired'
+    ? 'danger'
+    : profile.verificationState === 'review'
+      ? 'warning'
+      : profile.verificationState === 'uploaded'
+        ? 'neutral'
+        : 'success';
+  const verificationLabel = profile.verificationState === 'expired'
+    ? 'Foto veraltet'
+    : profile.verificationState === 'review'
+      ? 'Prüfung offen'
+      : profile.verificationState === 'uploaded'
+        ? 'Profilbild hochgeladen'
+        : 'Verifiziert';
   const ageVerificationTone = profile.ageVerified ? 'success' : profile.ageVerificationStatus === 'pending' ? 'warning' : 'neutral';
   const ageVerificationLabel = profile.ageVerified
     ? '18+ bestätigt'
@@ -859,6 +821,7 @@ const ProfilScreen = () => {
             <Text style={styles.pickerLabel}>Hauttyp</Text>
             <View style={styles.pickerWrap}><Picker selectedValue={profile.skinType} onValueChange={(value) => updateField('skinType', value)}>{SKIN_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View>
             <AccentButton label="Profil speichern" onPress={save} style={styles.saveButton} />
+            {saveFeedback ? <Text style={styles.saveFeedback}>{saveFeedback}</Text> : null}
           </>
         ) : (
           <>
@@ -1143,6 +1106,11 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     marginTop: 8,
+  },
+  saveFeedback: {
+    color: affairGoTheme.colors.accentSoft,
+    lineHeight: 22,
+    marginTop: 10,
   },
   passwordButton: {
     marginBottom: 14,
