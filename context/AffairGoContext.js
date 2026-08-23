@@ -3379,6 +3379,28 @@ export const AffairGoProvider = ({ children }) => {
     return false;
   };
 
+  const resendCurrentUserVerificationEmail = async () => {
+    if (!auth.currentUser) {
+      throw new Error('Du musst angemeldet sein, um die Verifizierungs-Mail erneut zu senden.');
+    }
+
+    await reload(auth.currentUser);
+
+    if (auth.currentUser.emailVerified) {
+      await syncCurrentUserFromFirebase(auth.currentUser);
+      setPendingVerificationId(null);
+      return { alreadyVerified: true };
+    }
+
+    const emailSent = await trySendVerificationEmail(auth.currentUser);
+
+    if (!emailSent) {
+      throw new Error('Die Verifizierungs-Mail konnte nicht gesendet werden. Bitte prüfe die Firebase-E-Mail-Vorlagen und versuche es erneut.');
+    }
+
+    return { alreadyVerified: false };
+  };
+
   const resendVerificationEmail = async ({ email, password }) => {
     const normalizedEmail = await resolveAuthEmail(email);
 
@@ -4222,6 +4244,7 @@ export const AffairGoProvider = ({ children }) => {
     logout,
     register,
     verifyPendingEmail,
+    resendCurrentUserVerificationEmail,
     resendVerificationEmail,
     requestPasswordReset,
     changePassword,

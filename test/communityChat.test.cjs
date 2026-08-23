@@ -21,6 +21,7 @@ const {
   getCommunityRoomUnreadLabel,
   getCommunityUnreadRoomsCount,
   formatCommunityRulesVersionLabel,
+  getCommunityAccessRequirements,
   hasUnreadCommunityRoom,
   insertCommunityMention,
   mapCommunityErrorMessage,
@@ -242,6 +243,81 @@ test('Community-Regeln werden clientseitig normalisiert', () => {
   assert.equal(envelope.acceptedCurrent, true);
   assert.equal(formatCommunityRulesVersionLabel(envelope.version), 'Version 1.1');
   assert.equal(envelope.sections.length, 1);
+});
+
+test('Community-Zugangsvoraussetzungen markieren fehlenden Login', () => {
+  const requirements = getCommunityAccessRequirements(null, null, null);
+
+  assert.equal(requirements.loggedIn, false);
+  assert.equal(requirements.canReadOverview, false);
+  assert.deepEqual(requirements.missingKeys, ['loggedIn']);
+});
+
+test('Community-Zugangsvoraussetzungen markieren fehlende E-Mail-Bestätigung', () => {
+  const requirements = getCommunityAccessRequirements({
+    id: 'u1',
+    emailVerified: false,
+    ageVerified: true,
+    ageVerificationStatus: 'verified',
+  }, { uid: 'u1', emailVerified: false }, {
+    rules: { version: '1.0', sections: [{ heading: 'A', paragraphs: ['B'] }] },
+    acceptance: { latestAcceptedVersion: '1.0' },
+  });
+
+  assert.equal(requirements.emailVerified, false);
+  assert.equal(requirements.canReadOverview, false);
+  assert.deepEqual(requirements.missingKeys, ['emailVerified']);
+});
+
+test('Community-Zugangsvoraussetzungen markieren fehlende Altersverifikation', () => {
+  const requirements = getCommunityAccessRequirements({
+    id: 'u1',
+    emailVerified: true,
+    ageVerified: false,
+    ageVerificationStatus: 'pending',
+  }, { uid: 'u1', emailVerified: true }, {
+    rules: { version: '1.0', sections: [{ heading: 'A', paragraphs: ['B'] }] },
+    acceptance: { latestAcceptedVersion: '1.0' },
+  });
+
+  assert.equal(requirements.ageVerified, false);
+  assert.equal(requirements.canReadOverview, false);
+  assert.deepEqual(requirements.missingKeys, ['ageVerified']);
+});
+
+test('Community-Zugangsvoraussetzungen erlauben Übersicht vor Regeln, aber nicht Nachrichten', () => {
+  const requirements = getCommunityAccessRequirements({
+    id: 'u1',
+    emailVerified: true,
+    ageVerified: true,
+    ageVerificationStatus: 'verified',
+    moderationState: 'clear',
+  }, { uid: 'u1', emailVerified: true }, {
+    rules: { version: '1.0', sections: [{ heading: 'A', paragraphs: ['B'] }] },
+    acceptance: null,
+  });
+
+  assert.equal(requirements.canReadOverview, true);
+  assert.equal(requirements.canReadMessages, false);
+  assert.deepEqual(requirements.missingKeys, ['rulesAccepted']);
+});
+
+test('Community-Zugangsvoraussetzungen erkennen Vollzugriff', () => {
+  const requirements = getCommunityAccessRequirements({
+    id: 'u1',
+    emailVerified: true,
+    ageVerified: true,
+    ageVerificationStatus: 'approved',
+    moderationState: 'clear',
+  }, { uid: 'u1', emailVerified: true }, {
+    rules: { version: '1.0', sections: [{ heading: 'A', paragraphs: ['B'] }] },
+    acceptance: { latestAcceptedVersion: '1.0' },
+  });
+
+  assert.equal(requirements.allRequirementsMet, true);
+  assert.equal(requirements.canReadOverview, true);
+  assert.equal(requirements.canReadMessages, true);
+  assert.deepEqual(requirements.missingKeys, []);
 });
 
 test('Akzeptierte Regeln werden lokal sofort auf acceptedCurrent gesetzt', () => {

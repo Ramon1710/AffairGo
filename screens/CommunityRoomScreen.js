@@ -29,7 +29,7 @@ import {
     unblockCommunityUser,
 } from '../constants/communityChatProvider';
 import { useAffairGo } from '../context/AffairGoContext';
-import { db } from '../firebase';
+import { auth, db } from '../firebase';
 import { useCurrentRoute, useNavigation } from '../naviagtion/SimpleNavigation';
 
 const {
@@ -46,6 +46,7 @@ const {
   formatCommunityEventDateLabel,
   formatCommunityDateTime,
   formatCommunityRulesVersionLabel,
+  getCommunityAccessRequirements,
   getPreparedCommunityText,
   getCommunityMentionMatch,
   getCommunityReactionSummary,
@@ -66,7 +67,7 @@ const CommunityRoomScreen = () => {
   const navigation = useNavigation();
   const route = useCurrentRoute();
   const roomId = String(route?.params?.roomId || COMMUNITY_ROOM_ROUTE_FALLBACK);
-  const { currentUser, users, chats, getProfileTravelSummary } = useAffairGo();
+  const { currentUser, users, chats, getProfileTravelSummary, resendCurrentUserVerificationEmail, verifyPendingEmail } = useAffairGo();
   const listRef = useRef(null);
   const isNearBottomRef = useRef(true);
   const hasInitialScrollRef = useRef(false);
@@ -107,6 +108,11 @@ const CommunityRoomScreen = () => {
   const [rulesLoaded, setRulesLoaded] = useState(false);
   const [isAcceptingRules, setIsAcceptingRules] = useState(false);
   const [rulesError, setRulesError] = useState('');
+  const [accessActionError, setAccessActionError] = useState('');
+  const [isRefreshingEmailVerification, setIsRefreshingEmailVerification] = useState(false);
+  const [isResendingVerificationEmail, setIsResendingVerificationEmail] = useState(false);
+
+  const accessRequirements = useMemo(() => getCommunityAccessRequirements(currentUser, auth.currentUser, rulesEnvelope), [currentUser, rulesEnvelope]);
 
   const preparedDraft = useMemo(() => getPreparedCommunityText(draft), [draft]);
   const characterCount = draft.length;
@@ -163,6 +169,38 @@ const CommunityRoomScreen = () => {
   const selectedProfileIsBlocked = Boolean(selectedProfile?.id) && blockedUserIds.has(selectedProfile.id);
   const rulesAcceptedCurrent = rulesEnvelope?.acceptedCurrent === true;
   const rulesVersionLabel = formatCommunityRulesVersionLabel(rulesEnvelope?.version);
+  const requirementItems = [
+    {
+      key: 'emailVerified',
+      label: 'E-Mail bestätigt',
+      met: accessRequirements.emailVerified,
+      detail: accessRequirements.emailVerified ? 'Deine E-Mail-Adresse ist bestätigt.' : 'Bitte bestätige zuerst deine E-Mail-Adresse.',
+    },
+    {
+      key: 'ageVerified',
+      label: '18+ verifiziert',
+      met: accessRequirements.ageVerified,
+      detail: accessRequirements.ageVerified ? 'Die Altersfreigabe ist vorhanden.' : 'Dieser Bereich ist nur für verifizierte Erwachsene verfügbar.',
+    },
+    {
+      key: 'accountActive',
+      label: 'Konto aktiv',
+      met: accessRequirements.accountActive,
+      detail: accessRequirements.accountActive ? 'Für dein Konto liegt keine offene Löschanfrage vor.' : 'Mit offener Löschanfrage bleibt die Community gesperrt.',
+    },
+    {
+      key: 'communityAllowed',
+      label: 'Community-Zugang',
+      met: accessRequirements.communityAllowed,
+      detail: accessRequirements.communityAllowed ? 'Dein Konto hat derzeit keine Community-Einschränkung.' : 'Dein Community-Zugang ist derzeit eingeschränkt.',
+    },
+    {
+      key: 'rulesAccepted',
+      label: 'Regeln bestätigt',
+      met: accessRequirements.rulesAccepted,
+      detail: accessRequirements.rulesAccepted ? 'Die aktuelle Regelversion ist bestätigt.' : 'Vor dem Lesen und Schreiben in diesem Raum musst du noch die aktuellen Regeln akzeptieren.',
+    },
+  ];
   const unreadDividerIndex = useMemo(() => findCommunityUnreadDividerIndex(visibleMessages, visitReadState), [visibleMessages, visitReadState]);
 
   useEffect(() => {
@@ -271,6 +309,14 @@ const CommunityRoomScreen = () => {
       return undefined;
     }
 
+    if (!accessRequirements.nonRulesRequirementsMet) {
+      setRulesEnvelope(null);
+      rulesEnvelopeRef.current = null;
+      setRulesLoaded(true);
+      setRulesError('');
+      return undefined;
+    }
+
     setRulesLoaded(false);
     setRulesError('');
 
@@ -299,7 +345,7 @@ const CommunityRoomScreen = () => {
     return () => {
       active = false;
     };
-  }, [currentUser?.id]);
+  }, [accessRequirements.nonRulesRequirementsMet, currentUser?.id]);
 
   const handleAcceptRules = async () => {
     if (!rulesEnvelope?.version || isAcceptingRules) {
@@ -349,6 +395,12 @@ const CommunityRoomScreen = () => {
     setRoomLoaded(false);
     setLoadError('');
 
+    if (!accessRequirements.canReadOverview) {
+      setRoom(null);
+      setRoomLoaded(true);
+      return undefined;
+    }
+
     const roomRef = doc(db, 'communityRooms', roomId);
     const unsubscribe = onSnapshot(roomRef, (snapshot) => {
       setRoomLoaded(true);
@@ -371,7 +423,7 @@ const CommunityRoomScreen = () => {
     return () => {
       unsubscribe();
     };
-  }, [roomId]);
+  }, [accessRequirements.canReadOverview, roomId]);
 
   useEffect(() => {
     messagesListenerRef.current?.();
@@ -383,7 +435,8 @@ const CommunityRoomScreen = () => {
     setPendingNewCount(0);
     previousVisibleCountRef.current = 0;
 
-    if (!room?.id || room.active !== true) {
+    if (!accessRequirements.canReadMessages || !room?.id || room.active !== true) {
+      setMessagesLoaded(true);
       return undefined;
     }
 
@@ -412,7 +465,7 @@ const CommunityRoomScreen = () => {
     return () => {
       unsubscribe();
     };
-  }, [room?.active, room?.id]);
+  }, [accessRequirements.canReadMessages, room?.active, room?.id]);
 
   useEffect(() => {
     readStateListenerRef.current?.();
@@ -420,7 +473,7 @@ const CommunityRoomScreen = () => {
     setVisitReadState(null);
     visitReadStateInitializedRef.current = false;
 
-    if (!currentUser?.id || !roomId) {
+    if (!accessRequirements.canReadMessages || !currentUser?.id || !roomId) {
       return undefined;
     }
 
@@ -441,13 +494,13 @@ const CommunityRoomScreen = () => {
     return () => {
       unsubscribe();
     };
-  }, [currentUser?.id, roomId]);
+  }, [accessRequirements.canReadMessages, currentUser?.id, roomId]);
 
   useEffect(() => {
     blocksListenerRef.current?.();
     setBlockedEntries([]);
 
-    if (!currentUser?.id) {
+    if (!accessRequirements.canReadMessages || !currentUser?.id) {
       return undefined;
     }
 
@@ -463,13 +516,13 @@ const CommunityRoomScreen = () => {
     return () => {
       unsubscribe();
     };
-  }, [currentUser?.id]);
+  }, [accessRequirements.canReadMessages, currentUser?.id]);
 
   useEffect(() => {
     reactionsListenerRef.current?.();
     setMyReactionKeys({});
 
-    if (!room?.id || !currentUser?.id) {
+    if (!accessRequirements.canReadMessages || !room?.id || !currentUser?.id) {
       return undefined;
     }
 
@@ -502,7 +555,7 @@ const CommunityRoomScreen = () => {
     return () => {
       unsubscribe();
     };
-  }, [currentUser?.id, room?.id]);
+  }, [accessRequirements.canReadMessages, currentUser?.id, room?.id]);
 
   useEffect(() => {
     const latestMessageId = visibleMessages[visibleMessages.length - 1]?.id || messages[messages.length - 1]?.id || '';
@@ -536,7 +589,7 @@ const CommunityRoomScreen = () => {
   }, [messages, roomId, visibleMessages]);
 
   useEffect(() => {
-    if (!room?.id || !rulesAcceptedCurrent) {
+    if (!accessRequirements.canReadMessages || !room?.id || !rulesAcceptedCurrent) {
       return undefined;
     }
 
@@ -548,7 +601,7 @@ const CommunityRoomScreen = () => {
     return () => {
       clearInterval(timerId);
     };
-  }, [room?.id, rulesAcceptedCurrent]);
+  }, [accessRequirements.canReadMessages, room?.id, rulesAcceptedCurrent]);
 
   useEffect(() => {
     const previousVisibleCount = previousVisibleCountRef.current;
@@ -570,6 +623,34 @@ const CommunityRoomScreen = () => {
     blocksListenerRef.current?.();
     readStateListenerRef.current?.();
   }, []);
+
+  const handleRefreshEmailVerification = async () => {
+    try {
+      setIsRefreshingEmailVerification(true);
+      setAccessActionError('');
+      const verified = await verifyPendingEmail();
+
+      if (!verified) {
+        setAccessActionError('Die E-Mail ist noch nicht bestätigt. Bitte öffne zuerst den Link aus deiner Bestätigungs-Mail.');
+      }
+    } catch (error) {
+      setAccessActionError(error.message || 'Der Bestätigungsstatus konnte nicht aktualisiert werden.');
+    } finally {
+      setIsRefreshingEmailVerification(false);
+    }
+  };
+
+  const handleResendVerificationEmail = async () => {
+    try {
+      setIsResendingVerificationEmail(true);
+      setAccessActionError('');
+      await resendCurrentUserVerificationEmail();
+    } catch (error) {
+      setAccessActionError(error.message || 'Die Verifizierungs-Mail konnte nicht erneut gesendet werden.');
+    } finally {
+      setIsResendingVerificationEmail(false);
+    }
+  };
 
   const handleSend = async () => {
     const text = preparedDraft;
@@ -801,6 +882,53 @@ const CommunityRoomScreen = () => {
   };
 
   const renderContent = () => {
+    if (!accessRequirements.nonRulesRequirementsMet) {
+      return (
+        <GlassCard strong style={styles.stateCard}>
+          <Text style={styles.stateTitle}>Dieser Raum bleibt gesperrt, bis alle Community-Voraussetzungen erfüllt sind.</Text>
+          <Text style={styles.stateSubtitle}>Der Zielraum bleibt erhalten. Sobald deine Freigaben vollständig sind, kannst du direkt hier weiterlesen.</Text>
+          <View style={styles.accessRequirementList}>
+            {requirementItems.map((item) => (
+              <View key={item.key} style={styles.accessRequirementRow}>
+                <View style={styles.accessRequirementCopy}>
+                  <Text style={styles.accessRequirementLabel}>{item.label}</Text>
+                  <Text style={styles.accessRequirementDetail}>{item.detail}</Text>
+                </View>
+                <StatusPill label={item.met ? 'Erfüllt' : 'Offen'} tone={item.met ? 'success' : 'warning'} style={styles.accessRequirementPill} />
+              </View>
+            ))}
+          </View>
+          {accessActionError ? <Text style={styles.errorText}>{accessActionError}</Text> : null}
+          {!accessRequirements.emailVerified ? (
+            <>
+              <AccentButton
+                label={isRefreshingEmailVerification ? 'Bestätigung wird geprüft...' : 'Bestätigung prüfen'}
+                onPress={handleRefreshEmailVerification}
+                disabled={isRefreshingEmailVerification || isResendingVerificationEmail}
+                style={styles.stateActionButton}
+              />
+              <AccentButton
+                label={isResendingVerificationEmail ? 'Mail wird gesendet...' : 'Verifizierungs-Mail erneut senden'}
+                variant="secondary"
+                onPress={handleResendVerificationEmail}
+                disabled={isRefreshingEmailVerification || isResendingVerificationEmail}
+                style={styles.secondaryAction}
+              />
+            </>
+          ) : null}
+          {(!accessRequirements.ageVerified || !accessRequirements.accountActive || !accessRequirements.communityAllowed) ? (
+            <AccentButton label="Zum Profil" variant="secondary" onPress={() => navigation.navigate('Profil')} style={styles.secondaryAction} />
+          ) : null}
+          <AccentButton
+            label="Zur Community-Übersicht"
+            variant="ghost"
+            onPress={() => navigation.navigate('Community')}
+            style={styles.secondaryAction}
+          />
+        </GlassCard>
+      );
+    }
+
     if (!rulesLoaded) {
       return (
         <GlassCard strong style={styles.stateCard}>
@@ -1131,6 +1259,12 @@ const styles = StyleSheet.create({
   stateTitle: { color: affairGoTheme.colors.text, marginTop: 12, textAlign: 'center', lineHeight: 22 },
   stateSubtitle: { color: affairGoTheme.colors.textMuted, marginTop: 8, textAlign: 'center' },
   stateActionButton: { marginTop: 14 },
+  accessRequirementList: { width: '100%', marginTop: 14, gap: 10 },
+  accessRequirementRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
+  accessRequirementCopy: { flex: 1 },
+  accessRequirementLabel: { color: affairGoTheme.colors.text, fontWeight: '700' },
+  accessRequirementDetail: { color: affairGoTheme.colors.textMuted, lineHeight: 20, marginTop: 4 },
+  accessRequirementPill: { marginTop: 2 },
   chatPanel: { flex: 1, minHeight: 0, marginBottom: 12, position: 'relative' },
   messageList: { flex: 1 },
   messageListContent: { paddingBottom: 12 },
