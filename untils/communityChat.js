@@ -539,37 +539,44 @@ const normalizeCommunityRulesEnvelope = (value = {}) => {
 const getCommunityAccessRequirements = (user = {}, authUser = null, rulesEnvelope = null) => {
   const profile = user && typeof user === 'object' ? user : {};
   const normalizedRulesEnvelope = rulesEnvelope ? normalizeCommunityRulesEnvelope(rulesEnvelope) : null;
-  const hasAuthEmailFlag = authUser && Object.prototype.hasOwnProperty.call(authUser, 'emailVerified');
   const loggedIn = Boolean(String(profile?.id || profile?.uid || authUser?.uid || '').trim());
-  const emailVerified = loggedIn && (hasAuthEmailFlag ? authUser.emailVerified === true : profile.emailVerified === true);
+  const authEmailVerified = authUser?.emailVerified === true;
+  const profileEmailVerified = profile.emailVerified === true;
+  const emailVerified = loggedIn && (authEmailVerified || profileEmailVerified);
   const ageVerificationStatus = String(profile.ageVerificationStatus || '').trim().toLowerCase();
   const ageVerified = loggedIn
     && profile.ageVerified === true
     && (!ageVerificationStatus || COMMUNITY_ALLOWED_AGE_VERIFICATION_STATUSES.has(ageVerificationStatus));
   const accountActive = loggedIn && !String(profile.accountDeletionRequestedAt || '').trim();
-  const communityAllowed = loggedIn
+  const moderationAllowed = loggedIn
     && !COMMUNITY_RESTRICTED_MODERATION_STATES.has(String(profile.moderationState || '').trim().toLowerCase());
   const rulesAccepted = normalizedRulesEnvelope?.acceptedCurrent === true;
-  const nonRulesRequirementsMet = loggedIn && emailVerified && ageVerified && accountActive && communityAllowed;
+  const preRulesRequirementsMet = loggedIn && emailVerified && ageVerified && accountActive && moderationAllowed;
+  const allRequirementsMet = preRulesRequirementsMet && rulesAccepted;
 
   return {
     loggedIn,
+    authEmailVerified,
+    profileEmailVerified,
+    effectiveEmailVerified: emailVerified,
     emailVerified,
     ageVerified,
     rulesAccepted,
     accountActive,
-    communityAllowed,
-    nonRulesRequirementsMet,
-    canReadOverview: nonRulesRequirementsMet,
-    canReadMessages: nonRulesRequirementsMet && rulesAccepted,
-    allRequirementsMet: nonRulesRequirementsMet && rulesAccepted,
+    moderationAllowed,
+    communityAllowed: moderationAllowed,
+    preRulesRequirementsMet,
+    nonRulesRequirementsMet: preRulesRequirementsMet,
+    canReadOverview: preRulesRequirementsMet,
+    canReadMessages: allRequirementsMet,
+    allRequirementsMet,
     missingKeys: [
       !loggedIn ? 'loggedIn' : null,
       loggedIn && !emailVerified ? 'emailVerified' : null,
       loggedIn && !ageVerified ? 'ageVerified' : null,
       loggedIn && !accountActive ? 'accountActive' : null,
-      loggedIn && !communityAllowed ? 'communityAllowed' : null,
-      nonRulesRequirementsMet && !rulesAccepted ? 'rulesAccepted' : null,
+      loggedIn && !moderationAllowed ? 'moderationAllowed' : null,
+      preRulesRequirementsMet && !rulesAccepted ? 'rulesAccepted' : null,
     ].filter(Boolean),
   };
 };

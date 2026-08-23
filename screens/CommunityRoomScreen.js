@@ -67,7 +67,7 @@ const CommunityRoomScreen = () => {
   const navigation = useNavigation();
   const route = useCurrentRoute();
   const roomId = String(route?.params?.roomId || COMMUNITY_ROOM_ROUTE_FALLBACK);
-  const { currentUser, users, chats, getProfileTravelSummary, resendCurrentUserVerificationEmail, verifyPendingEmail } = useAffairGo();
+  const { currentUser, users, chats, getProfileTravelSummary, refreshCurrentUserVerificationStatus, resendCurrentUserVerificationEmail } = useAffairGo();
   const listRef = useRef(null);
   const isNearBottomRef = useRef(true);
   const hasInitialScrollRef = useRef(false);
@@ -172,33 +172,48 @@ const CommunityRoomScreen = () => {
   const requirementItems = [
     {
       key: 'emailVerified',
-      label: 'E-Mail bestätigt',
+      label: 'E-Mail-Adresse',
       met: accessRequirements.emailVerified,
-      detail: accessRequirements.emailVerified ? 'Deine E-Mail-Adresse ist bestätigt.' : 'Bitte bestätige zuerst deine E-Mail-Adresse.',
+      statusLabel: accessRequirements.emailVerified ? '✓' : '!',
+      summary: accessRequirements.emailVerified ? 'E-Mail-Adresse bestätigt' : 'E-Mail-Adresse noch nicht bestätigt',
+      detail: accessRequirements.emailVerified ? 'Deine E-Mail-Adresse ist bestätigt.' : 'Bitte bestätige deine E-Mail-Adresse, bevor du die Community nutzen kannst.',
     },
     {
       key: 'ageVerified',
-      label: '18+ verifiziert',
+      label: 'Volljährigkeit',
       met: accessRequirements.ageVerified,
+      statusLabel: accessRequirements.ageVerified ? '✓' : '!',
+      summary: accessRequirements.ageVerified ? 'Volljährigkeit bestätigt' : 'Volljährigkeit noch nicht bestätigt',
       detail: accessRequirements.ageVerified ? 'Die Altersfreigabe ist vorhanden.' : 'Dieser Bereich ist nur für verifizierte Erwachsene verfügbar.',
     },
     {
       key: 'accountActive',
       label: 'Konto aktiv',
       met: accessRequirements.accountActive,
+      statusLabel: accessRequirements.accountActive ? '✓' : '!',
+      summary: accessRequirements.accountActive ? 'Konto aktiv' : 'Konto derzeit eingeschränkt',
       detail: accessRequirements.accountActive ? 'Für dein Konto liegt keine offene Löschanfrage vor.' : 'Mit offener Löschanfrage bleibt die Community gesperrt.',
     },
     {
-      key: 'communityAllowed',
+      key: 'moderationAllowed',
       label: 'Community-Zugang',
-      met: accessRequirements.communityAllowed,
-      detail: accessRequirements.communityAllowed ? 'Dein Konto hat derzeit keine Community-Einschränkung.' : 'Dein Community-Zugang ist derzeit eingeschränkt.',
+      met: accessRequirements.moderationAllowed,
+      statusLabel: accessRequirements.moderationAllowed ? '✓' : '!',
+      summary: accessRequirements.moderationAllowed ? 'Community-Zugang erlaubt' : 'Community-Zugang eingeschränkt',
+      detail: accessRequirements.moderationAllowed ? 'Dein Konto hat derzeit keine Community-Einschränkung.' : 'Dein Community-Zugang ist derzeit eingeschränkt.',
     },
     {
       key: 'rulesAccepted',
-      label: 'Regeln bestätigt',
+      label: 'Community-Regeln',
       met: accessRequirements.rulesAccepted,
-      detail: accessRequirements.rulesAccepted ? 'Die aktuelle Regelversion ist bestätigt.' : 'Vor dem Lesen und Schreiben in diesem Raum musst du noch die aktuellen Regeln akzeptieren.',
+      blocked: !accessRequirements.preRulesRequirementsMet,
+      statusLabel: accessRequirements.rulesAccepted ? '✓' : accessRequirements.preRulesRequirementsMet ? '!' : '○',
+      summary: accessRequirements.rulesAccepted ? 'Community-Regeln akzeptiert' : accessRequirements.preRulesRequirementsMet ? 'Community-Regeln noch akzeptieren' : 'Community-Regeln',
+      detail: accessRequirements.rulesAccepted
+        ? 'Die aktuelle Regelversion ist bestätigt.'
+        : accessRequirements.preRulesRequirementsMet
+          ? 'Vor dem Lesen und Schreiben in diesem Raum musst du noch die aktuellen Regeln akzeptieren.'
+          : 'Die Community-Regeln kannst du bestätigen, sobald die vorherigen Voraussetzungen erfüllt sind.',
     },
   ];
   const unreadDividerIndex = useMemo(() => findCommunityUnreadDividerIndex(visibleMessages, visitReadState), [visibleMessages, visitReadState]);
@@ -222,6 +237,9 @@ const CommunityRoomScreen = () => {
       needsRulesAcceptance: details.needsRulesAcceptance ?? null,
       acceptResponse: details.acceptResponse ?? null,
       uid: currentUser?.id || null,
+      authEmailVerified: details.authEmailVerified ?? accessRequirements.authEmailVerified,
+      profileEmailVerified: details.profileEmailVerified ?? accessRequirements.profileEmailVerified,
+      effectiveEmailVerified: details.effectiveEmailVerified ?? accessRequirements.effectiveEmailVerified,
     });
   };
 
@@ -309,9 +327,7 @@ const CommunityRoomScreen = () => {
       return undefined;
     }
 
-    if (!accessRequirements.nonRulesRequirementsMet) {
-      setRulesEnvelope(null);
-      rulesEnvelopeRef.current = null;
+    if (!accessRequirements.preRulesRequirementsMet) {
       setRulesLoaded(true);
       setRulesError('');
       return undefined;
@@ -345,7 +361,7 @@ const CommunityRoomScreen = () => {
     return () => {
       active = false;
     };
-  }, [accessRequirements.nonRulesRequirementsMet, currentUser?.id]);
+  }, [accessRequirements.preRulesRequirementsMet, currentUser?.id]);
 
   const handleAcceptRules = async () => {
     if (!rulesEnvelope?.version || isAcceptingRules) {
@@ -361,20 +377,41 @@ const CommunityRoomScreen = () => {
         needsRulesAcceptance: rulesEnvelope.acceptedCurrent !== true,
       });
       const acceptResponse = await acceptCommunityRules({ rulesVersion: rulesEnvelope.version });
+      logCommunityRoomRulesDebug('rules-accept-server-success', {
+        currentRulesVersion: rulesEnvelope.version,
+        acceptedRulesVersion: rulesEnvelope.acceptedVersion,
+        returnedAcceptedVersion: acceptResponse?.acceptedVersion || acceptResponse?.rulesVersion || '',
+        acceptResponse,
+      });
       const acceptedEnvelope = buildAcceptedCommunityRulesEnvelope(rulesEnvelopeRef.current || rulesEnvelope, acceptResponse);
       applyRulesEnvelope(acceptedEnvelope);
-      logCommunityRoomRulesDebug('rules-accept-success', {
+      logCommunityRoomRulesDebug('rules-accept-local-success', {
         currentRulesVersion: acceptedEnvelope.version,
         acceptedRulesVersion: rulesEnvelope.acceptedVersion,
         acceptedRulesVersionAfter: acceptedEnvelope.acceptedVersion,
-        needsRulesAcceptance: acceptedEnvelope.acceptedCurrent !== true,
-        acceptResponse,
+        rulesAcceptedAfter: acceptedEnvelope.acceptedCurrent === true,
       });
-      refreshRulesStatus({ userId: currentUser.id, preserveAcceptedState: true }).catch((error) => {
+      const refreshedEnvelope = await refreshRulesStatus({ userId: currentUser.id, preserveAcceptedState: true }).catch((error) => {
         logCommunityRoomRulesDebug('rules-refresh-after-accept-failed', { error });
+        return acceptedEnvelope;
+      });
+      const completedEnvelope = refreshedEnvelope || acceptedEnvelope;
+      logCommunityRoomRulesDebug('rules-accept-gate-complete', {
+        currentRulesVersion: completedEnvelope.version,
+        acceptedRulesVersionAfter: completedEnvelope.acceptedVersion,
+        rulesAcceptedAfter: completedEnvelope.acceptedCurrent === true,
+        effectiveEmailVerified: accessRequirements.effectiveEmailVerified,
       });
     } catch (error) {
-      setRulesError('Deine Zustimmung konnte nicht gespeichert werden. Bitte versuche es erneut.');
+      logCommunityRoomRulesDebug('rules-accept-error', { error });
+      const reason = String(error?.details?.reason || '').toLowerCase();
+
+      if (['email_not_verified', 'age_not_verified', 'account_pending_deletion', 'moderation_restricted'].includes(reason)) {
+        setRulesError('');
+        return;
+      }
+
+      setRulesError('Die Community-Regeln konnten nicht bestätigt werden. Bitte versuche es erneut.');
     } finally {
       setIsAcceptingRules(false);
     }
@@ -628,9 +665,11 @@ const CommunityRoomScreen = () => {
     try {
       setIsRefreshingEmailVerification(true);
       setAccessActionError('');
-      const verified = await verifyPendingEmail();
+      const result = await refreshCurrentUserVerificationStatus();
 
-      if (!verified) {
+      logCommunityRoomRulesDebug('email-verification-refresh-complete', result);
+
+      if (!result?.effectiveEmailVerified) {
         setAccessActionError('Die E-Mail ist noch nicht bestätigt. Bitte öffne zuerst den Link aus deiner Bestätigungs-Mail.');
       }
     } catch (error) {
@@ -644,7 +683,12 @@ const CommunityRoomScreen = () => {
     try {
       setIsResendingVerificationEmail(true);
       setAccessActionError('');
-      await resendCurrentUserVerificationEmail();
+      const result = await resendCurrentUserVerificationEmail();
+      logCommunityRoomRulesDebug('email-verification-resend-complete', {
+        authEmailVerified: result?.alreadyVerified ? true : accessRequirements.authEmailVerified,
+        profileEmailVerified: accessRequirements.profileEmailVerified,
+        effectiveEmailVerified: result?.alreadyVerified ? true : accessRequirements.effectiveEmailVerified,
+      });
     } catch (error) {
       setAccessActionError(error.message || 'Die Verifizierungs-Mail konnte nicht erneut gesendet werden.');
     } finally {
@@ -882,7 +926,7 @@ const CommunityRoomScreen = () => {
   };
 
   const renderContent = () => {
-    if (!accessRequirements.nonRulesRequirementsMet) {
+    if (!accessRequirements.preRulesRequirementsMet) {
       return (
         <GlassCard strong style={styles.stateCard}>
           <Text style={styles.stateTitle}>Dieser Raum bleibt gesperrt, bis alle Community-Voraussetzungen erfüllt sind.</Text>
@@ -892,9 +936,10 @@ const CommunityRoomScreen = () => {
               <View key={item.key} style={styles.accessRequirementRow}>
                 <View style={styles.accessRequirementCopy}>
                   <Text style={styles.accessRequirementLabel}>{item.label}</Text>
+                  <Text style={styles.accessRequirementSummary}>{item.statusLabel} {item.summary || item.label}</Text>
                   <Text style={styles.accessRequirementDetail}>{item.detail}</Text>
                 </View>
-                <StatusPill label={item.met ? 'Erfüllt' : 'Offen'} tone={item.met ? 'success' : 'warning'} style={styles.accessRequirementPill} />
+                <StatusPill label={item.met ? 'Erfüllt' : item.blocked ? 'Später' : 'Offen'} tone={item.met ? 'success' : item.blocked ? 'default' : 'warning'} style={styles.accessRequirementPill} />
               </View>
             ))}
           </View>
@@ -902,7 +947,7 @@ const CommunityRoomScreen = () => {
           {!accessRequirements.emailVerified ? (
             <>
               <AccentButton
-                label={isRefreshingEmailVerification ? 'Bestätigung wird geprüft...' : 'Bestätigung prüfen'}
+                label={isRefreshingEmailVerification ? 'Status wird geprüft...' : 'Status erneut prüfen'}
                 onPress={handleRefreshEmailVerification}
                 disabled={isRefreshingEmailVerification || isResendingVerificationEmail}
                 style={styles.stateActionButton}
@@ -916,7 +961,10 @@ const CommunityRoomScreen = () => {
               />
             </>
           ) : null}
-          {(!accessRequirements.ageVerified || !accessRequirements.accountActive || !accessRequirements.communityAllowed) ? (
+          {!accessRequirements.ageVerified ? (
+            <AccentButton label="Altersverifikation starten" variant="secondary" onPress={() => navigation.navigate('Profil')} style={styles.secondaryAction} />
+          ) : null}
+          {accessRequirements.ageVerified && (!accessRequirements.accountActive || !accessRequirements.moderationAllowed) ? (
             <AccentButton label="Zum Profil" variant="secondary" onPress={() => navigation.navigate('Profil')} style={styles.secondaryAction} />
           ) : null}
           <AccentButton
@@ -1263,6 +1311,7 @@ const styles = StyleSheet.create({
   accessRequirementRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
   accessRequirementCopy: { flex: 1 },
   accessRequirementLabel: { color: affairGoTheme.colors.text, fontWeight: '700' },
+  accessRequirementSummary: { color: affairGoTheme.colors.text, fontWeight: '600', marginTop: 4 },
   accessRequirementDetail: { color: affairGoTheme.colors.textMuted, lineHeight: 20, marginTop: 4 },
   accessRequirementPill: { marginTop: 2 },
   chatPanel: { flex: 1, minHeight: 0, marginBottom: 12, position: 'relative' },

@@ -3379,6 +3379,39 @@ export const AffairGoProvider = ({ children }) => {
     return false;
   };
 
+  const refreshCurrentUserVerificationStatus = async () => {
+    if (!auth.currentUser) {
+      return {
+        authEmailVerified: false,
+        profileEmailVerified: Boolean(currentUserRef.current?.emailVerified),
+        effectiveEmailVerified: Boolean(currentUserRef.current?.emailVerified),
+      };
+    }
+
+    await reload(auth.currentUser);
+
+    if (auth.currentUser.emailVerified) {
+      await auth.currentUser.getIdToken(true).catch((error) => {
+        console.warn('AffairGo email verification token refresh warning', error);
+      });
+    }
+
+    const normalizedProfile = await syncCurrentUserFromFirebase(auth.currentUser);
+    const authEmailVerified = auth.currentUser.emailVerified === true;
+    const profileEmailVerified = normalizedProfile?.emailVerified === true;
+    const effectiveEmailVerified = authEmailVerified || profileEmailVerified;
+
+    if (effectiveEmailVerified) {
+      setPendingVerificationId(null);
+    }
+
+    return {
+      authEmailVerified,
+      profileEmailVerified,
+      effectiveEmailVerified,
+    };
+  };
+
   const resendCurrentUserVerificationEmail = async () => {
     if (!auth.currentUser) {
       throw new Error('Du musst angemeldet sein, um die Verifizierungs-Mail erneut zu senden.');
@@ -4244,6 +4277,7 @@ export const AffairGoProvider = ({ children }) => {
     logout,
     register,
     verifyPendingEmail,
+    refreshCurrentUserVerificationStatus,
     resendCurrentUserVerificationEmail,
     resendVerificationEmail,
     requestPasswordReset,

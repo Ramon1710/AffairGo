@@ -266,6 +266,46 @@ test('Community-Zugangsvoraussetzungen markieren fehlende E-Mail-Bestätigung', 
 
   assert.equal(requirements.emailVerified, false);
   assert.equal(requirements.canReadOverview, false);
+  assert.equal(requirements.preRulesRequirementsMet, false);
+  assert.deepEqual(requirements.missingKeys, ['emailVerified']);
+});
+
+test('Community-Zugangsvoraussetzungen verwenden Auth- und Profilstatus per ODER für E-Mail', () => {
+  const requirements = getCommunityAccessRequirements({
+    id: 'u1',
+    emailVerified: false,
+    ageVerified: true,
+    ageVerificationStatus: 'verified',
+    moderationState: 'clear',
+  }, { uid: 'u1', emailVerified: true }, {
+    rules: { version: '1.0', sections: [{ heading: 'A', paragraphs: ['B'] }] },
+    acceptance: null,
+  });
+
+  assert.equal(requirements.authEmailVerified, true);
+  assert.equal(requirements.profileEmailVerified, false);
+  assert.equal(requirements.effectiveEmailVerified, true);
+  assert.equal(requirements.emailVerified, true);
+  assert.equal(requirements.preRulesRequirementsMet, true);
+});
+
+test('Produktionsfall mit fehlender E-Mail bleibt im Pre-Rules-Gate', () => {
+  const requirements = getCommunityAccessRequirements({
+    id: 'u1',
+    emailVerified: false,
+    ageVerified: true,
+    ageVerificationStatus: 'verified',
+    accountDeletionRequestedAt: '',
+    moderationState: 'clear',
+  }, { uid: 'u1', emailVerified: false }, {
+    rules: { version: '1.0', sections: [{ heading: 'A', paragraphs: ['B'] }] },
+    acceptance: null,
+  });
+
+  assert.equal(requirements.preRulesRequirementsMet, false);
+  assert.equal(requirements.rulesAccepted, false);
+  assert.equal(requirements.canReadOverview, false);
+  assert.equal(requirements.canReadMessages, false);
   assert.deepEqual(requirements.missingKeys, ['emailVerified']);
 });
 
@@ -299,6 +339,8 @@ test('Community-Zugangsvoraussetzungen erlauben Übersicht vor Regeln, aber nich
 
   assert.equal(requirements.canReadOverview, true);
   assert.equal(requirements.canReadMessages, false);
+  assert.equal(requirements.preRulesRequirementsMet, true);
+  assert.equal(requirements.allRequirementsMet, false);
   assert.deepEqual(requirements.missingKeys, ['rulesAccepted']);
 });
 
