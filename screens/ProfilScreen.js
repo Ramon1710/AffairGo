@@ -731,6 +731,11 @@ const ProfilScreen = () => {
                 <Text style={styles.filterToggleText}>Nur verifizierte Matches anzeigen</Text>
                 <ToggleChip label="Nur verifiziert" active={Boolean(profile.verifiedMatchesOnly)} onPress={() => updateField('verifiedMatchesOnly', !profile.verifiedMatchesOnly)} />
               </View>
+              <View style={[styles.filterToggleRow, isCompactWeb && styles.filterToggleRowCompact]}>
+                <Text style={styles.filterToggleText}>Community-Aktivität aggregiert anzeigen</Text>
+                <ToggleChip label={profile.showCommunityActivityStatus === false ? 'Verborgen' : 'Sichtbar'} active={profile.showCommunityActivityStatus !== false} onPress={() => updateField('showCommunityActivityStatus', profile.showCommunityActivityStatus === false)} />
+              </View>
+              <Text style={styles.visibilityText}>Wenn du diesen Status verbirgst, tauchst du weder individuell noch in aggregierten Community-Aktivitätszahlen auf.</Text>
               <View style={[styles.row, isCompactWeb && styles.rowCompact]}>
                 <View style={[styles.half, isCompactWeb && styles.halfCompact]}>
                   <FormField

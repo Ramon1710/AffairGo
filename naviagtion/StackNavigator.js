@@ -6,6 +6,9 @@ import { auth } from '../firebase';
 import { useCurrentRoute, useNavigation } from './SimpleNavigation';
 
 import ChatScreen from '../screens/ChatScreen';
+import CommunityScreen from '../screens/CommunityScreen';
+import CommunityModerationScreen from '../screens/CommunityModerationScreen';
+import CommunityRoomScreen from '../screens/CommunityRoomScreen';
 import Dashboard from '../screens/Dashboard';
 import EventScreen from '../screens/EventScreen';
 import ExploreScreen from '../screens/ExploreScreen';
@@ -28,6 +31,9 @@ const screens = {
   MatchingMap: MatchingMapScreen,
   Swipe: SwipeScreen,
   Chat: ChatScreen,
+  Community: CommunityScreen,
+  CommunityRoom: CommunityRoomScreen,
+  CommunityModeration: CommunityModerationScreen,
   Event: EventScreen,
   Explore: ExploreScreen,
   TravelPlanner: TravelPlannerScreen,

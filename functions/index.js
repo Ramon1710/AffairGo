@@ -11,6 +11,25 @@ const {
   GetFaceLivenessSessionResultsCommand,
   RekognitionClient,
 } = require('@aws-sdk/client-rekognition');
+const {
+  createAcceptCommunityRulesHandler,
+  createBlockCommunityUserHandler,
+  createEventCommunityRoomHandler,
+  createGetCommunityPresenceSummaryHandler,
+  createGetCommunityRulesHandler,
+  createMarkCommunityRoomReadHandler,
+  createModerateCommunityReportHandler,
+  createPublishCommunityRulesHandler,
+  createReportCommunityContentHandler,
+  createSeedCommunityRoomsHandler,
+  createSendCommunityMessageHandler,
+  createSetCommunityRoomActiveHandler,
+  createSyncEventCommunityRoomsHandler,
+  createTouchCommunityPresenceHandler,
+  createToggleCommunityReactionHandler,
+  createUnblockCommunityUserHandler,
+  createUpsertCommunityRoomHandler,
+} = require('./communityChat');
 
 if (!getApps().length) {
   admin.initializeApp();
@@ -37,6 +56,72 @@ const getRekognitionClient = () => new RekognitionClient({
 });
 
 const getSigningSecret = () => PROFILE_IMAGE_VERIFICATION_SIGNING_KEY.value();
+const sendCommunityMessageHandler = createSendCommunityMessageHandler({
+  firestore: getFirestore(),
+  fieldValue: FieldValue,
+});
+const seedCommunityRoomsHandler = createSeedCommunityRoomsHandler({
+  firestore: getFirestore(),
+  fieldValue: FieldValue,
+});
+const getCommunityRulesHandler = createGetCommunityRulesHandler({
+  firestore: getFirestore(),
+  fieldValue: FieldValue,
+});
+const acceptCommunityRulesHandler = createAcceptCommunityRulesHandler({
+  firestore: getFirestore(),
+  fieldValue: FieldValue,
+});
+const publishCommunityRulesHandler = createPublishCommunityRulesHandler({
+  firestore: getFirestore(),
+  fieldValue: FieldValue,
+});
+const touchCommunityPresenceHandler = createTouchCommunityPresenceHandler({
+  firestore: getFirestore(),
+  fieldValue: FieldValue,
+});
+const getCommunityPresenceSummaryHandler = createGetCommunityPresenceSummaryHandler({
+  firestore: getFirestore(),
+});
+const toggleCommunityReactionHandler = createToggleCommunityReactionHandler({
+  firestore: getFirestore(),
+  fieldValue: FieldValue,
+});
+const blockCommunityUserHandler = createBlockCommunityUserHandler({
+  firestore: getFirestore(),
+  fieldValue: FieldValue,
+});
+const unblockCommunityUserHandler = createUnblockCommunityUserHandler({
+  firestore: getFirestore(),
+});
+const reportCommunityContentHandler = createReportCommunityContentHandler({
+  firestore: getFirestore(),
+  fieldValue: FieldValue,
+});
+const moderateCommunityReportHandler = createModerateCommunityReportHandler({
+  firestore: getFirestore(),
+  fieldValue: FieldValue,
+});
+const markCommunityRoomReadHandler = createMarkCommunityRoomReadHandler({
+  firestore: getFirestore(),
+  fieldValue: FieldValue,
+});
+const upsertCommunityRoomHandler = createUpsertCommunityRoomHandler({
+  firestore: getFirestore(),
+  fieldValue: FieldValue,
+});
+const setCommunityRoomActiveHandler = createSetCommunityRoomActiveHandler({
+  firestore: getFirestore(),
+  fieldValue: FieldValue,
+});
+const createEventCommunityRoomHandlerInstance = createEventCommunityRoomHandler({
+  firestore: getFirestore(),
+  fieldValue: FieldValue,
+});
+const syncEventCommunityRoomsHandler = createSyncEventCommunityRoomsHandler({
+  firestore: getFirestore(),
+  fieldValue: FieldValue,
+});
 
 const assertAuthenticated = (request) => {
   if (!request.auth?.uid) {
@@ -286,7 +371,7 @@ const normalizeProfilePatch = (patch = {}, existingProfile = {}, uid) => {
     }
   });
 
-  ['ageVerified', 'selfieVerified', 'verified', 'emailVerified', 'profilePhotoVerified', 'onboardingCompleted', 'searchActive', 'verifiedMatchesOnly', 'premiumTrialActive', 'goldDiscountPackage', 'privacyConsentAccepted'].forEach((key) => {
+  ['ageVerified', 'selfieVerified', 'verified', 'emailVerified', 'profilePhotoVerified', 'onboardingCompleted', 'searchActive', 'showCommunityActivityStatus', 'verifiedMatchesOnly', 'premiumTrialActive', 'goldDiscountPackage', 'privacyConsentAccepted'].forEach((key) => {
     if (hasOwn(nextPatch, key)) {
       nextPatch[key] = Boolean(nextPatch[key]);
     }
@@ -439,6 +524,7 @@ exports.finalizeRegistrationProfile = onCall({
     searchAgeMax: normalizeOptionalNumber(profile.searchAgeMax, 55),
     radius: normalizeOptionalNumber(profile.radius, 25),
     searchActive: Boolean(profile.searchActive),
+    showCommunityActivityStatus: profile.showCommunityActivityStatus !== false,
     verifiedMatchesOnly: Boolean(profile.verifiedMatchesOnly),
     online: profile.online !== false,
     points: normalizeOptionalNumber(profile.points, 0),
@@ -801,3 +887,71 @@ exports.rejectAndDeleteTempProfileImage = onCall({
     profilePhotoUrl: snapshot.get('profilePhotoUrl') || '',
   };
 });
+
+exports.sendCommunityMessage = onCall({
+  region: FIREBASE_REGION,
+}, sendCommunityMessageHandler);
+
+exports.seedCommunityRooms = onCall({
+  region: FIREBASE_REGION,
+}, seedCommunityRoomsHandler);
+
+exports.getCommunityRules = onCall({
+  region: FIREBASE_REGION,
+}, getCommunityRulesHandler);
+
+exports.acceptCommunityRules = onCall({
+  region: FIREBASE_REGION,
+}, acceptCommunityRulesHandler);
+
+exports.publishCommunityRules = onCall({
+  region: FIREBASE_REGION,
+}, publishCommunityRulesHandler);
+
+exports.touchCommunityPresence = onCall({
+  region: FIREBASE_REGION,
+}, touchCommunityPresenceHandler);
+
+exports.getCommunityPresenceSummary = onCall({
+  region: FIREBASE_REGION,
+}, getCommunityPresenceSummaryHandler);
+
+exports.toggleCommunityReaction = onCall({
+  region: FIREBASE_REGION,
+}, toggleCommunityReactionHandler);
+
+exports.blockCommunityUser = onCall({
+  region: FIREBASE_REGION,
+}, blockCommunityUserHandler);
+
+exports.unblockCommunityUser = onCall({
+  region: FIREBASE_REGION,
+}, unblockCommunityUserHandler);
+
+exports.reportCommunityContent = onCall({
+  region: FIREBASE_REGION,
+}, reportCommunityContentHandler);
+
+exports.moderateCommunityReport = onCall({
+  region: FIREBASE_REGION,
+}, moderateCommunityReportHandler);
+
+exports.markCommunityRoomRead = onCall({
+  region: FIREBASE_REGION,
+}, markCommunityRoomReadHandler);
+
+exports.upsertCommunityRoom = onCall({
+  region: FIREBASE_REGION,
+}, upsertCommunityRoomHandler);
+
+exports.setCommunityRoomActive = onCall({
+  region: FIREBASE_REGION,
+}, setCommunityRoomActiveHandler);
+
+exports.createEventCommunityRoom = onCall({
+  region: FIREBASE_REGION,
+}, createEventCommunityRoomHandlerInstance);
+
+exports.syncEventCommunityRooms = onCall({
+  region: FIREBASE_REGION,
+}, syncEventCommunityRoomsHandler);

@@ -1,15 +1,25 @@
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { AccentButton, AppBackground, EmptyState, GlassCard, InfoBanner, InlineStat, ScreenHeader, SectionTitle, StatusPill } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { accessColors, affairGoTheme, travelModeColors } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
 import { DASHBOARD_SIGNAL_CARDS, EMPTY_STATE_COPY } from '../data/mockData';
+import { db } from '../firebase';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
+
+const {
+  getCommunityUnreadRoomsCount,
+  normalizeCommunityRoom,
+  normalizeCommunityRoomRead,
+} = require('../untils/communityChat');
 
 const quickActions = [
   { key: 'MatchingMap', label: 'Matching Map', icon: 'map-outline', requiresVisibility: true },
   { key: 'Swipe', label: 'Swipe', icon: 'swap-horizontal-outline', requiresVisibility: true },
   { key: 'Chat', label: 'Chats', icon: 'chatbubbles-outline' },
+  { key: 'Community', label: 'Community', icon: 'people-outline' },
 ];
 
 const Dashboard = () => {
@@ -26,10 +36,44 @@ const Dashboard = () => {
     requestLiveLocationAccess,
     updateCurrentUser,
   } = useAffairGo();
-  const [isTogglingVisibility, setIsTogglingVisibility] = React.useState(false);
+  const [isTogglingVisibility, setIsTogglingVisibility] = useState(false);
+  const [communityRooms, setCommunityRooms] = useState([]);
+  const [communityReads, setCommunityReads] = useState([]);
   const hasProfilePhoto = Boolean(currentUser.profilePhotoUrl || currentUser.profileImageUri);
   const visibilityEnabled = Boolean(currentUser.searchActive && locationPermissionGranted);
   const matchingAccessEnabled = Boolean(visibilityEnabled && hasProfilePhoto);
+  const unreadCommunityRoomsCount = useMemo(() => getCommunityUnreadRoomsCount(communityRooms, communityReads), [communityReads, communityRooms]);
+
+  useEffect(() => {
+    const roomsQuery = query(collection(db, 'communityRooms'), where('active', '==', true));
+    const unsubscribe = onSnapshot(roomsQuery, (snapshot) => {
+      setCommunityRooms(snapshot.docs.map((roomDoc) => normalizeCommunityRoom({ id: roomDoc.id, ...roomDoc.data() }, roomDoc.id)));
+    }, () => {
+      setCommunityRooms([]);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!currentUser?.id) {
+      setCommunityReads([]);
+      return undefined;
+    }
+
+    const readsQuery = query(collection(db, 'communityRoomReads'), where('userId', '==', currentUser.id));
+    const unsubscribe = onSnapshot(readsQuery, (snapshot) => {
+      setCommunityReads(snapshot.docs.map((readDoc) => normalizeCommunityRoomRead({ id: readDoc.id, ...readDoc.data() }, readDoc.id)));
+    }, () => {
+      setCommunityReads([]);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [currentUser?.id]);
 
   const handleVisibilityToggle = async () => {
     if (isTogglingVisibility) {
@@ -142,6 +186,11 @@ const Dashboard = () => {
             disabled={action.requiresVisibility && !matchingAccessEnabled}
           >
             <GlassCard strong style={[styles.tileCard, action.requiresVisibility && !matchingAccessEnabled ? styles.tileCardDisabled : null]}>
+              {action.key === 'Community' && unreadCommunityRoomsCount > 0 ? (
+                <View style={styles.communityBadge}>
+                  <Text style={styles.communityBadgeText}>{unreadCommunityRoomsCount}</Text>
+                </View>
+              ) : null}
               <Ionicons
                 name={action.icon}
                 size={56}
@@ -153,6 +202,25 @@ const Dashboard = () => {
           </Pressable>
         ))}
       </View>
+
+      <GlassCard style={styles.communityCard}>
+        <Text style={styles.communityTitle}>Whisper Lounge</Text>
+        <Text style={styles.communityCopy}>
+          {unreadCommunityRoomsCount > 0
+            ? `In ${unreadCommunityRoomsCount} Räumen gibt es neue Nachrichten.`
+            : 'Neue Aktivität in deiner Community erscheint hier, sobald Räume neue Nachrichten haben.'}
+        </Text>
+        {unreadCommunityRoomsCount > 0 ? <StatusPill label={`${unreadCommunityRoomsCount}`} tone="info" style={styles.communityStatusPill} /> : null}
+        <AccentButton label="Community öffnen" variant="secondary" onPress={() => navigation.navigate('Community')} style={styles.communityButton} />
+      </GlassCard>
+
+      {currentUser.isAdmin ? (
+        <GlassCard style={styles.communityCard}>
+          <Text style={styles.communityTitle}>Community Moderation</Text>
+          <Text style={styles.communityCopy}>Prüfe offene Meldungen, entferne Nachrichten und setze Community-Schreibsperren.</Text>
+          <AccentButton label="Moderation öffnen" variant="secondary" onPress={() => navigation.navigate('CommunityModeration')} style={styles.communityButton} />
+        </GlassCard>
+      ) : null}
 
       <GlassCard style={styles.travelMenu}>
         <Pressable style={styles.menuItem} onPress={() => navigation.navigate('TravelPlanner', { mode: 'business' })}>
@@ -291,6 +359,26 @@ const styles = StyleSheet.create({
   visibilityCard: {
     marginBottom: 16,
   },
+  communityCard: {
+    marginBottom: 16,
+  },
+  communityTitle: {
+    color: affairGoTheme.colors.text,
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  communityCopy: {
+    color: affairGoTheme.colors.textMuted,
+    lineHeight: 22,
+    marginTop: 8,
+  },
+  communityStatusPill: {
+    alignSelf: 'flex-start',
+    marginTop: 12,
+  },
+  communityButton: {
+    marginTop: 14,
+  },
   visibilityHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -342,6 +430,24 @@ const styles = StyleSheet.create({
     minHeight: 180,
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
+  },
+  communityBadge: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    minWidth: 28,
+    height: 28,
+    borderRadius: 14,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: affairGoTheme.colors.accent,
+  },
+  communityBadgeText: {
+    color: affairGoTheme.colors.background,
+    fontWeight: '800',
+    fontSize: 13,
   },
   tileCardDisabled: {
     opacity: 0.45,

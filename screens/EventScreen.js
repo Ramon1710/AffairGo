@@ -1,12 +1,20 @@
 import * as ImagePicker from 'expo-image-picker';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, Image, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { AccentButton, AppBackground, EmptyState, FormField, GlassCard, InfoBanner, InlineStat, ScreenHeader, StatusPill, ToggleChip } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
+import { createEventCommunityRoom, syncEventCommunityRooms } from '../constants/communityChatProvider';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
 import { EMPTY_STATE_COPY, RADIUS_OPTIONS } from '../data/mockData';
-import { useNavigation } from '../naviagtion/SimpleNavigation';
+import { db } from '../firebase';
+import { useCurrentRoute, useNavigation } from '../naviagtion/SimpleNavigation';
+
+const {
+  mapCommunityErrorMessage,
+  normalizeCommunityRoom,
+} = require('../untils/communityChat');
 
 const EVENT_CATEGORY_OPTIONS = ['Private Party', 'Afterwork', 'Reise Meetup', 'Hotelbar', 'Club Night'];
 const EVENT_FILTER_OPTIONS = ['Alle', 'Verifiziert', 'Meine', 'Reisebezug'];
@@ -32,13 +40,37 @@ const EMPTY_EVENT_FORM = {
 
 const EventScreen = () => {
   const navigation = useNavigation();
+  const route = useCurrentRoute();
   const { width } = useWindowDimensions();
   const { events, registerForEvent, createEvent, currentRadius, setCurrentRadius, currentUser } = useAffairGo();
   const [form, setForm] = useState(EMPTY_EVENT_FORM);
   const [activeFilter, setActiveFilter] = useState('Alle');
+  const [eventRooms, setEventRooms] = useState([]);
+  const [busyEventChatId, setBusyEventChatId] = useState('');
   const canJoinEvents = currentUser.verified && currentUser.searchActive;
   const canCreateEvents = true;
   const isTwoColumnLayout = Platform.OS === 'web' && width >= 1100;
+  const selectedEventId = String(route?.params?.eventId || '');
+
+  useEffect(() => {
+    syncEventCommunityRooms().catch(() => {});
+
+    const roomsQuery = currentUser?.isAdmin
+      ? query(collection(db, 'communityRooms'))
+      : query(collection(db, 'communityRooms'), where('active', '==', true));
+    const unsubscribe = onSnapshot(roomsQuery, (snapshot) => {
+      const nextRooms = snapshot.docs
+        .map((roomDoc) => normalizeCommunityRoom({ id: roomDoc.id, ...roomDoc.data() }, roomDoc.id))
+        .filter((room) => room.type === 'EVENT' && room.eventId);
+      setEventRooms(nextRooms);
+    }, () => {
+      setEventRooms([]);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [currentUser?.isAdmin]);
 
   const travelCities = useMemo(() => Array.from(new Set([
     currentUser.city,
@@ -88,6 +120,7 @@ const EventScreen = () => {
     travelFit: visibleEvents.filter((event) => event.matchesTravelPlan).length,
     verified: visibleEvents.filter((event) => event.verifiedOnly).length,
   }), [currentUser.id, events, visibleEvents]);
+  const eventRoomMap = useMemo(() => Object.fromEntries(eventRooms.map((room) => [room.eventId, room])), [eventRooms]);
 
   const applyTravelCityToAddress = (city) => {
     setForm((previous) => ({
@@ -162,6 +195,35 @@ const EventScreen = () => {
     }
   };
 
+  const handleOpenEventChat = (eventId) => {
+    const room = eventRoomMap[eventId];
+
+    if (!room?.id || room.active !== true) {
+      return;
+    }
+
+    navigation.navigate('CommunityRoom', { roomId: room.id });
+  };
+
+  const handleCreateEventChat = async (eventId) => {
+    try {
+      setBusyEventChatId(eventId);
+      const result = await createEventCommunityRoom({ eventId });
+      await syncEventCommunityRooms({ eventId });
+
+      if (result?.roomId && result?.active === true) {
+        navigation.navigate('CommunityRoom', { roomId: result.roomId });
+        return;
+      }
+
+      Alert.alert('Event-Chat gespeichert', 'Der Event-Chat wurde angelegt. Er wird automatisch sichtbar, sobald das Aktivitätsfenster beginnt.');
+    } catch (error) {
+      Alert.alert('Event-Chat nicht verfügbar', mapCommunityErrorMessage(error, 'rooms'));
+    } finally {
+      setBusyEventChatId('');
+    }
+  };
+
   const getAnonymousAttendeeLabel = (attendeeId, index) => {
     if (attendeeId === currentUser.id) {
       return `Teilnehmer ${index + 1} • Du`;
@@ -202,8 +264,10 @@ const EventScreen = () => {
 
       {!canJoinEvents ? <InfoBanner title="Teilnahme gesperrt" detail="Für jede Event-Teilnahme musst du verifiziert sein und deine Suche aktiv geschaltet haben." tone="warning" style={styles.card} /> : null}
 
+      {selectedEventId ? <InfoBanner title="Event-Kontext" detail="Das markierte Event ist mit dem Community-Chat verknüpft, ohne Teilnahme oder Matching offenzulegen." tone="info" style={styles.card} /> : null}
+
       {visibleEvents.length ? visibleEvents.map((event) => (
-        <GlassCard key={event.id} strong style={styles.card}>
+        <GlassCard key={event.id} strong style={[styles.card, selectedEventId === event.id ? styles.selectedEventCard : null]}>
           <View style={styles.eventImage}>
             {event.imageUri ? (
               <Image source={{ uri: event.imageUri }} style={styles.eventImageAsset} resizeMode="cover" />
@@ -240,6 +304,21 @@ const EventScreen = () => {
             disabled={!canJoinEvents || event.isJoined || event.remainingSeats === 0}
             style={styles.button}
           />
+          {eventRoomMap[event.id]?.active ? (
+            <AccentButton label="Zum Event-Chat" variant="secondary" onPress={() => handleOpenEventChat(event.id)} style={styles.secondaryButton} />
+          ) : null}
+          {currentUser.isAdmin && !eventRoomMap[event.id] ? (
+            <AccentButton
+              label={busyEventChatId === event.id ? 'Erstellt...' : 'Event-Chat erstellen'}
+              variant="ghost"
+              onPress={() => handleCreateEventChat(event.id)}
+              disabled={busyEventChatId === event.id}
+              style={styles.secondaryButton}
+            />
+          ) : null}
+          {currentUser.isAdmin && eventRoomMap[event.id] && eventRoomMap[event.id].active !== true ? (
+            <AccentButton label="Event-Chat verwalten" variant="ghost" onPress={() => navigation.navigate('CommunityModeration')} style={styles.secondaryButton} />
+          ) : null}
           {event.organizerId === currentUser.id ? (
             <View style={styles.organizerBox}>
               <Text style={styles.organizerTitle}>Anmeldungen anonymisiert</Text>
@@ -391,6 +470,10 @@ const styles = StyleSheet.create({
   card: {
     marginBottom: 14,
   },
+  selectedEventCard: {
+    borderColor: 'rgba(255,122,100,0.45)',
+    backgroundColor: 'rgba(255,67,67,0.12)',
+  },
   categoryPill: {
     marginBottom: 10,
     marginLeft: 10,
@@ -466,6 +549,9 @@ const styles = StyleSheet.create({
   },
   button: {
     marginTop: 14,
+  },
+  secondaryButton: {
+    marginTop: 10,
   },
   imagePickerWrap: {
     marginBottom: 14,

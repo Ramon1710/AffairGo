@@ -6,6 +6,89 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function currentUserProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function currentUserProfileExists() {
+      return isSignedIn() && currentUserProfile().exists();
+    }
+
+    function hasVerifiedCommunityEmail() {
+      return currentUserProfileExists()
+        && (
+          request.auth.token.email_verified == true
+          || currentUserProfile().data.emailVerified == true
+        );
+    }
+
+    function hasVerifiedCommunityAge() {
+      return currentUserProfileExists()
+        && currentUserProfile().data.ageVerified == true
+        && (
+          !("ageVerificationStatus" in currentUserProfile().data)
+          || currentUserProfile().data.ageVerificationStatus == null
+          || currentUserProfile().data.ageVerificationStatus == ''
+          || currentUserProfile().data.ageVerificationStatus == 'verified'
+          || currentUserProfile().data.ageVerificationStatus == 'approved'
+        );
+    }
+
+    function hasNoPendingCommunityDeletion() {
+      return currentUserProfileExists()
+        && (
+          !("accountDeletionRequestedAt" in currentUserProfile().data)
+          || currentUserProfile().data.accountDeletionRequestedAt == null
+          || currentUserProfile().data.accountDeletionRequestedAt == ''
+        );
+    }
+
+    function hasNoCommunityRestriction() {
+      return currentUserProfileExists()
+        && (
+          !("moderationState" in currentUserProfile().data)
+          || currentUserProfile().data.moderationState == null
+          || currentUserProfile().data.moderationState == ''
+          || currentUserProfile().data.moderationState == 'clear'
+          || currentUserProfile().data.moderationState == 'review'
+        );
+    }
+
+    function canReadCommunity() {
+      return isSignedIn()
+        && hasVerifiedCommunityEmail()
+        && hasVerifiedCommunityAge()
+        && hasNoPendingCommunityDeletion()
+        && hasNoCommunityRestriction();
+    }
+
+    function canWriteCommunity() {
+      return canReadCommunity();
+    }
+
+    function currentCommunityRules() {
+      return get(/databases/$(database)/documents/communityConfig/rules);
+    }
+
+    function currentCommunityRulesAccepted() {
+      return canReadCommunity()
+        && currentCommunityRules().exists()
+        && get(/databases/$(database)/documents/communityRuleAcceptances/$(request.auth.uid)).exists()
+        && get(/databases/$(database)/documents/communityRuleAcceptances/$(request.auth.uid)).data.latestAcceptedVersion == currentCommunityRules().data.version;
+    }
+
+    function isCommunityAdmin() {
+      return currentUserProfileExists()
+        && (
+          currentUserProfile().data.isAdmin == true
+          || currentUserProfile().data.role == 'admin'
+        );
+    }
+
+    function roomIsActive(roomId) {
+      return get(/databases/$(database)/documents/communityRooms/$(roomId)).data.active == true;
+    }
+
     function isOwner(uid) {
       return isSignedIn() && request.auth.uid == uid;
     }
@@ -67,12 +150,107 @@ service cloud.firestore {
       allow delete: if isOwner(uid);
     }
 
+    match /communityRooms/{roomId} {
+      allow read: if canReadCommunity() && (resource.data.active == true || isCommunityAdmin());
+      allow create, update, delete: if false;
+    }
+
+    match /communityRooms/{roomId}/messages/{messageId} {
+      allow read: if currentCommunityRulesAccepted() && (roomIsActive(roomId) || isCommunityAdmin());
+      allow create, update, delete: if false;
+    }
+
+    match /communityRooms/{roomId}/messages/{messageId}/reactions/{reactionId} {
+      allow read: if currentCommunityRulesAccepted() && (roomIsActive(roomId) || isCommunityAdmin());
+      allow create, update, delete: if false;
+    }
+
+    match /communityRoomReads/{readId} {
+      allow read: if currentCommunityRulesAccepted() && (resource.data.userId == request.auth.uid || isCommunityAdmin());
+      allow create, update, delete: if false;
+    }
+
+    match /communityConfig/{docId} {
+      allow read: if canReadCommunity() && docId == 'rules';
+      allow create, update, delete: if false;
+    }
+
+    match /communityRuleAcceptances/{uid} {
+      allow read: if isSignedIn() && (uid == request.auth.uid || isCommunityAdmin());
+      allow create, update, delete: if false;
+    }
+
+    match /communityRuleVersions/{versionId} {
+      allow read: if isSignedIn() && isCommunityAdmin();
+      allow create, update, delete: if false;
+    }
+
+    match /communityPresence/{uid} {
+      allow read, create, update, delete: if false;
+    }
+
+    match /communityRateLimits/{uid} {
+      allow read, write: if false;
+    }
+
+    match /communityReportRateLimits/{uid} {
+      allow read, write: if false;
+    }
+
+    match /communityBlocks/{blockId} {
+      allow read: if isSignedIn() && resource.data.blockerUserId == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
+    match /communityReports/{reportId} {
+      allow read: if isSignedIn() && isCommunityAdmin();
+      allow create, update, delete: if false;
+    }
+
+    match /communityModerationLogs/{logId} {
+      allow read: if isSignedIn() && isCommunityAdmin();
+      allow create, update, delete: if false;
+    }
+
+    match /communitySafetyStates/{uid} {
+      allow read: if isSignedIn() && isCommunityAdmin();
+      allow create, update, delete: if false;
+    }
+
     match /{collection}/{docId} {
-      allow read, write: if isSignedIn() && collection != 'users' && collection != 'mapLocations';
+      allow read, write: if isSignedIn()
+        && collection != 'users'
+        && collection != 'mapLocations'
+        && collection != 'communityRooms'
+        && collection != 'communityRoomReads'
+        && collection != 'communityRateLimits'
+        && collection != 'communityReportRateLimits'
+        && collection != 'communityBlocks'
+        && collection != 'communityConfig'
+        && collection != 'communityPresence'
+        && collection != 'communityReports'
+        && collection != 'communityRuleAcceptances'
+        && collection != 'communityRuleVersions'
+        && collection != 'communityModerationLogs'
+        && collection != 'communitySafetyStates';
     }
 
     match /{collection}/{docId}/{document=**} {
-      allow read, write: if isSignedIn() && collection != 'users' && collection != 'mapLocations';
+      allow read, write: if isSignedIn()
+        && collection != 'users'
+        && collection != 'mapLocations'
+        && collection != 'communityRooms'
+        && collection != 'communityRoomReads'
+        && collection != 'communityRateLimits'
+        && collection != 'communityReportRateLimits'
+        && collection != 'communityBlocks'
+        && collection != 'communityConfig'
+        && collection != 'communityPresence'
+        && collection != 'communityReports'
+        && collection != 'communityRuleAcceptances'
+        && collection != 'communityRuleVersions'
+        && collection != 'communityModerationLogs'
+        && collection != 'communitySafetyStates';
     }
   }
 }
