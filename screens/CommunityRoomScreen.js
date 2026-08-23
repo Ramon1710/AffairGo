@@ -1,32 +1,33 @@
+import { collection, collectionGroup, doc, getDoc, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  FlatList,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+    ActivityIndicator,
+    FlatList,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from 'react-native';
-import { collection, collectionGroup, doc, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import { AccentButton, AppBackground, EmptyState, GlassCard, InfoBanner, ScreenHeader, StatusPill } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
-import {
-  blockCommunityUser,
-  getCommunityRules,
-  markCommunityRoomRead,
-  reportCommunityContent,
-  sendCommunityMessage,
-  syncEventCommunityRooms,
-  touchCommunityPresence,
-  toggleCommunityReaction,
-  unblockCommunityUser,
-} from '../constants/communityChatProvider';
 import { affairGoTheme } from '../constants/affairGoTheme';
+import {
+    acceptCommunityRules,
+    blockCommunityUser,
+    getCommunityRules,
+    markCommunityRoomRead,
+    reportCommunityContent,
+    sendCommunityMessage,
+    syncEventCommunityRooms,
+    toggleCommunityReaction,
+    touchCommunityPresence,
+    unblockCommunityUser,
+} from '../constants/communityChatProvider';
 import { useAffairGo } from '../context/AffairGoContext';
 import { db } from '../firebase';
 import { useCurrentRoute, useNavigation } from '../naviagtion/SimpleNavigation';
@@ -38,6 +39,7 @@ const {
   COMMUNITY_REPORT_COMMENT_MAX_LENGTH,
   COMMUNITY_REPORT_REASON_OPTIONS,
   COMMUNITY_ROOM_ROUTE_FALLBACK,
+  buildAcceptedCommunityRulesEnvelope,
   buildCommunityMentionsPayload,
   clampCommunityDraft,
   findCommunityUnreadDividerIndex,
@@ -50,9 +52,11 @@ const {
   getCommunityRoomTypeLabel,
   insertCommunityMention,
   mapCommunityErrorMessage,
+  mergeCommunityRulesEnvelope,
   normalizeCommunityMessage,
   normalizeCommunityRulesEnvelope,
   normalizeCommunityRoom,
+  normalizeCommunityRoomRead,
 } = require('../untils/communityChat');
 
 const BOTTOM_THRESHOLD_PX = 72;
@@ -74,6 +78,8 @@ const CommunityRoomScreen = () => {
   const readStateListenerRef = useRef(null);
   const previousVisibleCountRef = useRef(0);
   const visitReadStateInitializedRef = useRef(false);
+  const rulesEnvelopeRef = useRef(null);
+  const rulesLoadRequestIdRef = useRef(0);
   const [room, setRoom] = useState(null);
   const [roomLoaded, setRoomLoaded] = useState(false);
   const [messagesLoaded, setMessagesLoaded] = useState(false);
@@ -99,6 +105,8 @@ const CommunityRoomScreen = () => {
   const [pendingNewCount, setPendingNewCount] = useState(0);
   const [rulesEnvelope, setRulesEnvelope] = useState(null);
   const [rulesLoaded, setRulesLoaded] = useState(false);
+  const [isAcceptingRules, setIsAcceptingRules] = useState(false);
+  const [rulesError, setRulesError] = useState('');
 
   const preparedDraft = useMemo(() => getPreparedCommunityText(draft), [draft]);
   const characterCount = draft.length;
@@ -158,31 +166,127 @@ const CommunityRoomScreen = () => {
   const unreadDividerIndex = useMemo(() => findCommunityUnreadDividerIndex(visibleMessages, visitReadState), [visibleMessages, visitReadState]);
 
   useEffect(() => {
+    rulesEnvelopeRef.current = rulesEnvelope;
+  }, [rulesEnvelope]);
+
+  const logCommunityRoomRulesDebug = (scope, details = {}) => {
+    const error = details.error || null;
+
+    console.warn('[CommunityRoomScreen]', {
+      scope,
+      route: `/community/room/${roomId}`,
+      roomId,
+      errorCode: typeof error?.code === 'string' ? error.code : null,
+      errorMessage: typeof error?.message === 'string' ? error.message : null,
+      currentRulesVersion: details.currentRulesVersion ?? rulesEnvelopeRef.current?.version ?? null,
+      acceptedRulesVersion: details.acceptedRulesVersion ?? rulesEnvelopeRef.current?.acceptedVersion ?? null,
+      acceptedRulesVersionAfter: details.acceptedRulesVersionAfter ?? null,
+      needsRulesAcceptance: details.needsRulesAcceptance ?? null,
+      acceptResponse: details.acceptResponse ?? null,
+      uid: currentUser?.id || null,
+    });
+  };
+
+  const loadRulesViaFirestoreFallback = async (userId) => {
+    const [rulesSnapshot, acceptanceSnapshot] = await Promise.all([
+      getDoc(doc(db, 'communityConfig', 'rules')),
+      getDoc(doc(db, 'communityRuleAcceptances', userId)),
+    ]);
+
+    if (!rulesSnapshot.exists()) {
+      throw new Error('missing_rules');
+    }
+
+    return normalizeCommunityRulesEnvelope({
+      rules: rulesSnapshot.data(),
+      acceptance: acceptanceSnapshot.exists() ? acceptanceSnapshot.data() : null,
+    });
+  };
+
+  const applyRulesEnvelope = (nextEnvelope) => {
+    const mergedEnvelope = mergeCommunityRulesEnvelope(rulesEnvelopeRef.current, nextEnvelope);
+    rulesEnvelopeRef.current = mergedEnvelope;
+    setRulesEnvelope(mergedEnvelope);
+    return mergedEnvelope;
+  };
+
+  const refreshRulesStatus = async ({ userId, preserveAcceptedState = false } = {}) => {
+    const requestId = ++rulesLoadRequestIdRef.current;
+
+    try {
+      const result = await getCommunityRules();
+
+      if (requestId !== rulesLoadRequestIdRef.current) {
+        return null;
+      }
+
+      const nextEnvelope = normalizeCommunityRulesEnvelope(result);
+      const mergedEnvelope = preserveAcceptedState
+        ? mergeCommunityRulesEnvelope(rulesEnvelopeRef.current, nextEnvelope)
+        : nextEnvelope;
+
+      setRulesError('');
+      return applyRulesEnvelope(mergedEnvelope);
+    } catch (error) {
+      logCommunityRoomRulesDebug('rules-callable-failed', { error });
+
+      try {
+        const nextEnvelope = await loadRulesViaFirestoreFallback(userId);
+
+        if (requestId !== rulesLoadRequestIdRef.current) {
+          return null;
+        }
+
+        const mergedEnvelope = preserveAcceptedState
+          ? mergeCommunityRulesEnvelope(rulesEnvelopeRef.current, nextEnvelope)
+          : nextEnvelope;
+
+        setRulesError('');
+        return applyRulesEnvelope(mergedEnvelope);
+      } catch (fallbackError) {
+        logCommunityRoomRulesDebug('rules-fallback-failed', { error: fallbackError });
+
+        if (requestId !== rulesLoadRequestIdRef.current) {
+          return null;
+        }
+
+        if (!preserveAcceptedState) {
+          setRulesEnvelope(null);
+          rulesEnvelopeRef.current = null;
+          setRulesError('Deine Zustimmung konnte nicht geprüft werden. Bitte versuche es erneut.');
+        }
+
+        throw error;
+      }
+    }
+  };
+
+  useEffect(() => {
     let active = true;
 
     if (!currentUser?.id) {
       setRulesEnvelope(null);
       setRulesLoaded(true);
+      setRulesError('');
       return undefined;
     }
 
     setRulesLoaded(false);
+    setRulesError('');
 
     const loadRules = async () => {
       try {
-        const result = await getCommunityRules();
+        await refreshRulesStatus({ userId: currentUser.id });
 
         if (!active) {
           return;
         }
-
-        setRulesEnvelope(normalizeCommunityRulesEnvelope(result));
       } catch (error) {
         if (!active) {
           return;
         }
 
-        setSendError(mapCommunityErrorMessage(error, 'load'));
+        setRulesError(mapCommunityErrorMessage(error, 'load'));
       } finally {
         if (active) {
           setRulesLoaded(true);
@@ -196,6 +300,39 @@ const CommunityRoomScreen = () => {
       active = false;
     };
   }, [currentUser?.id]);
+
+  const handleAcceptRules = async () => {
+    if (!rulesEnvelope?.version || isAcceptingRules) {
+      return;
+    }
+
+    try {
+      setIsAcceptingRules(true);
+      setRulesError('');
+      logCommunityRoomRulesDebug('rules-accept-start', {
+        currentRulesVersion: rulesEnvelope.version,
+        acceptedRulesVersion: rulesEnvelope.acceptedVersion,
+        needsRulesAcceptance: rulesEnvelope.acceptedCurrent !== true,
+      });
+      const acceptResponse = await acceptCommunityRules({ rulesVersion: rulesEnvelope.version });
+      const acceptedEnvelope = buildAcceptedCommunityRulesEnvelope(rulesEnvelopeRef.current || rulesEnvelope, acceptResponse);
+      applyRulesEnvelope(acceptedEnvelope);
+      logCommunityRoomRulesDebug('rules-accept-success', {
+        currentRulesVersion: acceptedEnvelope.version,
+        acceptedRulesVersion: rulesEnvelope.acceptedVersion,
+        acceptedRulesVersionAfter: acceptedEnvelope.acceptedVersion,
+        needsRulesAcceptance: acceptedEnvelope.acceptedCurrent !== true,
+        acceptResponse,
+      });
+      refreshRulesStatus({ userId: currentUser.id, preserveAcceptedState: true }).catch((error) => {
+        logCommunityRoomRulesDebug('rules-refresh-after-accept-failed', { error });
+      });
+    } catch (error) {
+      setRulesError('Deine Zustimmung konnte nicht gespeichert werden. Bitte versuche es erneut.');
+    } finally {
+      setIsAcceptingRules(false);
+    }
+  };
 
   const scrollToLatest = (animated = true) => {
     requestAnimationFrame(() => {
@@ -678,7 +815,20 @@ const CommunityRoomScreen = () => {
         <GlassCard strong style={styles.stateCard}>
           <Text style={styles.stateTitle}>Bitte bestätige zuerst die aktuellen Community-Regeln.</Text>
           <Text style={styles.stateSubtitle}>{rulesVersionLabel}</Text>
-          <AccentButton label="Zur Community-Übersicht" onPress={() => navigation.navigate('Community')} style={styles.stateActionButton} />
+          {rulesError ? <Text style={styles.errorText}>{rulesError}</Text> : null}
+          <AccentButton
+            label={isAcceptingRules ? 'Regeln werden bestätigt...' : 'Community-Regeln akzeptieren'}
+            onPress={handleAcceptRules}
+            disabled={isAcceptingRules || !rulesEnvelope?.version}
+            style={styles.stateActionButton}
+          />
+          <AccentButton
+            label="Zur Community-Übersicht"
+            variant="ghost"
+            onPress={() => navigation.navigate('Community')}
+            disabled={isAcceptingRules}
+            style={styles.secondaryAction}
+          />
         </GlassCard>
       );
     }

@@ -2811,6 +2811,7 @@ const createAcceptCommunityRulesHandler = ({ firestore, fieldValue }) => {
         return {
           ok: true,
           rulesVersion: config.version,
+          acceptedVersion: config.version,
           accepted: true,
           alreadyAccepted: true,
         };
@@ -2826,6 +2827,7 @@ const createAcceptCommunityRulesHandler = ({ firestore, fieldValue }) => {
       return {
         ok: true,
         rulesVersion: config.version,
+        acceptedVersion: config.version,
         accepted: true,
         alreadyAccepted: false,
       };

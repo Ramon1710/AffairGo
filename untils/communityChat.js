@@ -509,7 +509,7 @@ const normalizeCommunityMessage = (message = {}, fallbackId = '') => {
 };
 
 const normalizeCommunityRulesEnvelope = (value = {}) => {
-  const rules = value?.rules || {};
+  const rules = value?.rules && typeof value.rules === 'object' ? value.rules : value;
   const acceptance = value?.acceptance || null;
   const version = String(rules.version || '').trim();
   const acceptedVersion = String(acceptance?.latestAcceptedVersion || '').trim();
@@ -532,6 +532,54 @@ const normalizeCommunityRulesEnvelope = (value = {}) => {
     acceptedVersion,
     acceptedCurrent: Boolean(version) && acceptedVersion === version,
   };
+};
+
+const toCommunityRulesEnvelopePayload = (envelope = {}, acceptanceOverride) => ({
+  rules: {
+    version: String(envelope?.version || '').trim(),
+    title: String(envelope?.title || 'Community-Regeln').trim() || 'Community-Regeln',
+    sections: Array.isArray(envelope?.sections) ? envelope.sections : [],
+    publishedAt: envelope?.publishedAt || null,
+    updatedAt: envelope?.updatedAt || null,
+    active: envelope?.active !== false,
+  },
+  acceptance: acceptanceOverride === undefined ? (envelope?.acceptance || null) : acceptanceOverride,
+});
+
+const buildAcceptedCommunityRulesEnvelope = (currentEnvelope = {}, acceptResponse = {}) => {
+  const normalizedCurrent = normalizeCommunityRulesEnvelope(currentEnvelope);
+  const acceptedVersion = String(
+    acceptResponse?.acceptedVersion
+    || acceptResponse?.rulesVersion
+    || normalizedCurrent.version
+    || ''
+  ).trim();
+
+  return normalizeCommunityRulesEnvelope(toCommunityRulesEnvelopePayload(normalizedCurrent, {
+    ...(normalizedCurrent.acceptance && typeof normalizedCurrent.acceptance === 'object' ? normalizedCurrent.acceptance : {}),
+    latestAcceptedVersion: acceptedVersion,
+    latestAcceptedAt: acceptResponse?.acceptedAt || normalizedCurrent.acceptance?.latestAcceptedAt || null,
+  }));
+};
+
+const mergeCommunityRulesEnvelope = (currentEnvelope = null, nextEnvelope = {}) => {
+  const normalizedNext = normalizeCommunityRulesEnvelope(nextEnvelope);
+  const normalizedCurrent = currentEnvelope ? normalizeCommunityRulesEnvelope(currentEnvelope) : null;
+
+  if (!normalizedCurrent) {
+    return normalizedNext;
+  }
+
+  if (
+    normalizedCurrent.acceptedCurrent
+    && normalizedCurrent.version
+    && normalizedCurrent.version === normalizedNext.version
+    && normalizedNext.acceptedCurrent !== true
+  ) {
+    return normalizeCommunityRulesEnvelope(toCommunityRulesEnvelopePayload(normalizedNext, normalizedCurrent.acceptance || normalizedNext.acceptance || null));
+  }
+
+  return normalizedNext;
 };
 
 const formatCommunityRulesVersionLabel = (version = '') => {
@@ -577,6 +625,7 @@ module.exports = {
   COMMUNITY_ROOM_ROUTE_FALLBACK,
   COMMUNITY_ROOM_TYPE_LABELS,
   COMMUNITY_ACTIVITY_EXACT_COUNT_THRESHOLD,
+  buildAcceptedCommunityRulesEnvelope,
   buildCommunityRoomSections,
   buildCommunityMentionsPayload,
   clampCommunityDraft,
@@ -599,6 +648,7 @@ module.exports = {
   hasUnreadCommunityRoom,
   insertCommunityMention,
   mapCommunityErrorMessage,
+  mergeCommunityRulesEnvelope,
   normalizeCommunityDraft,
   normalizeCommunityMessage,
   normalizeCommunityPresenceSummary,

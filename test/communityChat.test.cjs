@@ -6,6 +6,7 @@ const {
   COMMUNITY_REPORT_REASON_OPTIONS,
   COMMUNITY_RATE_LIMIT_ERROR_MESSAGE,
   COMMUNITY_ROOM_ID,
+  buildAcceptedCommunityRulesEnvelope,
   buildCommunityRoomSections,
   buildCommunityMentionsPayload,
   clampCommunityDraft,
@@ -23,6 +24,7 @@ const {
   hasUnreadCommunityRoom,
   insertCommunityMention,
   mapCommunityErrorMessage,
+  mergeCommunityRulesEnvelope,
   normalizeCommunityMessage,
   normalizeCommunityRulesEnvelope,
   normalizeCommunityRoom,
@@ -240,6 +242,51 @@ test('Community-Regeln werden clientseitig normalisiert', () => {
   assert.equal(envelope.acceptedCurrent, true);
   assert.equal(formatCommunityRulesVersionLabel(envelope.version), 'Version 1.1');
   assert.equal(envelope.sections.length, 1);
+});
+
+test('Akzeptierte Regeln werden lokal sofort auf acceptedCurrent gesetzt', () => {
+  const currentEnvelope = normalizeCommunityRulesEnvelope({
+    rules: {
+      version: '1.0',
+      title: 'Regeln',
+      sections: [{ heading: 'A', paragraphs: ['B'] }],
+    },
+    acceptance: null,
+  });
+
+  const acceptedEnvelope = buildAcceptedCommunityRulesEnvelope(currentEnvelope, {
+    acceptedVersion: '1.0',
+    accepted: true,
+  });
+
+  assert.equal(acceptedEnvelope.acceptedVersion, '1.0');
+  assert.equal(acceptedEnvelope.acceptedCurrent, true);
+});
+
+test('Stale Rules-Response überschreibt erfolgreiche Acceptance nicht mehr', () => {
+  const acceptedEnvelope = normalizeCommunityRulesEnvelope({
+    rules: {
+      version: '1.0',
+      title: 'Regeln',
+      sections: [{ heading: 'A', paragraphs: ['B'] }],
+    },
+    acceptance: {
+      latestAcceptedVersion: '1.0',
+    },
+  });
+  const staleEnvelope = normalizeCommunityRulesEnvelope({
+    rules: {
+      version: '1.0',
+      title: 'Regeln',
+      sections: [{ heading: 'A', paragraphs: ['B'] }],
+    },
+    acceptance: null,
+  });
+
+  const mergedEnvelope = mergeCommunityRulesEnvelope(acceptedEnvelope, staleEnvelope);
+
+  assert.equal(mergedEnvelope.acceptedVersion, '1.0');
+  assert.equal(mergedEnvelope.acceptedCurrent, true);
 });
 
 test('Regelabschnitte lassen sich für den Admin-Editor serialisieren und parsen', () => {

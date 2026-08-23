@@ -1420,6 +1420,7 @@ test('Community-Regeln: gültige aktuelle Version kann akzeptiert werden', async
 
   assert.equal(result.ok, true);
   assert.equal(result.alreadyAccepted, false);
+  assert.equal(result.acceptedVersion, DEFAULT_COMMUNITY_RULES_VERSION);
   assert.equal(harness.firestore.store.get('communityRuleAcceptances/user-1').data.latestAcceptedVersion, DEFAULT_COMMUNITY_RULES_VERSION);
 });
 
@@ -1438,6 +1439,7 @@ test('Community-Regeln: erneutes Akzeptieren der aktuellen Version bleibt idempo
 
   assert.equal(result.ok, true);
   assert.equal(result.alreadyAccepted, true);
+  assert.equal(result.acceptedVersion, DEFAULT_COMMUNITY_RULES_VERSION);
 });
 
 test('Community-Regeln: Admin kann neue Version veröffentlichen', async () => {
