@@ -1268,7 +1268,7 @@ test('Seed: fehlende Standardräume werden ergänzt und bestehende bleiben erhal
 
   assert.equal(result.created, true);
   assert.equal(harness.firestore.store.get(`communityRooms/${DEFAULT_COMMUNITY_ROOM_ID}`).data.description, 'Bereits vorhanden');
-  assert.equal(result.createdRoomIds.length, DEFAULT_COMMUNITY_ROOMS.length - 1);
+  assert.equal(result.createdRoomIds.length, DEFAULT_COMMUNITY_ROOMS.length);
 });
 
 test('Seed: community-berechtigtes Mitglied darf fehlende Standardräume ergänzen', async () => {
@@ -1292,6 +1292,35 @@ test('Seed: community-berechtigtes Mitglied darf fehlende Standardräume ergänz
   assert.equal(result.created, true);
   assert.equal(result.createdRoomIds.length, DEFAULT_COMMUNITY_ROOMS.length);
   assert.equal(harness.firestore.store.get(`communityRooms/${DEFAULT_COMMUNITY_ROOM_ID}`).data.name, 'Whisper Lounge');
+});
+
+test('Seed: bestehende Legacy-Standardräume werden auf aktive Felder nachgezogen', async () => {
+  const baseDocs = createBaseDocs();
+  const legacyRoom = { ...baseDocs[`communityRooms/${DEFAULT_COMMUNITY_ROOM_ID}`] };
+  delete legacyRoom.active;
+  delete legacyRoom.manualActive;
+  delete legacyRoom.messageCount;
+
+  const harness = createHandlerHarness({
+    docs: {
+      ...baseDocs,
+      [`communityRooms/${DEFAULT_COMMUNITY_ROOM_ID}`]: legacyRoom,
+    },
+  });
+
+  const seedHandler = require('../communityChat').createSeedCommunityRoomsHandler({
+    firestore: harness.firestore,
+    fieldValue: createFieldValueStub(),
+  });
+
+  const result = await seedHandler(createRequest({ data: {} }));
+  const repairedRoom = harness.firestore.store.get(`communityRooms/${DEFAULT_COMMUNITY_ROOM_ID}`).data;
+
+  assert.equal(result.created, true);
+  assert.ok(result.createdRoomIds.includes(DEFAULT_COMMUNITY_ROOM_ID));
+  assert.equal(repairedRoom.active, true);
+  assert.equal(repairedRoom.manualActive, true);
+  assert.equal(repairedRoom.messageCount, 0);
 });
 
 test('Raumzugriff: Nachricht an inaktiven Raum wird abgelehnt', async () => {

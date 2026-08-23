@@ -2099,16 +2099,60 @@ const createSeedCommunityRoomsHandler = ({ firestore, fieldValue }) => {
       const roomSnapshot = await roomRef.get();
 
       if (roomSnapshot.exists) {
-        skippedRoomIds.push(room.id);
+        const existingRoom = roomSnapshot.data() || {};
+        const repairPatch = {};
+
+        if (typeof existingRoom.name !== 'string' || !existingRoom.name.trim()) {
+          repairPatch.name = room.name;
+        }
+
+        if (typeof existingRoom.slug !== 'string' || !existingRoom.slug.trim()) {
+          repairPatch.slug = room.slug;
+        }
+
+        if (typeof existingRoom.description !== 'string' || !existingRoom.description.trim()) {
+          repairPatch.description = room.description;
+        }
+
+        if (typeof existingRoom.type !== 'string' || !existingRoom.type.trim()) {
+          repairPatch.type = room.type;
+        }
+
+        if (existingRoom.region === undefined) {
+          repairPatch.region = room.region;
+        }
+
+        if (typeof existingRoom.active !== 'boolean') {
+          repairPatch.active = room.active === true;
+        }
+
+        if (typeof existingRoom.manualActive !== 'boolean') {
+          repairPatch.manualActive = room.active === true;
+        }
+
+        if (!Number.isFinite(Number(existingRoom.messageCount))) {
+          repairPatch.messageCount = 0;
+        }
+
+        if (Object.keys(repairPatch).length) {
+          repairPatch.updatedAt = fieldValue.serverTimestamp();
+          await roomRef.set(repairPatch, { merge: true });
+          createdRoomIds.push(room.id);
+        } else {
+          skippedRoomIds.push(room.id);
+        }
+
         continue;
       }
 
       await roomRef.set({
         ...room,
+        manualActive: room.active === true,
         createdBy,
         createdAt: fieldValue.serverTimestamp(),
         updatedAt: fieldValue.serverTimestamp(),
         lastMessageAt: null,
+        messageCount: 0,
       }, { merge: true });
       createdRoomIds.push(room.id);
     }

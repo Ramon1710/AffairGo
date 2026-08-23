@@ -1,10 +1,10 @@
+import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { AccentButton, AppBackground, EmptyState, GlassCard, InfoBanner, ScreenHeader, StatusPill } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
-import { acceptCommunityRules, getCommunityPresenceSummary, getCommunityRules, seedCommunityRooms, syncEventCommunityRooms, touchCommunityPresence } from '../constants/communityChatProvider';
 import { affairGoTheme } from '../constants/affairGoTheme';
+import { acceptCommunityRules, getCommunityPresenceSummary, getCommunityRules, seedCommunityRooms, syncEventCommunityRooms, touchCommunityPresence } from '../constants/communityChatProvider';
 import { useAffairGo } from '../context/AffairGoContext';
 import { db } from '../firebase';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
@@ -46,6 +46,22 @@ const CommunityScreen = () => {
   const [isAcceptingRules, setIsAcceptingRules] = useState(false);
   const [presenceSummary, setPresenceSummary] = useState(normalizeCommunityPresenceSummary());
 
+  const loadRulesViaFirestoreFallback = async (userId) => {
+    const [rulesSnapshot, acceptanceSnapshot] = await Promise.all([
+      getDoc(doc(db, 'communityConfig', 'rules')),
+      getDoc(doc(db, 'communityRuleAcceptances', userId)),
+    ]);
+
+    if (!rulesSnapshot.exists()) {
+      throw new Error('missing_rules');
+    }
+
+    return normalizeCommunityRulesEnvelope({
+      rules: rulesSnapshot.data(),
+      acceptance: acceptanceSnapshot.exists() ? acceptanceSnapshot.data() : null,
+    });
+  };
+
   useEffect(() => {
     syncEventCommunityRooms().catch(() => {});
   }, []);
@@ -75,12 +91,24 @@ const CommunityScreen = () => {
         setRulesEnvelope(nextEnvelope);
         setRulesModalVisible(nextEnvelope.acceptedCurrent !== true);
       } catch (error) {
-        if (!active) {
-          return;
-        }
+        try {
+          const nextEnvelope = await loadRulesViaFirestoreFallback(currentUser.id);
 
-        setRulesEnvelope(null);
-        setRulesError(mapCommunityErrorMessage(error, 'load'));
+          if (!active) {
+            return;
+          }
+
+          setRulesEnvelope(nextEnvelope);
+          setRulesModalVisible(nextEnvelope.acceptedCurrent !== true);
+          setRulesError('');
+        } catch {
+          if (!active) {
+            return;
+          }
+
+          setRulesEnvelope(null);
+          setRulesError(mapCommunityErrorMessage(error, 'load'));
+        }
       } finally {
         if (active) {
           setRulesLoaded(true);
