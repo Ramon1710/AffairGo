@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { AccentButton, AppBackground, EmptyState, GlassCard, InfoBanner, ScreenHeader, StatusPill } from '../components/AffairGoUI';
@@ -32,6 +32,7 @@ const {
 const CommunityScreen = () => {
   const navigation = useNavigation();
   const { currentUser } = useAffairGo();
+  const autoRepairAttemptedRef = useRef(false);
   const [rooms, setRooms] = useState([]);
   const [reads, setReads] = useState([]);
   const [roomsLoaded, setRoomsLoaded] = useState(false);
@@ -208,6 +209,28 @@ const CommunityScreen = () => {
   const noRoomsAvailable = roomsLoaded && !roomsWithPresence.length;
   const unreadRoomsCount = useMemo(() => getCommunityUnreadRoomsCount(roomsWithPresence, reads), [reads, roomsWithPresence]);
   const activeMembersLabel = getCommunityActiveCountLabel(presenceSummary.activeMemberCount, presenceSummary.publicCountThreshold);
+
+  useEffect(() => {
+    autoRepairAttemptedRef.current = false;
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    if (!currentUser?.id || !roomsLoaded || loadError || isSeedingRoom || autoRepairAttemptedRef.current) {
+      return;
+    }
+
+    if (roomsWithPresence.length > 0 && highlightRoom) {
+      return;
+    }
+
+    autoRepairAttemptedRef.current = true;
+    setIsSeedingRoom(true);
+    seedCommunityRooms()
+      .catch(() => {})
+      .finally(() => {
+        setIsSeedingRoom(false);
+      });
+  }, [currentUser?.id, highlightRoom, isSeedingRoom, loadError, roomsLoaded, roomsWithPresence.length]);
 
   const openRoom = (roomId) => {
     if (!rulesAcceptedCurrent) {

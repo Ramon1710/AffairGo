@@ -2084,13 +2084,13 @@ const createSeedCommunityRoomsHandler = ({ firestore, fieldValue }) => {
       throw new HttpsError('unauthenticated', 'Authentifizierung erforderlich.');
     }
 
-    const adminProfile = await assertCommunityAccess({
+    const profile = await assertCommunityAccess({
       firestore,
       uid,
       authToken: request.auth?.token || {},
-      action: COMMUNITY_ACCESS_ACTIONS.ADMIN,
+      action: COMMUNITY_ACCESS_ACTIONS.READ,
     });
-    const createdBy = normalizeOptionalString(adminProfile.nickname) || uid;
+    const createdBy = normalizeOptionalString(profile.nickname) || uid;
     const createdRoomIds = [];
     const skippedRoomIds = [];
 

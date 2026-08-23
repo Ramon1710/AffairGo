@@ -1271,6 +1271,29 @@ test('Seed: fehlende Standardräume werden ergänzt und bestehende bleiben erhal
   assert.equal(result.createdRoomIds.length, DEFAULT_COMMUNITY_ROOMS.length - 1);
 });
 
+test('Seed: community-berechtigtes Mitglied darf fehlende Standardräume ergänzen', async () => {
+  const harness = createHandlerHarness({
+    docs: {
+      ...createBaseDocs(),
+    },
+  });
+
+  for (const room of DEFAULT_COMMUNITY_ROOMS) {
+    harness.firestore.store.delete(`communityRooms/${room.id}`);
+  }
+
+  const seedHandler = require('../communityChat').createSeedCommunityRoomsHandler({
+    firestore: harness.firestore,
+    fieldValue: createFieldValueStub(),
+  });
+
+  const result = await seedHandler(createRequest({ data: {} }));
+
+  assert.equal(result.created, true);
+  assert.equal(result.createdRoomIds.length, DEFAULT_COMMUNITY_ROOMS.length);
+  assert.equal(harness.firestore.store.get(`communityRooms/${DEFAULT_COMMUNITY_ROOM_ID}`).data.name, 'Whisper Lounge');
+});
+
 test('Raumzugriff: Nachricht an inaktiven Raum wird abgelehnt', async () => {
   const harness = createHandlerHarness({
     docs: {
