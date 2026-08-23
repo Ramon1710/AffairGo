@@ -1,5 +1,5 @@
 import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, EmptyState, GlassCard, InfoBanner, ScreenHeader, StatusPill } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
@@ -15,6 +15,7 @@ const {
   formatCommunityEventDateLabel,
   formatCommunityRulesVersionLabel,
   getCommunityActiveCountLabel,
+  getCommunityOverviewState,
   getCommunityRoomActivityLabel,
   getCommunityRoomTypeLabel,
   getCommunityRoomUnreadCount,
@@ -32,19 +33,35 @@ const {
 const CommunityScreen = () => {
   const navigation = useNavigation();
   const { currentUser } = useAffairGo();
-  const autoRepairAttemptedRef = useRef(false);
   const [rooms, setRooms] = useState([]);
   const [reads, setReads] = useState([]);
   const [roomsLoaded, setRoomsLoaded] = useState(false);
   const [readsLoaded, setReadsLoaded] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [isSeedingRoom, setIsSeedingRoom] = useState(false);
+  const [roomsQueryKey, setRoomsQueryKey] = useState(0);
   const [rulesEnvelope, setRulesEnvelope] = useState(null);
   const [rulesLoaded, setRulesLoaded] = useState(false);
   const [rulesError, setRulesError] = useState('');
   const [rulesModalVisible, setRulesModalVisible] = useState(false);
   const [isAcceptingRules, setIsAcceptingRules] = useState(false);
   const [presenceSummary, setPresenceSummary] = useState(normalizeCommunityPresenceSummary());
+
+  const logCommunityOverviewDebug = (scope, details = {}) => {
+    const error = details.error || null;
+
+    console.warn('[CommunityScreen]', {
+      scope,
+      errorCode: typeof error?.code === 'string' ? error.code : null,
+      errorMessage: typeof error?.message === 'string' ? error.message : null,
+      query: details.query || null,
+      uid: currentUser?.id || null,
+      communityRulesVersion: details.communityRulesVersion ?? rulesEnvelope?.version ?? null,
+      acceptedRulesVersion: details.acceptedRulesVersion ?? rulesEnvelope?.acceptedVersion ?? null,
+      ageVerified: currentUser?.ageVerified === true,
+      emailVerified: currentUser?.emailVerified === true,
+    });
+  };
 
   const loadRulesViaFirestoreFallback = async (userId) => {
     const [rulesSnapshot, acceptanceSnapshot] = await Promise.all([
@@ -91,6 +108,11 @@ const CommunityScreen = () => {
         setRulesEnvelope(nextEnvelope);
         setRulesModalVisible(nextEnvelope.acceptedCurrent !== true);
       } catch (error) {
+        logCommunityOverviewDebug('rules-callable-failed', {
+          error,
+          query: 'callable:getCommunityRules',
+        });
+
         try {
           const nextEnvelope = await loadRulesViaFirestoreFallback(currentUser.id);
 
@@ -101,13 +123,18 @@ const CommunityScreen = () => {
           setRulesEnvelope(nextEnvelope);
           setRulesModalVisible(nextEnvelope.acceptedCurrent !== true);
           setRulesError('');
-        } catch {
+        } catch (fallbackError) {
+          logCommunityOverviewDebug('rules-fallback-failed', {
+            error: fallbackError,
+            query: 'communityConfig/rules + communityRuleAcceptances/{uid}',
+          });
+
           if (!active) {
             return;
           }
 
           setRulesEnvelope(null);
-          setRulesError(mapCommunityErrorMessage(error, 'load'));
+          setRulesError('Die Community-Regeln konnten gerade nicht geladen werden. Die Raumübersicht bleibt sichtbar, der Chat-Einstieg kann vorübergehend eingeschränkt sein.');
         }
       } finally {
         if (active) {
@@ -121,7 +148,7 @@ const CommunityScreen = () => {
     return () => {
       active = false;
     };
-  }, [currentUser?.id]);
+  }, [currentUser?.ageVerified, currentUser?.emailVerified, currentUser?.id, rulesEnvelope?.acceptedVersion, rulesEnvelope?.version]);
 
   useEffect(() => {
     setRoomsLoaded(false);
@@ -132,11 +159,22 @@ const CommunityScreen = () => {
       roomsQuery,
       (snapshot) => {
         const nextRooms = snapshot.docs.map((roomDoc) => normalizeCommunityRoom({ id: roomDoc.id, ...roomDoc.data() }, roomDoc.id));
+
+        if (!nextRooms.length) {
+          logCommunityOverviewDebug('rooms-query-empty', {
+            query: "collection(db, 'communityRooms'), where('active', '==', true)",
+          });
+        }
+
         setRooms(nextRooms);
         setRoomsLoaded(true);
         setLoadError('');
       },
       (error) => {
+        logCommunityOverviewDebug('rooms-query-failed', {
+          error,
+          query: "collection(db, 'communityRooms'), where('active', '==', true)",
+        });
         setRooms([]);
         setRoomsLoaded(true);
         setLoadError(mapCommunityErrorMessage(error, 'rooms'));
@@ -146,7 +184,7 @@ const CommunityScreen = () => {
     return () => {
       unsubscribe();
     };
-  }, []);
+  }, [currentUser?.ageVerified, currentUser?.emailVerified, currentUser?.id, roomsQueryKey, rulesEnvelope?.acceptedVersion, rulesEnvelope?.version]);
 
   useEffect(() => {
     if (!currentUser?.id) {
@@ -164,7 +202,11 @@ const CommunityScreen = () => {
         setReads(nextReads);
         setReadsLoaded(true);
       },
-      () => {
+      (error) => {
+        logCommunityOverviewDebug('reads-query-failed', {
+          error,
+          query: "collection(db, 'communityRoomReads'), where('userId', '==', uid)",
+        });
         setReads([]);
         setReadsLoaded(true);
       },
@@ -191,7 +233,11 @@ const CommunityScreen = () => {
         }
 
         setPresenceSummary(normalizeCommunityPresenceSummary(result.summary));
-      } catch {
+      } catch (error) {
+        logCommunityOverviewDebug('presence-summary-failed', {
+          error,
+          query: 'callable:getCommunityPresenceSummary',
+        });
         if (active) {
           setPresenceSummary(normalizeCommunityPresenceSummary());
         }
@@ -237,28 +283,13 @@ const CommunityScreen = () => {
   const noRoomsAvailable = roomsLoaded && !roomsWithPresence.length;
   const unreadRoomsCount = useMemo(() => getCommunityUnreadRoomsCount(roomsWithPresence, reads), [reads, roomsWithPresence]);
   const activeMembersLabel = getCommunityActiveCountLabel(presenceSummary.activeMemberCount, presenceSummary.publicCountThreshold);
-
-  useEffect(() => {
-    autoRepairAttemptedRef.current = false;
-  }, [currentUser?.id]);
-
-  useEffect(() => {
-    if (!currentUser?.id || !roomsLoaded || loadError || isSeedingRoom || autoRepairAttemptedRef.current) {
-      return;
-    }
-
-    if (roomsWithPresence.length > 0 && highlightRoom) {
-      return;
-    }
-
-    autoRepairAttemptedRef.current = true;
-    setIsSeedingRoom(true);
-    seedCommunityRooms()
-      .catch(() => {})
-      .finally(() => {
-        setIsSeedingRoom(false);
-      });
-  }, [currentUser?.id, highlightRoom, isSeedingRoom, loadError, roomsLoaded, roomsWithPresence.length]);
+  const overviewState = getCommunityOverviewState({
+    roomsLoaded,
+    readsLoaded,
+    rulesLoaded,
+    loadError,
+    roomCount: roomsWithPresence.length,
+  });
 
   const openRoom = (roomId) => {
     if (!rulesAcceptedCurrent) {
@@ -283,6 +314,12 @@ const CommunityScreen = () => {
     } finally {
       setIsSeedingRoom(false);
     }
+  };
+
+  const handleRetryRooms = () => {
+    setLoadError('');
+    setRoomsLoaded(false);
+    setRoomsQueryKey((previous) => previous + 1);
   };
 
   const handleAcceptRules = async () => {
@@ -394,30 +431,30 @@ const CommunityScreen = () => {
         />
       ) : null}
 
-      {rulesError ? <Text style={styles.errorText}>{rulesError}</Text> : null}
+      {rulesError && overviewState === 'ready' ? (
+        <InfoBanner
+          title="Community-Regeln derzeit nicht erreichbar"
+          detail={rulesError}
+          tone="warning"
+          style={styles.infoBanner}
+        />
+      ) : null}
 
-      {!roomsLoaded || !readsLoaded || !rulesLoaded ? (
+      {overviewState === 'loading' ? (
         <GlassCard strong style={styles.stateCard}>
           <ActivityIndicator size="small" color={affairGoTheme.colors.accent} />
           <Text style={styles.stateTitle}>Community-Räume werden geladen …</Text>
         </GlassCard>
-      ) : loadError ? (
+      ) : overviewState === 'error' ? (
         <GlassCard strong style={styles.stateCard}>
           <Text style={styles.stateTitle}>{loadError}</Text>
-          {currentUser?.isAdmin ? (
-            <AccentButton
-              label={isSeedingRoom ? 'Räume werden ergänzt...' : 'Standardräume ergänzen'}
-              onPress={handleSeedRooms}
-              disabled={isSeedingRoom}
-              style={styles.stateAction}
-            />
-          ) : null}
+          <AccentButton label="Erneut versuchen" onPress={handleRetryRooms} style={styles.stateAction} />
         </GlassCard>
-      ) : noRoomsAvailable ? (
+      ) : overviewState === 'empty' ? (
         <EmptyState
-          title="Aktuell sind keine Community-Räume verfügbar."
-          detail="Es wurden noch keine aktiven Räume freigeschaltet."
-          action={currentUser?.isAdmin ? <AccentButton label={isSeedingRoom ? 'Räume werden ergänzt...' : 'Standardräume ergänzen'} onPress={handleSeedRooms} disabled={isSeedingRoom} /> : null}
+          title={currentUser?.isAdmin ? 'Es sind noch keine Community-Räume eingerichtet.' : 'Aktuell sind keine Community-Räume verfügbar.'}
+          detail={currentUser?.isAdmin ? 'Die Raumabfrage war erfolgreich, aber es wurden keine aktiven Standardräume gefunden.' : 'Es wurden noch keine aktiven Räume freigeschaltet.'}
+          action={currentUser?.isAdmin ? <AccentButton label={isSeedingRoom ? 'Räume werden ergänzt...' : 'Standardräume anlegen'} onPress={handleSeedRooms} disabled={isSeedingRoom} /> : null}
         />
       ) : (
         <ScrollView showsVerticalScrollIndicator={false}>

@@ -2088,7 +2088,7 @@ const createSeedCommunityRoomsHandler = ({ firestore, fieldValue }) => {
       firestore,
       uid,
       authToken: request.auth?.token || {},
-      action: COMMUNITY_ACCESS_ACTIONS.READ,
+      action: COMMUNITY_ACCESS_ACTIONS.ADMIN,
     });
     const createdBy = normalizeOptionalString(profile.nickname) || uid;
     const createdRoomIds = [];

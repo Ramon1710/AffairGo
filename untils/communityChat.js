@@ -181,6 +181,24 @@ const getCommunityUnreadRoomsCount = (rooms = [], reads = []) => {
   return (rooms || []).filter((room) => hasUnreadCommunityRoom(room, readMap[room.id] || null)).length;
 };
 
+const getCommunityOverviewState = ({
+  roomsLoaded = false,
+  readsLoaded = false,
+  rulesLoaded = false,
+  loadError = '',
+  roomCount = 0,
+} = {}) => {
+  if (!roomsLoaded || !readsLoaded || !rulesLoaded) {
+    return 'loading';
+  }
+
+  if (String(loadError || '').trim()) {
+    return 'error';
+  }
+
+  return Number(roomCount) > 0 ? 'ready' : 'empty';
+};
+
 const normalizeCommunityPresenceSummary = (value = {}) => ({
   activeMemberCount: Number.isFinite(Number(value.activeMemberCount)) ? Number(value.activeMemberCount) : 0,
   recentMemberCount: Number.isFinite(Number(value.recentMemberCount)) ? Number(value.recentMemberCount) : 0,
@@ -567,6 +585,7 @@ module.exports = {
   formatCommunityDateTime,
   formatCommunityRulesVersionLabel,
   getCommunityActiveCountLabel,
+  getCommunityOverviewState,
   getPreparedCommunityText,
   getCommunityChatBanMessage,
   getCommunityMentionMatch,

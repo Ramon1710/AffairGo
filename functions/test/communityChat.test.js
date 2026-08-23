@@ -1271,7 +1271,7 @@ test('Seed: fehlende Standardräume werden ergänzt und bestehende bleiben erhal
   assert.equal(result.createdRoomIds.length, DEFAULT_COMMUNITY_ROOMS.length);
 });
 
-test('Seed: community-berechtigtes Mitglied darf fehlende Standardräume ergänzen', async () => {
+test('Seed: normales Mitglied darf Standardräume nicht ergänzen', async () => {
   const harness = createHandlerHarness({
     docs: {
       ...createBaseDocs(),
@@ -1287,15 +1287,11 @@ test('Seed: community-berechtigtes Mitglied darf fehlende Standardräume ergänz
     fieldValue: createFieldValueStub(),
   });
 
-  const result = await seedHandler(createRequest({ data: {} }));
-
-  assert.equal(result.created, true);
-  assert.equal(result.createdRoomIds.length, DEFAULT_COMMUNITY_ROOMS.length);
-  assert.equal(harness.firestore.store.get(`communityRooms/${DEFAULT_COMMUNITY_ROOM_ID}`).data.name, 'Whisper Lounge');
+  await expectHttpsError(seedHandler(createRequest({ data: {} })), 'permission-denied');
 });
 
 test('Seed: bestehende Legacy-Standardräume werden auf aktive Felder nachgezogen', async () => {
-  const baseDocs = createBaseDocs();
+  const baseDocs = createBaseDocs({ userProfileOverrides: { isAdmin: true, role: 'admin' } });
   const legacyRoom = { ...baseDocs[`communityRooms/${DEFAULT_COMMUNITY_ROOM_ID}`] };
   delete legacyRoom.active;
   delete legacyRoom.manualActive;
@@ -1910,6 +1906,51 @@ test('Event-Raumstatus: mehr als 48 Stunden nach Event nicht mehr aktiv', async 
   const result = await harness.syncEventRoomsHandler(createRequest({ data: {} }));
   assert.equal(result.rooms[0].active, false);
   assert.equal(harness.firestore.store.get('communityRooms/event-e1').data.active, false);
+});
+
+test('Event-Sync: GLOBAL-Raum bleibt unverändert', async () => {
+  const harness = createHandlerHarness({
+    docs: {
+      ...createBaseDocs(),
+    },
+  });
+
+  const beforeRoom = harness.firestore.store.get(`communityRooms/${DEFAULT_COMMUNITY_ROOM_ID}`).data;
+  const result = await harness.syncEventRoomsHandler(createRequest({ data: { roomId: DEFAULT_COMMUNITY_ROOM_ID } }));
+  const afterRoom = harness.firestore.store.get(`communityRooms/${DEFAULT_COMMUNITY_ROOM_ID}`).data;
+
+  assert.equal(result.rooms.length, 1);
+  assert.equal(result.rooms[0].roomId, DEFAULT_COMMUNITY_ROOM_ID);
+  assert.deepEqual(afterRoom, beforeRoom);
+});
+
+test('Event-Sync: REGION-Raum bleibt unverändert', async () => {
+  const harness = createHandlerHarness({
+    docs: {
+      ...createBaseDocs(),
+      'communityRooms/nrw': {
+        id: 'nrw',
+        name: 'NRW',
+        slug: 'nrw',
+        description: 'NRW',
+        type: 'REGION',
+        region: 'NRW',
+        active: true,
+        manualActive: true,
+        createdBy: 'admin',
+        createdAt: '2026-09-01T00:00:00.000Z',
+        updatedAt: '2026-09-01T00:00:00.000Z',
+      },
+    },
+  });
+
+  const beforeRoom = harness.firestore.store.get('communityRooms/nrw').data;
+  const result = await harness.syncEventRoomsHandler(createRequest({ data: { roomId: 'nrw' } }));
+  const afterRoom = harness.firestore.store.get('communityRooms/nrw').data;
+
+  assert.equal(result.rooms.length, 1);
+  assert.equal(result.rooms[0].roomId, 'nrw');
+  assert.deepEqual(afterRoom, beforeRoom);
 });
 
 test('Event-Raum: Senden funktioniert im EVENT-Raum mit denselben Community-Regeln', async () => {

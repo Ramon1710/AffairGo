@@ -12,6 +12,7 @@ const {
   findCommunityUnreadDividerIndex,
   formatCommunityEventDateLabel,
   getCommunityChatBanMessage,
+  getCommunityOverviewState,
   getCommunityRoomUnreadCount,
   getPreparedCommunityText,
   getCommunityMentionMatch,
@@ -163,6 +164,43 @@ test('Dashboard-Badge zählt Räume mit Unreads statt Gesamt-Nachrichten', () =>
   ];
 
   assert.equal(getCommunityUnreadRoomsCount(rooms, reads), 2);
+});
+
+test('Raumübersicht zeigt nur Error-State bei Query-Fehler', () => {
+  const state = getCommunityOverviewState({
+    roomsLoaded: true,
+    readsLoaded: true,
+    rulesLoaded: true,
+    loadError: 'permission-denied',
+    roomCount: 0,
+  });
+
+  assert.equal(state, 'error');
+});
+
+test('Raumübersicht zeigt nur Empty-State bei erfolgreicher leerer Query', () => {
+  const state = getCommunityOverviewState({
+    roomsLoaded: true,
+    readsLoaded: true,
+    rulesLoaded: true,
+    loadError: '',
+    roomCount: 0,
+  });
+
+  assert.equal(state, 'empty');
+});
+
+test('Legacy-Raum ohne messageCount und lastMessageAt bleibt darstellbar', () => {
+  const room = normalizeCommunityRoom({
+    id: 'legacy-room',
+    name: 'Legacy',
+    type: 'GLOBAL',
+    active: true,
+  }, 'legacy-room');
+
+  assert.equal(room.id, 'legacy-room');
+  assert.equal(room.messageCount, null);
+  assert.equal(room.lastMessageAtMs, 0);
 });
 
 test('Event-Raum-Metadaten werden clientseitig normalisiert', () => {
