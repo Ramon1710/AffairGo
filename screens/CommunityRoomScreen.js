@@ -113,6 +113,9 @@ const CommunityRoomScreen = () => {
   const [isResendingVerificationEmail, setIsResendingVerificationEmail] = useState(false);
 
   const accessRequirements = useMemo(() => getCommunityAccessRequirements(currentUser, auth.currentUser, rulesEnvelope), [currentUser, rulesEnvelope]);
+  const currentRulesVersion = String(rulesEnvelope?.version || '').trim();
+  const acceptedRulesVersion = String(rulesEnvelope?.acceptedVersion || '').trim();
+  const needsRulesAcceptance = Boolean(currentRulesVersion) && acceptedRulesVersion !== currentRulesVersion;
 
   const preparedDraft = useMemo(() => getPreparedCommunityText(draft), [draft]);
   const characterCount = draft.length;
@@ -371,39 +374,38 @@ const CommunityRoomScreen = () => {
     try {
       setIsAcceptingRules(true);
       setRulesError('');
-      logCommunityRoomRulesDebug('rules-accept-start', {
-        currentRulesVersion: rulesEnvelope.version,
-        acceptedRulesVersion: rulesEnvelope.acceptedVersion,
-        needsRulesAcceptance: rulesEnvelope.acceptedCurrent !== true,
+      console.log('[CommunityRules] ACCEPT_CLICK', {
+        currentRulesVersion,
+        acceptedRulesVersion,
+        needsRulesAcceptance,
       });
       const acceptResponse = await acceptCommunityRules({ rulesVersion: rulesEnvelope.version });
-      logCommunityRoomRulesDebug('rules-accept-server-success', {
-        currentRulesVersion: rulesEnvelope.version,
-        acceptedRulesVersion: rulesEnvelope.acceptedVersion,
-        returnedAcceptedVersion: acceptResponse?.acceptedVersion || acceptResponse?.rulesVersion || '',
-        acceptResponse,
+      console.log('[CommunityRules] ACCEPT_SERVER_SUCCESS', {
+        result: acceptResponse,
       });
       const acceptedEnvelope = buildAcceptedCommunityRulesEnvelope(rulesEnvelopeRef.current || rulesEnvelope, acceptResponse);
       applyRulesEnvelope(acceptedEnvelope);
-      logCommunityRoomRulesDebug('rules-accept-local-success', {
-        currentRulesVersion: acceptedEnvelope.version,
-        acceptedRulesVersion: rulesEnvelope.acceptedVersion,
-        acceptedRulesVersionAfter: acceptedEnvelope.acceptedVersion,
-        rulesAcceptedAfter: acceptedEnvelope.acceptedCurrent === true,
+      console.log('[CommunityRules] ACCEPT_LOCAL_UPDATE', {
+        acceptedVersion: currentRulesVersion,
       });
       const refreshedEnvelope = await refreshRulesStatus({ userId: currentUser.id, preserveAcceptedState: true }).catch((error) => {
         logCommunityRoomRulesDebug('rules-refresh-after-accept-failed', { error });
         return acceptedEnvelope;
       });
       const completedEnvelope = refreshedEnvelope || acceptedEnvelope;
-      logCommunityRoomRulesDebug('rules-accept-gate-complete', {
-        currentRulesVersion: completedEnvelope.version,
-        acceptedRulesVersionAfter: completedEnvelope.acceptedVersion,
-        rulesAcceptedAfter: completedEnvelope.acceptedCurrent === true,
-        effectiveEmailVerified: accessRequirements.effectiveEmailVerified,
+      const acceptedRulesVersionAfter = String(completedEnvelope?.acceptedVersion || '').trim();
+      const needsRulesAcceptanceAfter = Boolean(String(completedEnvelope?.version || '').trim())
+        && acceptedRulesVersionAfter !== String(completedEnvelope?.version || '').trim();
+      console.log('[CommunityRules] ACCEPT_GATE_RESULT', {
+        currentRulesVersion: String(completedEnvelope?.version || '').trim(),
+        acceptedRulesVersionAfter,
+        needsRulesAcceptanceAfter,
       });
     } catch (error) {
-      logCommunityRoomRulesDebug('rules-accept-error', { error });
+      console.error('[CommunityRules] ACCEPT_ERROR', {
+        code: error?.code,
+        message: error?.message,
+      });
       const reason = String(error?.details?.reason || '').toLowerCase();
 
       if (['email_not_verified', 'age_not_verified', 'account_pending_deletion', 'moderation_restricted'].includes(reason)) {
@@ -414,6 +416,7 @@ const CommunityRoomScreen = () => {
       setRulesError('Die Community-Regeln konnten nicht bestätigt werden. Bitte versuche es erneut.');
     } finally {
       setIsAcceptingRules(false);
+      console.log('[CommunityRules] ACCEPT_FINALLY');
     }
   };
 
@@ -986,7 +989,7 @@ const CommunityRoomScreen = () => {
       );
     }
 
-    if (rulesEnvelope && !rulesAcceptedCurrent) {
+    if (rulesEnvelope && needsRulesAcceptance) {
       return (
         <GlassCard strong style={styles.stateCard}>
           <Text style={styles.stateTitle}>Bitte bestätige zuerst die aktuellen Community-Regeln.</Text>

@@ -22,6 +22,7 @@ const {
   getCommunityUnreadRoomsCount,
   formatCommunityRulesVersionLabel,
   getCommunityAccessRequirements,
+  getCommunityNeedsRulesAcceptance,
   hasUnreadCommunityRoom,
   insertCommunityMention,
   mapCommunityErrorMessage,
@@ -379,6 +380,20 @@ test('Akzeptierte Regeln werden lokal sofort auf acceptedCurrent gesetzt', () =>
 
   assert.equal(acceptedEnvelope.acceptedVersion, '1.0');
   assert.equal(acceptedEnvelope.acceptedCurrent, true);
+  assert.equal(getCommunityNeedsRulesAcceptance(acceptedEnvelope), false);
+});
+
+test('Rules-Acceptance bleibt erforderlich, solange acceptedVersion leer ist', () => {
+  const envelope = normalizeCommunityRulesEnvelope({
+    rules: {
+      version: '1.0',
+      title: 'Regeln',
+      sections: [{ heading: 'A', paragraphs: ['B'] }],
+    },
+    acceptance: null,
+  });
+
+  assert.equal(getCommunityNeedsRulesAcceptance(envelope), true);
 });
 
 test('Stale Rules-Response überschreibt erfolgreiche Acceptance nicht mehr', () => {
@@ -405,6 +420,7 @@ test('Stale Rules-Response überschreibt erfolgreiche Acceptance nicht mehr', ()
 
   assert.equal(mergedEnvelope.acceptedVersion, '1.0');
   assert.equal(mergedEnvelope.acceptedCurrent, true);
+  assert.equal(getCommunityNeedsRulesAcceptance(mergedEnvelope), false);
 });
 
 test('Regelabschnitte lassen sich für den Admin-Editor serialisieren und parsen', () => {

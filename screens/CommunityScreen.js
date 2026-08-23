@@ -56,6 +56,10 @@ const CommunityScreen = () => {
   const [isResendingVerificationEmail, setIsResendingVerificationEmail] = useState(false);
 
   const accessRequirements = useMemo(() => getCommunityAccessRequirements(currentUser, auth.currentUser, rulesEnvelope), [currentUser, rulesEnvelope]);
+  const currentRulesVersion = String(rulesEnvelope?.version || '').trim();
+  const acceptedRulesVersion = String(rulesEnvelope?.acceptedVersion || '').trim();
+  const needsRulesAcceptance = Boolean(currentRulesVersion) && acceptedRulesVersion !== currentRulesVersion;
+  const showRulesModal = Boolean(rulesEnvelope) && accessRequirements.preRulesRequirementsMet && needsRulesAcceptance && rulesModalVisible;
 
   useEffect(() => {
     rulesEnvelopeRef.current = rulesEnvelope;
@@ -103,7 +107,13 @@ const CommunityScreen = () => {
     const mergedEnvelope = mergeCommunityRulesEnvelope(rulesEnvelopeRef.current, nextEnvelope);
     rulesEnvelopeRef.current = mergedEnvelope;
     setRulesEnvelope(mergedEnvelope);
-    setRulesModalVisible(options.keepModalOpen === true ? true : mergedEnvelope.acceptedCurrent !== true);
+
+    if (options.keepModalOpen === true && mergedEnvelope.acceptedCurrent !== true) {
+      setRulesModalVisible(true);
+    } else if (mergedEnvelope.acceptedCurrent === true) {
+      setRulesModalVisible(false);
+    }
+
     return mergedEnvelope;
   };
 
@@ -418,7 +428,7 @@ const CommunityScreen = () => {
   });
 
   const openRoom = (roomId) => {
-    if (!rulesAcceptedCurrent) {
+    if (needsRulesAcceptance) {
       setRulesModalVisible(true);
       return;
     }
@@ -500,25 +510,20 @@ const CommunityScreen = () => {
     try {
       setIsAcceptingRules(true);
       setRulesError('');
-      logCommunityOverviewDebug('rules-accept-start', {
-        communityRulesVersion: rulesEnvelope.version,
-        acceptedRulesVersion: rulesEnvelope.acceptedVersion,
-        needsRulesAcceptance: rulesEnvelope.acceptedCurrent !== true,
+      console.log('[CommunityRules] ACCEPT_CLICK', {
+        currentRulesVersion,
+        acceptedRulesVersion,
+        needsRulesAcceptance,
       });
       const acceptResponse = await acceptCommunityRules({ rulesVersion: rulesEnvelope.version });
-      logCommunityOverviewDebug('rules-accept-server-success', {
-        communityRulesVersion: rulesEnvelope.version,
-        acceptedRulesVersion: rulesEnvelope.acceptedVersion,
-        returnedAcceptedVersion: acceptResponse?.acceptedVersion || acceptResponse?.rulesVersion || '',
-        acceptResponse,
+      console.log('[CommunityRules] ACCEPT_SERVER_SUCCESS', {
+        result: acceptResponse,
       });
       const acceptedEnvelope = buildAcceptedCommunityRulesEnvelope(rulesEnvelopeRef.current || rulesEnvelope, acceptResponse);
       applyRulesEnvelope(acceptedEnvelope);
-      logCommunityOverviewDebug('rules-accept-local-success', {
-        communityRulesVersion: acceptedEnvelope.version,
-        acceptedRulesVersion: rulesEnvelope.acceptedVersion,
-        acceptedRulesVersionAfter: acceptedEnvelope.acceptedVersion,
-        rulesAcceptedAfter: acceptedEnvelope.acceptedCurrent === true,
+      setRulesModalVisible(false);
+      console.log('[CommunityRules] ACCEPT_LOCAL_UPDATE', {
+        acceptedVersion: currentRulesVersion,
       });
       const refreshedEnvelope = await refreshRulesStatus({ userId: currentUser.id, preserveAcceptedState: true }).catch((error) => {
         logCommunityOverviewDebug('rules-refresh-after-accept-failed', {
@@ -530,15 +535,19 @@ const CommunityScreen = () => {
         return acceptedEnvelope;
       });
       const completedEnvelope = refreshedEnvelope || acceptedEnvelope;
-      setRulesModalVisible(false);
-      logCommunityOverviewDebug('rules-accept-gate-complete', {
-        communityRulesVersion: completedEnvelope.version,
-        acceptedRulesVersionAfter: completedEnvelope.acceptedVersion,
-        rulesAcceptedAfter: completedEnvelope.acceptedCurrent === true,
-        effectiveEmailVerified: accessRequirements.effectiveEmailVerified,
+      const acceptedRulesVersionAfter = String(completedEnvelope?.acceptedVersion || '').trim();
+      const needsRulesAcceptanceAfter = Boolean(String(completedEnvelope?.version || '').trim())
+        && acceptedRulesVersionAfter !== String(completedEnvelope?.version || '').trim();
+      console.log('[CommunityRules] ACCEPT_GATE_RESULT', {
+        currentRulesVersion: String(completedEnvelope?.version || '').trim(),
+        acceptedRulesVersionAfter,
+        needsRulesAcceptanceAfter,
       });
     } catch (error) {
-      logCommunityOverviewDebug('rules-accept-error', { error });
+      console.error('[CommunityRules] ACCEPT_ERROR', {
+        code: error?.code,
+        message: error?.message,
+      });
       const reason = String(error?.details?.reason || '').toLowerCase();
 
       if (['email_not_verified', 'age_not_verified', 'account_pending_deletion', 'moderation_restricted'].includes(reason)) {
@@ -550,6 +559,7 @@ const CommunityScreen = () => {
       setRulesError('Die Community-Regeln konnten nicht bestätigt werden. Bitte versuche es erneut.');
     } finally {
       setIsAcceptingRules(false);
+      console.log('[CommunityRules] ACCEPT_FINALLY');
     }
   };
 
@@ -679,7 +689,7 @@ const CommunityScreen = () => {
         </GlassCard>
       ) : null}
 
-      {rulesLoaded && rulesEnvelope && !rulesAcceptedCurrent ? (
+      {rulesLoaded && rulesEnvelope && needsRulesAcceptance ? (
         <InfoBanner
           title="Regelzustimmung erforderlich"
           detail="Du kannst die Raumübersicht sehen, musst aber vor dem Öffnen eines Chats zuerst die aktuellen Community-Regeln bestätigen."
@@ -746,10 +756,10 @@ const CommunityScreen = () => {
       ) : null}
 
       <Modal
-        visible={rulesModalVisible && Boolean(rulesEnvelope)}
+        visible={showRulesModal}
         animationType="slide"
         transparent
-        onRequestClose={() => setRulesModalVisible(rulesAcceptedCurrent)}
+        onRequestClose={() => setRulesModalVisible(false)}
       >
         <View style={styles.modalBackdrop}>
           <GlassCard strong style={styles.rulesModalCard}>
@@ -759,7 +769,7 @@ const CommunityScreen = () => {
                 <Text style={styles.rulesModalTitle}>{rulesEnvelope?.title || 'Community-Regeln'}</Text>
                 <Text style={styles.rulesModalMeta}>{rulesVersionLabel}</Text>
               </View>
-              {rulesAcceptedCurrent ? (
+              {!needsRulesAcceptance ? (
                 <Pressable onPress={() => setRulesModalVisible(false)}>
                   <Ionicons name="close" size={24} color={affairGoTheme.colors.text} />
                 </Pressable>
@@ -777,7 +787,7 @@ const CommunityScreen = () => {
               ))}
             </ScrollView>
 
-            {!rulesAcceptedCurrent ? (
+            {needsRulesAcceptance ? (
               <InfoBanner
                 title="Zustimmung erforderlich"
                 detail="Der offene Community-Chat ändert nichts an Matching, privaten Nachrichten oder Kontaktgrenzen auf Night-Whisper."
@@ -786,7 +796,7 @@ const CommunityScreen = () => {
             ) : null}
 
             <View style={styles.rulesActions}>
-              {!rulesAcceptedCurrent ? (
+              {needsRulesAcceptance ? (
                 <AccentButton
                   label={isAcceptingRules ? 'Regeln werden bestätigt...' : 'Community-Regeln akzeptieren'}
                   onPress={handleAcceptRules}
@@ -794,10 +804,10 @@ const CommunityScreen = () => {
                 />
               ) : null}
               <AccentButton
-                label={rulesAcceptedCurrent ? 'Schließen' : 'Zurück'}
+                label={!needsRulesAcceptance ? 'Schließen' : 'Zurück'}
                 variant="ghost"
                 onPress={() => {
-                  if (rulesAcceptedCurrent) {
+                  if (!needsRulesAcceptance) {
                     setRulesModalVisible(false);
                     return;
                   }

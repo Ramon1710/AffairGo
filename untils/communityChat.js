@@ -581,6 +581,14 @@ const getCommunityAccessRequirements = (user = {}, authUser = null, rulesEnvelop
   };
 };
 
+const getCommunityNeedsRulesAcceptance = (rulesEnvelope = null) => {
+  const normalizedRulesEnvelope = rulesEnvelope ? normalizeCommunityRulesEnvelope(rulesEnvelope) : null;
+  const currentRulesVersion = String(normalizedRulesEnvelope?.version || '').trim();
+  const acceptedRulesVersion = String(normalizedRulesEnvelope?.acceptedVersion || '').trim();
+
+  return Boolean(currentRulesVersion) && acceptedRulesVersion !== currentRulesVersion;
+};
+
 const toCommunityRulesEnvelopePayload = (envelope = {}, acceptanceOverride) => ({
   rules: {
     version: String(envelope?.version || '').trim(),
@@ -685,6 +693,7 @@ module.exports = {
   getPreparedCommunityText,
   getCommunityChatBanMessage,
   getCommunityAccessRequirements,
+  getCommunityNeedsRulesAcceptance,
   getCommunityMentionMatch,
   getCommunityReactionSummary,
   getCommunityRoomActivityLabel,
