@@ -26,20 +26,6 @@ const createEmptyAgeVerificationState = () => ({
   ageVerificationCheckedAt: '',
 });
 
-const createEmptySelfieVerificationState = () => ({
-  selfieVerified: false,
-  selfieVerificationStatus: 'not_started',
-  selfieVerificationProvider: '',
-  selfieVerificationReferenceId: '',
-  selfieVerificationCheckedAt: '',
-  selfieDeletionStatus: 'not_requested',
-  selfieDeletionConfirmedAt: '',
-  selfieDeletionReceiptId: '',
-  selfieRetentionPolicy: '',
-  selfieLivenessScore: 0,
-  selfieFakeScore: 0,
-});
-
 const shouldShowPenisSizeField = (gender) => gender === 'männlich' || gender === 'divers' || gender === 'paare';
 const shouldShowBraSizeField = (gender) => gender === 'weiblich' || gender === 'divers' || gender === 'paare';
 const MIN_NICKNAME_LENGTH = 3;
@@ -71,9 +57,7 @@ const RegisterScreen = () => {
     eyeColor: EYE_OPTIONS[2],
     skinType: SKIN_OPTIONS[1],
     documentAsset: null,
-    selfieAsset: null,
     ...createEmptyAgeVerificationState(),
-    ...createEmptySelfieVerificationState(),
   });
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -142,7 +126,7 @@ const RegisterScreen = () => {
       const nextForm = { ...previous, [key]: value };
 
       if (['email', 'nickname'].includes(key)) {
-        return { ...nextForm, ...createEmptyAgeVerificationState(), ...createEmptySelfieVerificationState() };
+        return { ...nextForm, ...createEmptyAgeVerificationState() };
       }
 
       if (['birthDay', 'birthMonth', 'birthYear'].includes(key)) {
@@ -158,10 +142,10 @@ const RegisterScreen = () => {
       ...previous,
       [key]: asset,
       ...(key === 'profileImageAsset'
-        ? { profileImageUploaded: hasUploadableAssetData(asset), ...createEmptySelfieVerificationState() }
+        ? { profileImageUploaded: hasUploadableAssetData(asset) }
         : key === 'documentAsset'
           ? createEmptyAgeVerificationState()
-          : { ...createEmptyAgeVerificationState(), ...createEmptySelfieVerificationState() }),
+          : createEmptyAgeVerificationState()),
     }));
   };
 
@@ -251,8 +235,6 @@ const RegisterScreen = () => {
         ageVerificationProvider: 'birthdate-check',
         ageVerificationReferenceId: '',
         ageVerificationCheckedAt: new Date().toISOString(),
-        selfieVerified: false,
-        selfieVerificationStatus: 'not_required',
       };
 
       if (typeof window !== 'undefined' && window.localStorage) {

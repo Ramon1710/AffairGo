@@ -39,6 +39,7 @@ import {
     useRef,
     useState,
 } from 'react';
+import { AppState, Platform } from 'react-native';
 import { getModerationProviderLabel, hasConfiguredModerationBackend, submitModerationDecision, submitModerationReport } from '../constants/moderationProvider';
 import { checkNicknameAvailability as checkNicknameAvailabilityWithProvider } from '../constants/nicknameProvider';
 import { requestManagedPasswordReset } from '../constants/passwordResetProvider';
@@ -48,14 +49,6 @@ import {
     finalizeRegistrationProfile as finalizeRegistrationProfileWithProvider,
     syncPeerChatState as syncPeerChatStateWithProvider,
 } from '../constants/profilePersistenceProvider';
-import {
-    approveProfileImage as approveVerifiedProfileImage,
-    getFaceLivenessResultAndCompareProfileImage as getProfilePhotoLivenessResultAndCompare,
-    getProfilePhotoVerificationSetupInstructions,
-    hasConfiguredProfilePhotoVerification,
-    openFaceLivenessFlow,
-    rejectAndDeleteTempProfileImage as rejectTempProfileImage
-} from '../constants/profilePhotoVerificationProvider';
 import {
     EXPLORE_CITIES,
     EYE_OPTIONS,
@@ -74,11 +67,13 @@ import {
 } from '../data/mockData';
 import { auth, authReady, db, storage } from '../firebase';
 import {
+    DEFAULT_PRESENCE_STALE_AFTER_MS,
     getCompatibility as getCompatibilityScore,
-    hasRequiredPreferenceMatch as hasRequiredPreferenceVisibilityMatch,
-    isMutualSearchMatch as isMutualSearchVisibilityMatch,
-    isWithinExtendedSearchRadius as isWithinExtendedSearchVisibilityRadius,
+    getMatchEligibility as getMatchEligibilityScore,
+    hasStoredProfilePhoto,
+    isPresenceFresh,
 } from '../untils/matching';
+import { buildSwipeDeckProfiles } from '../untils/matchingMap';
 
 const AffairGoContext = createContext(null);
 const LIVE_LOCATION_INTERVAL_MS = 8000;
@@ -98,6 +93,7 @@ const LOCATION_MAX_ACCURACY_METERS = 150;
 const LOCATION_STALE_AFTER_MS = 10 * 60 * 1000;
 const LOCATION_OBFUSCATION_MAX_METERS = 450;
 const EVENT_FALLBACK_GEOKM = 2;
+const LIVE_LOCATION_HEARTBEAT_INTERVAL_MS = 2 * 60 * 1000;
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const createLocalEntityId = (prefix) => `${prefix}${Date.now()}${Math.random().toString(36).slice(2, 8)}`;
@@ -182,11 +178,6 @@ const getVisibilityDismissedIds = (profile = {}, chatListOverride = null) => {
   }
 
   return dismissedIds.filter((profileId) => !activeChatPartnerIds.includes(profileId));
-};
-
-const PROFILE_VERIFICATION_FAILURE_MESSAGES = {
-  FACE_MISMATCH: 'Das Profilbild passt nicht zum Live-Selfie. Das temporäre Bild wurde verworfen.',
-  LIVENESS_FAILED: 'Die Live-Selfie-Prüfung war nicht erfolgreich. Das temporäre Bild wurde verworfen.',
 };
 
 const canUseBrowserStorage = () => typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
@@ -355,9 +346,6 @@ const buildCachedRegistrationProfileFromDraft = (uid, email = '') => {
       profileImageUri: draft.profilePhotoUrl || draft.profileImageUri || draft.profileImageAsset?.uri || '',
       profilePhotoUrl: draft.profilePhotoUrl || draft.profileImageUri || draft.profileImageAsset?.uri || '',
       profileImageUploaded: Boolean(draft.profileImageUploaded || draft.profileImageAsset?.uri || draft.profileImageAsset?.file instanceof Blob || draft.profileImageAsset?.blob instanceof Blob),
-      profilePhotoVerified: Boolean(draft.profilePhotoVerified),
-      profilePhotoVerifiedAt: draft.profilePhotoVerifiedAt || '',
-      faceMatchSimilarity: Number.isFinite(Number(draft.faceMatchSimilarity)) ? Number(draft.faceMatchSimilarity) : 0,
       profilePhotoAgeMonths: Number.isFinite(Number(draft.profilePhotoAgeMonths)) ? Number(draft.profilePhotoAgeMonths) : 0,
     }, uid);
   } catch (error) {
@@ -551,17 +539,6 @@ const createDefaultCurrentUser = () => ({
   ageVerificationProvider: '',
   ageVerificationReferenceId: '',
   ageVerificationCheckedAt: '',
-  selfieVerified: false,
-  selfieVerificationStatus: 'not_started',
-  selfieVerificationProvider: '',
-  selfieVerificationReferenceId: '',
-  selfieVerificationCheckedAt: '',
-  selfieLivenessScore: 0,
-  selfieFakeScore: 0,
-  selfieDeletionStatus: 'not_requested',
-  selfieDeletionConfirmedAt: '',
-  selfieDeletionReceiptId: '',
-  selfieRetentionPolicy: '',
   onboardingCompleted: false,
   searchActive: false,
   showCommunityActivityStatus: true,
@@ -585,10 +562,7 @@ const createDefaultCurrentUser = () => ({
   profileImageUri: '',
   profilePhotoUrl: '',
   verificationState: 'review',
-  profilePhotoVerified: false,
-  profilePhotoVerifiedAt: '',
   profilePhotoAgeMonths: 0,
-  faceMatchSimilarity: 0,
   moderationState: 'clear',
   moderationFlags: [],
   moderationLastCheckedAt: '',
@@ -622,8 +596,6 @@ const buildFixedAdminProfile = (uid = 'affairgo-admin') => ({
   emailVerified: true,
   ageVerified: true,
   ageVerificationStatus: 'verified',
-  selfieVerified: true,
-  selfieVerificationStatus: 'verified',
   onboardingCompleted: true,
   searchActive: true,
   showCommunityActivityStatus: true,
@@ -1070,17 +1042,6 @@ const normalizeUserProfile = (profile = {}, firebaseUser = null) => {
     ageVerificationProvider: profile.ageVerificationProvider || '',
     ageVerificationReferenceId: profile.ageVerificationReferenceId || '',
     ageVerificationCheckedAt: profile.ageVerificationCheckedAt || '',
-    selfieVerified: fixedAdmin ? true : Boolean(profile.selfieVerified),
-    selfieVerificationStatus: fixedAdmin ? 'verified' : (profile.selfieVerificationStatus || 'not_started'),
-    selfieVerificationProvider: profile.selfieVerificationProvider || '',
-    selfieVerificationReferenceId: profile.selfieVerificationReferenceId || '',
-    selfieVerificationCheckedAt: profile.selfieVerificationCheckedAt || '',
-    selfieLivenessScore: Number.isFinite(Number(profile.selfieLivenessScore)) ? Number(profile.selfieLivenessScore) : 0,
-    selfieFakeScore: Number.isFinite(Number(profile.selfieFakeScore)) ? Number(profile.selfieFakeScore) : 0,
-    selfieDeletionStatus: profile.selfieDeletionStatus || 'not_requested',
-    selfieDeletionConfirmedAt: profile.selfieDeletionConfirmedAt || '',
-    selfieDeletionReceiptId: profile.selfieDeletionReceiptId || '',
-    selfieRetentionPolicy: profile.selfieRetentionPolicy || '',
     moderationState: profile.moderationState || defaults.moderationState,
     moderationFlags: normalizeTextList(profile.moderationFlags),
     moderationLastCheckedAt: profile.moderationLastCheckedAt || '',
@@ -1099,9 +1060,6 @@ const normalizeUserProfile = (profile = {}, firebaseUser = null) => {
     gallery: Array.isArray(profile.gallery) ? profile.gallery : defaults.gallery,
     profilePhotoUrl: aliasValues.profilePhoto,
     profileImageUri: aliasValues.profilePhoto,
-    profilePhotoVerified: fixedAdmin ? true : Boolean(profile.profilePhotoVerified),
-    profilePhotoVerifiedAt: normalizeDateValue(profile.profilePhotoVerifiedAt),
-    faceMatchSimilarity: Number.isFinite(Number(profile.faceMatchSimilarity)) ? Number(profile.faceMatchSimilarity) : 0,
     accountDeletionRequestedAt: profile.accountDeletionRequestedAt || '',
     dataExportRequestedAt: profile.dataExportRequestedAt || '',
     latitude: Number.isFinite(Number(profile.latitude)) ? Number(profile.latitude) : defaults.latitude,
@@ -1167,17 +1125,6 @@ const toStoredProfile = (profile) => {
     ageVerificationProvider: profile.ageVerificationProvider || '',
     ageVerificationReferenceId: profile.ageVerificationReferenceId || '',
     ageVerificationCheckedAt: profile.ageVerificationCheckedAt || '',
-    selfieVerified: Boolean(profile.selfieVerified),
-    selfieVerificationStatus: profile.selfieVerificationStatus || 'not_started',
-    selfieVerificationProvider: profile.selfieVerificationProvider || '',
-    selfieVerificationReferenceId: profile.selfieVerificationReferenceId || '',
-    selfieVerificationCheckedAt: profile.selfieVerificationCheckedAt || '',
-    selfieLivenessScore: Number.isFinite(Number(profile.selfieLivenessScore)) ? Number(profile.selfieLivenessScore) : 0,
-    selfieFakeScore: Number.isFinite(Number(profile.selfieFakeScore)) ? Number(profile.selfieFakeScore) : 0,
-    selfieDeletionStatus: profile.selfieDeletionStatus || 'not_requested',
-    selfieDeletionConfirmedAt: profile.selfieDeletionConfirmedAt || '',
-    selfieDeletionReceiptId: profile.selfieDeletionReceiptId || '',
-    selfieRetentionPolicy: profile.selfieRetentionPolicy || '',
     moderationState: profile.moderationState || 'clear',
     moderationFlags: normalizeTextList(profile.moderationFlags),
     moderationLastCheckedAt: profile.moderationLastCheckedAt || '',
@@ -1187,9 +1134,6 @@ const toStoredProfile = (profile) => {
     showCommunityActivityStatus: profile.showCommunityActivityStatus !== false,
     profileImageUri: aliasValues.profilePhoto,
     profilePhotoUrl: aliasValues.profilePhoto,
-    profilePhotoVerified: Boolean(profile.profilePhotoVerified),
-    profilePhotoVerifiedAt: profile.profilePhotoVerifiedAt || '',
-    faceMatchSimilarity: Number.isFinite(Number(profile.faceMatchSimilarity)) ? Number(profile.faceMatchSimilarity) : 0,
     profilePhotoAgeMonths: Number.isFinite(Number(profile.profilePhotoAgeMonths)) ? Number(profile.profilePhotoAgeMonths) : 0,
     accountDeletionRequestedAt: profile.accountDeletionRequestedAt || '',
     dataExportRequestedAt: profile.dataExportRequestedAt || '',
@@ -1225,17 +1169,6 @@ const buildRegistrationProfile = (payload, uid) => ({
   ageVerificationProvider: payload.ageVerificationProvider || '',
   ageVerificationReferenceId: payload.ageVerificationReferenceId || '',
   ageVerificationCheckedAt: payload.ageVerificationCheckedAt || '',
-  selfieVerified: Boolean(payload.selfieVerified),
-  selfieVerificationStatus: payload.selfieVerificationStatus || 'not_started',
-  selfieVerificationProvider: payload.selfieVerificationProvider || '',
-  selfieVerificationReferenceId: payload.selfieVerificationReferenceId || '',
-  selfieVerificationCheckedAt: payload.selfieVerificationCheckedAt || '',
-  selfieLivenessScore: Number.isFinite(Number(payload.selfieLivenessScore)) ? Number(payload.selfieLivenessScore) : 0,
-  selfieFakeScore: Number.isFinite(Number(payload.selfieFakeScore)) ? Number(payload.selfieFakeScore) : 0,
-  selfieDeletionStatus: payload.selfieDeletionStatus || 'not_requested',
-  selfieDeletionConfirmedAt: payload.selfieDeletionConfirmedAt || '',
-  selfieDeletionReceiptId: payload.selfieDeletionReceiptId || '',
-  selfieRetentionPolicy: payload.selfieRetentionPolicy || '',
   moderationState: 'clear',
   moderationFlags: [],
   moderationLastCheckedAt: '',
@@ -1259,9 +1192,6 @@ const buildRegistrationProfile = (payload, uid) => ({
   verified: Boolean(payload.profileImageUploaded),
   profileImageUri: payload.profilePhotoUrl || payload.profileImageUri || '',
   profilePhotoUrl: payload.profilePhotoUrl || payload.profileImageUri || '',
-  profilePhotoVerified: Boolean(payload.profilePhotoVerified),
-  profilePhotoVerifiedAt: payload.profilePhotoVerifiedAt || '',
-  faceMatchSimilarity: Number.isFinite(Number(payload.faceMatchSimilarity)) ? Number(payload.faceMatchSimilarity) : 0,
   profilePhotoAgeMonths: 0,
   gallery: [],
   joinedLabel: 'Heute',
@@ -1436,7 +1366,14 @@ const normalizeLocationCoordinate = (value) => {
   };
 };
 
-const buildPublicLocationDocument = ({ profile, exactLocation, accuracyMeters, lastUpdatedAt = Timestamp.now() }) => {
+const buildPublicLocationDocument = ({
+  profile,
+  exactLocation,
+  accuracyMeters,
+  lastUpdatedAt = Timestamp.now(),
+  visible = Boolean(profile.searchActive) && !profile.accountDeletionRequestedAt,
+  online = true,
+}) => {
   const normalizedLocation = normalizeLocationCoordinate(exactLocation);
 
   if (!normalizedLocation) {
@@ -1453,8 +1390,8 @@ const buildPublicLocationDocument = ({ profile, exactLocation, accuracyMeters, l
     age: Number(profile.age) || null,
     status: locationStatus,
     searchActive: Boolean(profile.searchActive),
-    visible: Boolean(profile.searchActive) && !profile.accountDeletionRequestedAt,
-    online: true,
+    visible,
+    online,
     membership: profile.membership || FREE_ACCESS_MEMBERSHIP,
     city: profile.city || '',
     travelMode: profile.travelMode || locationStatus,
@@ -1583,6 +1520,8 @@ const mergeMapLocationsIntoProfiles = (profiles, mapLocations, observerLocation)
         ...profile,
         latitude: fallbackLocation.latitude,
         longitude: fallbackLocation.longitude,
+        online: false,
+        lastLiveSyncAt: '',
         mapStatus: getMapStatusForProfile(profile),
         distanceKm: Math.max(1, Math.round(calculateDistanceKm(observerLocation, fallbackLocation))),
       };
@@ -1605,6 +1544,8 @@ const mergeMapLocationsIntoProfiles = (profiles, mapLocations, observerLocation)
         ...profile,
         latitude: fallbackLocation.latitude,
         longitude: fallbackLocation.longitude,
+        online: false,
+        lastLiveSyncAt: '',
         mapStatus: getMapStatusForProfile(profile),
         distanceKm: Math.max(1, Math.round(calculateDistanceKm(observerLocation, fallbackLocation))),
       };
@@ -2148,33 +2089,6 @@ const uploadMediaAsset = async (folder, assetOrUri, ownerId) => {
   return getDownloadURL(storageRef);
 };
 
-const uploadMediaAssetToStoragePath = async (folder, assetOrUri, ownerId) => {
-  const assetUri = typeof assetOrUri === 'string' ? assetOrUri : assetOrUri?.uri;
-
-  if (!assetUri && !hasUploadBinarySource(assetOrUri)) {
-    throw new Error('Es wurde kein Bild zum Hochladen ausgewählt.');
-  }
-
-  if (assetUri && /^https?:\/\//i.test(assetUri)) {
-    throw new Error('Für die Verifizierung sind nur lokale Bilddateien erlaubt.');
-  }
-
-  const blob = await resolveUploadBlob(assetOrUri);
-  const extension = resolveUploadExtension(assetOrUri, assetUri);
-  const filePath = `${folder}/${ownerId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
-  const storageRef = ref(storage, filePath);
-
-  await withTimeout(
-    uploadBytes(storageRef, blob, { contentType: blob.type || 'image/jpeg' }),
-    PROFILE_PHOTO_UPLOAD_TIMEOUT_MS,
-    'Das temporäre Profilbild konnte nicht rechtzeitig zu Firebase Storage hochgeladen werden.'
-  );
-  return {
-    storagePath: filePath,
-    storageRef,
-  };
-};
-
 const ensureNicknameAvailable = async (nickname, excludedUserId = null) => {
   const normalizedNickname = nickname?.trim();
 
@@ -2232,19 +2146,10 @@ const resolveAuthEmail = async (identifier) => {
 };
 
 const getCompatibility = (sourceProfileOrPreferences, targetProfileOrPreferences) => getCompatibilityScore(sourceProfileOrPreferences, targetProfileOrPreferences);
-
-const isMutualSearchMatch = (currentUser, targetUser) => isMutualSearchVisibilityMatch(currentUser, targetUser, {
-  getSearchGenders,
-  normalizeOptionValue,
-  searchGenderOptions: SEARCH_GENDER_OPTIONS,
+const getMatchEligibility = (sourceProfileOrPreferences, targetProfileOrPreferences, options = {}) => getMatchEligibilityScore(sourceProfileOrPreferences, targetProfileOrPreferences, {
+  locationStaleAfterMs: DEFAULT_PRESENCE_STALE_AFTER_MS,
+  ...options,
 });
-
-const hasRequiredPreferenceMatch = (currentUser, targetUser) => hasRequiredPreferenceVisibilityMatch(currentUser, targetUser, 2);
-
-const isWithinSearchVisibilityRadius = (currentUser, targetUser, radiusKm = null) => isWithinExtendedSearchVisibilityRadius({
-  ...currentUser,
-  radius: Number.isFinite(Number(radiusKm)) ? Number(radiusKm) : currentUser?.radius,
-}, targetUser, targetUser?.distanceKm);
 
 export const AffairGoProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(createDefaultCurrentUser());
@@ -2257,7 +2162,6 @@ export const AffairGoProvider = ({ children }) => {
   const [pendingVerificationId, setPendingVerificationId] = useState(null);
   const [selectedProfileId, setSelectedProfileId] = useState('u1');
   const [currentRadius, setCurrentRadius] = useState(INITIAL_CURRENT_USER.radius);
-  const [photoAgeFilter, setPhotoAgeFilter] = useState(null);
   const [featureIdeas, setFeatureIdeas] = useState([]);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [lastLocationSyncLabel, setLastLocationSyncLabel] = useState('Standort-Sync bereit');
@@ -2315,6 +2219,29 @@ export const AffairGoProvider = ({ children }) => {
     } catch (error) {
       console.warn('AffairGo live location sync warning', error);
       return [];
+    }
+  };
+
+  const setCurrentUserPresenceState = async ({ online, visible, profileOverride = null, locationOverride = null }) => {
+    try {
+      const activeProfile = profileOverride ? { ...currentUserRef.current, ...profileOverride } : currentUserRef.current;
+      const exactLocation = locationOverride || deviceLocation || getFallbackLiveLocation(activeProfile);
+      const publicLocationDoc = buildPublicLocationDocument({
+        profile: activeProfile,
+        exactLocation,
+        accuracyMeters: normalizeLocationAccuracy(locationOverride?.accuracy ?? deviceLocation?.accuracy),
+        lastUpdatedAt: Timestamp.now(),
+        online,
+        visible,
+      });
+
+      if (!publicLocationDoc || !activeProfile?.id || activeProfile.id === 'me') {
+        return;
+      }
+
+      await setDoc(doc(db, MAP_LOCATIONS_COLLECTION, activeProfile.id), publicLocationDoc, { merge: true });
+    } catch (error) {
+      console.warn('AffairGo presence state update warning', error);
     }
   };
 
@@ -2693,6 +2620,56 @@ export const AffairGoProvider = ({ children }) => {
   }, [currentUser.searchActive]);
 
   useEffect(() => {
+    if (!currentUser.searchActive || !deviceLocation) {
+      return undefined;
+    }
+
+    let active = true;
+    const canPublishHeartbeat = () => Platform.OS !== 'web' || typeof document === 'undefined' || document.visibilityState === 'visible';
+
+    const publishHeartbeat = () => {
+      if (!active || !canPublishHeartbeat()) {
+        return;
+      }
+
+      publishLiveLocation(deviceLocation).catch(() => undefined);
+    };
+
+    const intervalId = setInterval(() => {
+      publishHeartbeat();
+    }, LIVE_LOCATION_HEARTBEAT_INTERVAL_MS);
+
+    const visibilityListener = Platform.OS === 'web' && typeof document !== 'undefined'
+      ? () => {
+          if (document.visibilityState === 'visible') {
+            publishHeartbeat();
+          }
+        }
+      : null;
+
+    if (visibilityListener) {
+      document.addEventListener('visibilitychange', visibilityListener);
+    }
+
+    const appStateSubscription = Platform.OS !== 'web'
+      ? AppState.addEventListener('change', (nextState) => {
+          if (nextState === 'active') {
+            publishHeartbeat();
+          }
+        })
+      : null;
+
+    return () => {
+      active = false;
+      clearInterval(intervalId);
+      if (visibilityListener) {
+        document.removeEventListener('visibilitychange', visibilityListener);
+      }
+      appStateSubscription?.remove?.();
+    };
+  }, [currentUser.searchActive, deviceLocation]);
+
+  useEffect(() => {
     if (!currentUser.searchActive) {
       return undefined;
     }
@@ -2946,14 +2923,7 @@ export const AffairGoProvider = ({ children }) => {
     return decision;
   };
 
-  const hasMutualDismiss = (profile) => {
-    const ownDismissedIds = getVisibilityDismissedIds(currentUser, chats);
-    const targetDismissedIds = getVisibilityDismissedIds(profile);
-
-    return ownDismissedIds.includes(profile.id) || targetDismissedIds.includes(currentUser.id);
-  };
-
-  const setMutualDismissState = (profileId, dismissed) => {
+  const setMutualBlockState = (profileId, dismissed) => {
     let nextDismissedIds = normalizeIdList(currentUser.dismissedProfileIds);
 
     setCurrentUser((previous) => {
@@ -2985,48 +2955,42 @@ export const AffairGoProvider = ({ children }) => {
     });
   };
 
-  const visibleProfiles = useMemo(() => users
-    .filter((user) => {
-      if (!currentUser.searchActive) {
-        return false;
-      }
-      if (!user.searchActive) {
-        return false;
-      }
-      if (dismissedProfiles.includes(user.id)) {
-        return false;
-      }
-      if (hasMutualDismiss(user)) {
-        return false;
-      }
-      if (!isWithinSearchVisibilityRadius(currentUser, user, currentRadius)) {
-        return false;
-      }
-      if (photoAgeFilter && user.profilePhotoAgeMonths < photoAgeFilter) {
-        return false;
-      }
-      if (currentUser.verifiedMatchesOnly && !user.verified) {
-        return false;
-      }
-      if (!isMutualSearchMatch(currentUser, user)) {
-        return false;
-      }
-      return hasRequiredPreferenceMatch(currentUser, user);
-    })
-    .sort((left, right) => {
-      const priorityDifference = getTravelPriorityScore(currentUser, right) - getTravelPriorityScore(currentUser, left);
+  const visibleProfiles = useMemo(() => {
+    if (!currentUser.searchActive || !hasStoredProfilePhoto(currentUser)) {
+      return [];
+    }
 
-      if (priorityDifference !== 0) {
-        return priorityDifference;
+    return users
+      .map((user) => {
+        const resolvedOnline = Boolean(user.online) && isPresenceFresh(user.lastLiveSyncAt, LOCATION_STALE_AFTER_MS);
+        const matchEligibility = getMatchEligibility(currentUser, {
+          ...user,
+          online: resolvedOnline,
+        });
+
+        return {
+          ...user,
+          online: resolvedOnline,
+          matchEligibility,
+          commonPreferenceCount: matchEligibility.commonPreferenceCount,
+        };
+      })
+      .filter((user) => user.matchEligibility.isEligible)
+      .sort((left, right) => {
+      const commonPreferenceDifference = right.commonPreferenceCount - left.commonPreferenceCount;
+
+      if (commonPreferenceDifference !== 0) {
+        return commonPreferenceDifference;
       }
 
-      const compatibilityDifference = getCompatibility(currentUser, right) - getCompatibility(currentUser, left);
-      if (compatibilityDifference !== 0) {
-        return compatibilityDifference;
-      }
+      const leftDistance = Number.isFinite(Number(left.distanceKm)) ? Number(left.distanceKm) : Number.MAX_SAFE_INTEGER;
+      const rightDistance = Number.isFinite(Number(right.distanceKm)) ? Number(right.distanceKm) : Number.MAX_SAFE_INTEGER;
 
-      return left.distanceKm - right.distanceKm;
-    }), [currentRadius, currentUser, dismissedProfiles, photoAgeFilter, users]);
+      return leftDistance - rightDistance;
+    });
+  }, [currentUser, users]);
+
+  const swipeProfiles = useMemo(() => buildSwipeDeckProfiles(visibleProfiles, dismissedProfiles), [dismissedProfiles, visibleProfiles]);
 
   const matchedProfiles = chats
     .filter((chat) => chat.match)
@@ -3036,7 +3000,7 @@ export const AffairGoProvider = ({ children }) => {
   const remainingSwipes = null;
   const swipeLimitReached = false;
 
-  const nearbyOnlineProfiles = visibleProfiles.filter((profile) => profile.online).slice(0, 3);
+  const nearbyOnlineProfiles = visibleProfiles.slice(0, 3);
   const visibleMapEvents = useMemo(() => events
     .map((event) => buildEventMapItem(event, mapCenterCoordinates || DEFAULT_MAP_LOCATION))
     .filter((event) => event.distanceKm <= currentRadius), [currentRadius, events, mapCenterCoordinates]);
@@ -3177,6 +3141,7 @@ export const AffairGoProvider = ({ children }) => {
   };
 
   const logout = async () => {
+    await setCurrentUserPresenceState({ online: false, visible: false });
     await trySignOut();
     setIsAuthenticated(false);
     setCurrentUser(createDefaultCurrentUser());
@@ -3283,7 +3248,6 @@ export const AffairGoProvider = ({ children }) => {
       metadata: {
         age: normalizedPayload.age,
         ageVerified: Boolean(normalizedPayload.ageVerified),
-        selfieVerified: Boolean(normalizedPayload.selfieVerified),
       },
     }), 5000, 'Die Sicherheitspruefung vor der Registrierung hat zu lange gedauert. Bitte versuche es erneut.');
 
@@ -3323,9 +3287,6 @@ export const AffairGoProvider = ({ children }) => {
         profileImageUploaded: Boolean(uploadedProfilePhotoUrl || normalizedPayload.profileImageUploaded),
         profileImageUri: uploadedProfilePhotoUrl || normalizedPayload.profileImageUri || '',
         profilePhotoUrl: uploadedProfilePhotoUrl || normalizedPayload.profilePhotoUrl || '',
-        profilePhotoVerified: false,
-        profilePhotoVerifiedAt: '',
-        faceMatchSimilarity: 0,
         profilePhotoAgeMonths: 0,
         verificationState: uploadedProfilePhotoUrl ? 'uploaded' : 'review',
       }, credentials.user.uid);
@@ -3587,113 +3548,16 @@ export const AffairGoProvider = ({ children }) => {
       throw new Error('Du musst eingeloggt sein, um dein Profilbild hochzuladen.');
     }
 
-    const uploadedProfilePhotoUrl = await uploadMediaAsset('profileImages', asset, ownerId);
-
-    if (!uploadedProfilePhotoUrl) {
-      throw new Error('Das Profilbild wurde hochgeladen, aber die Bild-URL konnte nicht ermittelt werden.');
-    }
-
-    const nextPatch = {
-      profileImageUploaded: true,
-      verified: true,
-      profilePhotoUrl: uploadedProfilePhotoUrl,
-      profileImageUri: uploadedProfilePhotoUrl,
-      profilePhotoVerified: false,
-      profilePhotoVerifiedAt: '',
-      faceMatchSimilarity: 0,
-      profilePhotoAgeMonths: 0,
-      verificationState: 'uploaded',
-    };
+    const nextPatch = await uploadProfilePhotoDirectly({
+      asset,
+      ownerId,
+      uploadAsset: uploadMediaAsset,
+    });
 
     setCurrentUser((previous) => ({ ...previous, ...nextPatch }));
     await persistCurrentUserPatch(nextPatch);
-
-    return {
-      directUpload: true,
-      ...nextPatch,
-    };
+    return nextPatch;
   };
-
-  const completeProfilePhotoVerification = async ({ tempProfileImagePath, sessionId, verificationToken }) => {
-    if (!tempProfileImagePath || !sessionId || !verificationToken) {
-      throw new Error('Die Profilbild-Verifikation ist unvollständig. Bitte starte den Prozess erneut.');
-    }
-
-    const comparisonResult = await getProfilePhotoLivenessResultAndCompare({
-      tempProfileImagePath,
-      sessionId,
-      verificationToken,
-    });
-
-    if (comparisonResult?.pending) {
-      return {
-        approved: false,
-        pending: true,
-        faceMatchSimilarity: Number(comparisonResult?.faceMatchSimilarity || 0),
-        similarityThreshold: Number(comparisonResult?.similarityThreshold || 90),
-        message: 'Die Live-Selfie-Analyse wird noch verarbeitet. Bitte schließe die Prüfung in wenigen Sekunden erneut ab.',
-      };
-    }
-
-    if (!comparisonResult?.approved) {
-      await rejectTempProfileImage({
-        tempProfileImagePath,
-        sessionId,
-        verificationToken,
-      }).catch(() => undefined);
-
-      return {
-        approved: false,
-        pending: false,
-        failureCode: comparisonResult?.failureCode || 'FACE_MISMATCH',
-        faceMatchSimilarity: Number(comparisonResult?.faceMatchSimilarity || 0),
-        similarityThreshold: Number(comparisonResult?.similarityThreshold || 90),
-        message: PROFILE_VERIFICATION_FAILURE_MESSAGES[comparisonResult?.failureCode] || 'Die Profilbild-Verifikation ist fehlgeschlagen. Das temporäre Bild wurde gelöscht.',
-      };
-    }
-
-    const approvalResult = await approveVerifiedProfileImage({
-      tempProfileImagePath,
-      sessionId,
-      approvalToken: comparisonResult.approvalToken,
-    });
-
-    const nextPatch = {
-      profilePhotoUrl: approvalResult.profilePhotoUrl,
-      profileImageUri: approvalResult.profilePhotoUrl,
-      profilePhotoVerified: true,
-      profilePhotoVerifiedAt: approvalResult.profilePhotoVerifiedAt || new Date().toISOString(),
-      faceMatchSimilarity: Number(approvalResult.faceMatchSimilarity || 0),
-      profilePhotoAgeMonths: 0,
-      verificationState: 'verified',
-    };
-
-    setCurrentUser((previous) => ({ ...previous, ...nextPatch }));
-    await persistCurrentUserPatch(nextPatch);
-
-    return {
-      approved: true,
-      ...nextPatch,
-      similarityThreshold: Number(comparisonResult?.similarityThreshold || 90),
-    };
-  };
-
-  const discardPendingProfilePhotoVerification = async ({ tempProfileImagePath, sessionId, verificationToken }) => {
-    if (!tempProfileImagePath || !sessionId || !verificationToken) {
-      return { deleted: false };
-    }
-
-    return rejectTempProfileImage({
-      tempProfileImagePath,
-      sessionId,
-      verificationToken,
-    });
-  };
-
-  const launchProfilePhotoLivenessFlow = async ({ sessionId, verificationToken }) => openFaceLivenessFlow({
-    sessionId,
-    verificationToken,
-  });
 
   const exportMyData = async () => {
     const exportedAt = new Date().toISOString();
@@ -3817,10 +3681,6 @@ export const AffairGoProvider = ({ children }) => {
       console.warn('AffairGo swipe persist warning', error);
     });
 
-    if (action === 'dismiss') {
-      setMutualDismissState(profileId, true);
-    }
-
     if (action === 'like') {
       const activeUserId = auth.currentUser?.uid || currentUser.id;
       const nextChats = upsertChatThread(chats, {
@@ -3855,10 +3715,6 @@ export const AffairGoProvider = ({ children }) => {
     persistCurrentUserPatch({ swipeHistory: nextSwipeHistory }).catch((error) => {
       console.warn('AffairGo swipe rewind persist warning', error);
     });
-
-    if (lastSwipe.action === 'dismiss') {
-      setMutualDismissState(lastSwipe.profileId, false);
-    }
 
     return true;
   };
@@ -3913,7 +3769,7 @@ export const AffairGoProvider = ({ children }) => {
     persistCurrentUserPatch({ chats: nextChats }).catch((error) => {
       console.warn('AffairGo soft block persist warning', error);
     });
-    setMutualDismissState(userId, true);
+    setMutualBlockState(userId, true);
 
     const activeUserId = auth.currentUser?.uid || currentUser.id;
 
@@ -4248,9 +4104,9 @@ export const AffairGoProvider = ({ children }) => {
     chats,
     featureIdeas,
     currentRadius,
-    photoAgeFilter,
     isAuthReady,
     visibleProfiles,
+    swipeProfiles,
     matchedProfiles,
     nearbyOnlineProfiles,
     visibleMapEvents,
@@ -4285,11 +4141,6 @@ export const AffairGoProvider = ({ children }) => {
     requestEmailChange,
     confirmPendingNickname,
     updateProfilePhoto,
-    completeProfilePhotoVerification,
-    discardPendingProfilePhotoVerification,
-    launchProfilePhotoLivenessFlow,
-    profilePhotoVerificationConfigured: hasConfiguredProfilePhotoVerification(),
-    profilePhotoVerificationSetupInstructions: getProfilePhotoVerificationSetupInstructions(),
     exportMyData,
     requestAccountDeletion,
     completeOnboarding,
@@ -4313,8 +4164,8 @@ export const AffairGoProvider = ({ children }) => {
     requestLiveLocationAccess,
     setSelectedProfileId,
     setCurrentRadius,
-    setPhotoAgeFilter,
     getCompatibility,
+    getMatchEligibility,
     getProfileTravelSummary,
   };
 

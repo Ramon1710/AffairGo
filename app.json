@@ -19,7 +19,7 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "Night-Whisper nutzt die Kamera fuer das Live-Selfie und den Profilbild-Abgleich.",
+        "NSCameraUsageDescription": "Night-Whisper nutzt die Kamera fuer Alterspruefung und optionale Bildauswahl.",
         "NSLocationWhenInUseUsageDescription": "Night-Whisper nutzt deinen Standort, um reale Treffer und Live-Entfernungen auf der Matching Map anzuzeigen."
       }
     },

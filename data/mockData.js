@@ -21,7 +21,6 @@ export const GENDER_OPTIONS = ['männlich', 'weiblich', 'divers', 'paare'];
 export const SEARCH_GENDER_OPTIONS = ['männlich', 'weiblich', 'divers', 'paare'];
 export const VISIBILITY_OPTIONS = ['Ab sofort sichtbar', '2 Wochen vorher sichtbar', 'Ab Stichtag sichtbar'];
 export const RADIUS_OPTIONS = [5, 10, 20, 25, 50, 100, 150];
-export const PHOTO_AGE_FILTERS = [1, 2, 3, 6, 12];
 
 export const PROFILE_STATUS_OPTIONS = [
   { key: 'verified', label: 'Verifiziert', tone: 'verified' },
@@ -186,7 +185,7 @@ export const WEBSITE_SECTIONS = [
     items: [
       'Nur Spitzname ist öffentlich sichtbar',
       '18+ Prüfung beim Onboarding',
-      'Profilbild-Verifizierung mit Selfie-Check',
+      'Direkter Profilbild-Upload in Firebase Storage',
       'Warnung bei alten Fotos und klarer Verifizierungsstatus',
     ],
   },

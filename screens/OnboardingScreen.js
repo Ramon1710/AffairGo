@@ -45,7 +45,7 @@ const OnboardingScreen = () => {
       <GlassCard strong style={styles.card}>
         <Text style={styles.copy}>
           Dieses Fenster erscheint erst nach bestätigter E-Mail und dem ersten Login. Die Angaben steuern Matching,
-          Sichtbarkeit und den Kompatibilitäts-Score.
+          Sichtbarkeit und die Anzahl gemeinsamer Vorlieben im Matching.
         </Text>
         <Text style={styles.label}>Vorlieben</Text>
         <View style={styles.chipWrap}>

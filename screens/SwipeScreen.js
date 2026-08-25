@@ -11,10 +11,11 @@ const SWIPE_OUT_DISTANCE = 560;
 
 const SwipeScreen = () => {
   const navigation = useNavigation();
-  const { visibleProfiles, respondToSwipe, currentUser, getCompatibility, remainingSwipes, swipeLimitReached, getProfileTravelSummary } = useAffairGo();
-  const currentProfile = visibleProfiles[0];
-  const nextProfile = visibleProfiles[1] || null;
+  const { swipeProfiles, respondToSwipe, currentUser, getMatchEligibility, remainingSwipes, swipeLimitReached, getProfileTravelSummary } = useAffairGo();
+  const currentProfile = swipeProfiles[0];
+  const nextProfile = swipeProfiles[1] || null;
   const currentProfileTravel = currentProfile ? getProfileTravelSummary(currentProfile) : null;
+  const currentProfileMatch = currentProfile ? getMatchEligibility(currentUser, currentProfile) : null;
   const swipePosition = useRef(new Animated.ValueXY()).current;
 
   useEffect(() => {
@@ -154,7 +155,8 @@ const SwipeScreen = () => {
               </View>
               <Text style={styles.name}>{currentProfile.nickname}</Text>
               <Text style={styles.meta}>{currentProfile.age} Jahre, {currentProfile.distanceKm} km, {currentProfile.figure}</Text>
-              <Text style={styles.meta}>Matching-Score: {getCompatibility(currentUser, currentProfile)}%</Text>
+              <Text style={styles.meta}>{currentProfileMatch?.commonPreferenceCount || 0} gemeinsame Vorlieben</Text>
+              <Text style={styles.meta}>{currentProfileMatch?.ageCompatible ? 'Altersrange passt gegenseitig' : 'Altersrange passt nicht'}</Text>
               {currentProfileTravel ? (
                 <Text style={styles.meta}>
                   {currentProfileTravel.label}
@@ -162,7 +164,7 @@ const SwipeScreen = () => {
                   {currentProfileTravel.period ? ` • ${currentProfileTravel.period}` : ''}
                 </Text>
               ) : null}
-              <Text style={styles.copy}>Ziehe die Karte nach links oder rechts. Ab 30% Kompatibilität, gegenseitiger Alterssuche und Suchaktivität erscheint ein Profil hier im Deck.</Text>
+              <Text style={styles.copy}>Ein Profil erscheint hier nur mit mindestens drei gemeinsamen Vorlieben, gegenseitig passender Altersrange, passendem Suchgeschlecht, Profilbild, aktuellem Online-Status und innerhalb deines Radius.</Text>
               <View style={styles.actionRow}>
                 <AccentButton label="Kein Interesse" variant="secondary" onPress={() => triggerGestureSwipe('dismiss')} disabled={swipeLimitReached} style={styles.actionButton} />
                 <AccentButton label="Match" onPress={() => triggerGestureSwipe('like')} disabled={swipeLimitReached} style={styles.actionButton} />
@@ -173,8 +175,8 @@ const SwipeScreen = () => {
         </View>
       ) : (
         <GlassCard strong style={styles.card}>
-          <Text style={styles.name}>Keine weiteren Profile im aktuellen Radius</Text>
-          <Text style={styles.copy}>Erhöhe den Radius, passe Vorlieben an oder warte auf neue aktive Suchanfragen in deiner Nähe.</Text>
+          <Text style={styles.name}>Keine weiteren passenden Profile</Text>
+          <Text style={styles.copy}>Passe deine Altersspanne oder Vorlieben an, wenn du zusätzliche Match-Kandidaten sehen möchtest.</Text>
           <AccentButton label="Zur Matching Map" onPress={() => navigation.navigate('MatchingMap')} style={styles.cta} />
         </GlassCard>
       )}

@@ -6,19 +6,9 @@ import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme, travelModeColors } from '../constants/affairGoTheme';
 import { getMapProviderLabel, hasConfiguredMapApiKey } from '../constants/mapProvider';
 import { useAffairGo } from '../context/AffairGoContext';
-import { PHOTO_AGE_FILTERS, RADIUS_OPTIONS } from '../data/mockData';
+import { RADIUS_OPTIONS } from '../data/mockData';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
-
-const getMatchingPreferenceSummary = (currentUser, profile) => {
-  const currentPreferences = Array.isArray(currentUser?.preferences) ? currentUser.preferences : [];
-  const profilePreferences = Array.isArray(profile?.preferences) ? profile.preferences : [];
-  const matchingPreferences = currentPreferences.filter((item) => profilePreferences.includes(item));
-
-  return {
-    count: matchingPreferences.length,
-    preview: matchingPreferences.slice(0, 3),
-  };
-};
+import { buildRadarProfiles, filterMatchingMapProfiles } from '../untils/matchingMap';
 
 const getProfileMapStatus = (profile, travelSummary) => {
   if (profile?.mapStatus) {
@@ -53,39 +43,42 @@ const MatchingMapScreen = () => {
   const {
     currentRadius,
     currentUser,
-    getCompatibility,
+    getMatchEligibility,
     getProfileTravelSummary,
     lastLocationSyncLabel,
     locationError,
     locationPermissionGranted,
     mapCenterCoordinates,
-    photoAgeFilter,
     requestLiveLocationAccess,
     selectedProfile,
     setCurrentRadius,
-    setPhotoAgeFilter,
     setSelectedProfileId,
     visibleMapEvents,
     visibleProfiles,
   } = useAffairGo();
   const hasMapApiKey = hasConfiguredMapApiKey();
-  const filteredProfiles = verifiedOnly ? visibleProfiles.filter((profile) => profile.verified) : visibleProfiles;
+  const filteredProfiles = useMemo(
+    () => filterMatchingMapProfiles(visibleProfiles, { verifiedOnly }),
+    [verifiedOnly, visibleProfiles],
+  );
   const filteredSelectedProfile = filteredProfiles.find((profile) => profile.id === selectedProfile?.id) || filteredProfiles[0] || null;
   const selectedProfileTravel = filteredSelectedProfile ? getProfileTravelSummary(filteredSelectedProfile) : null;
-  const matchingPreferenceSummary = filteredSelectedProfile ? getMatchingPreferenceSummary(currentUser, filteredSelectedProfile) : { count: 0, preview: [] };
+  const selectedProfileMatch = filteredSelectedProfile ? getMatchEligibility(currentUser, filteredSelectedProfile) : null;
 
   const mapProfiles = useMemo(() => filteredProfiles.map((profile) => {
     const travelSummary = getProfileTravelSummary(profile);
     const status = getProfileMapStatus(profile, travelSummary);
+    const matchEligibility = getMatchEligibility(currentUser, profile);
 
     return {
       ...profile,
       status,
       statusLabel: getStatusLabel(status),
-      compatibility: getCompatibility(currentUser, profile),
+      matchEligibility,
+      commonPreferenceCount: matchEligibility.commonPreferenceCount,
       profileImageUri: profile.profilePhotoUrl || profile.profileImageUri || '',
     };
-  }), [currentUser, filteredProfiles, getCompatibility, getProfileTravelSummary]);
+  }), [currentUser, filteredProfiles, getMatchEligibility, getProfileTravelSummary]);
 
   const mapEvents = useMemo(() => visibleMapEvents.map((event) => ({
     ...event,
@@ -145,15 +138,6 @@ const MatchingMapScreen = () => {
       </View>
 
       <View style={styles.filters}>
-        {PHOTO_AGE_FILTERS.map((months) => (
-          <View key={months} style={styles.filterChip}>
-            <ToggleChip
-              label={`Foto > ${months}M`}
-              active={photoAgeFilter === months}
-              onPress={() => setPhotoAgeFilter(photoAgeFilter === months ? null : months)}
-            />
-          </View>
-        ))}
         <View style={styles.filterChip}>
           <ToggleChip label="Nur verifiziert" active={verifiedOnly} onPress={() => setVerifiedOnly((previous) => !previous)} />
         </View>
@@ -190,7 +174,7 @@ const MatchingMapScreen = () => {
                 <View style={styles.listCopy}>
                   <Text style={styles.listName}>{profile.nickname}</Text>
                   <Text style={styles.listMeta}>{profile.age} Jahre, {profile.distanceKm} km, {profile.figure}</Text>
-                  <Text style={styles.listMeta}>Matching {profile.compatibility}%</Text>
+                  <Text style={styles.listMeta}>{profile.commonPreferenceCount} gemeinsame Vorlieben</Text>
                   {travelSummary ? (
                     <Text style={styles.listMeta}>
                       {travelSummary.label}
@@ -211,7 +195,7 @@ const MatchingMapScreen = () => {
       {viewMode === 'radar' ? (
         <GlassCard strong style={styles.mapCard}>
           <Text style={styles.radarTitle}>Jetzt online in deinem Radius</Text>
-          {mapProfiles.filter((profile) => profile.online).map((profile) => {
+          {buildRadarProfiles(mapProfiles).map((profile) => {
             const travelSummary = getProfileTravelSummary(profile);
             return (
               <Pressable key={profile.id} onPress={() => openProfile(profile)} style={styles.radarRow}>
@@ -237,10 +221,10 @@ const MatchingMapScreen = () => {
         <GlassCard style={styles.selectedCard}>
           <Text style={styles.selectedName}>{filteredSelectedProfile.nickname}</Text>
           <Text style={styles.selectedMeta}>{filteredSelectedProfile.age} Jahre, {filteredSelectedProfile.distanceKm} km, {filteredSelectedProfile.figure}</Text>
-          <Text style={styles.selectedMeta}>Kompatibilität: {getCompatibility(currentUser, filteredSelectedProfile)}%</Text>
-          <Text style={styles.selectedMeta}>Gemeinsame Vorlieben: {matchingPreferenceSummary.count}</Text>
+          <Text style={styles.selectedMeta}>Gemeinsame Vorlieben: {selectedProfileMatch?.commonPreferenceCount || 0}</Text>
+          <Text style={styles.selectedMeta}>{selectedProfileMatch?.ageCompatible ? 'Altersrange passt gegenseitig' : 'Altersrange passt nicht'}</Text>
           <Text style={styles.selectedMeta}>Status: {getStatusLabel(getProfileMapStatus(filteredSelectedProfile, selectedProfileTravel))}</Text>
-          {matchingPreferenceSummary.preview.length ? <Text style={styles.selectedMeta}>Match-Hinweise: {matchingPreferenceSummary.preview.join(', ')}</Text> : null}
+          {selectedProfileMatch?.commonPreferences?.length ? <Text style={styles.selectedMeta}>Match-Hinweise: {selectedProfileMatch.commonPreferences.slice(0, 3).join(', ')}</Text> : null}
           {selectedProfileTravel ? (
             <Text style={styles.selectedMeta}>
               {selectedProfileTravel.label}
@@ -248,7 +232,6 @@ const MatchingMapScreen = () => {
               {selectedProfileTravel.period ? ` • ${selectedProfileTravel.period}` : ''}
             </Text>
           ) : null}
-          <Text style={styles.selectedMeta}>Profilfoto: {filteredSelectedProfile.profilePhotoAgeMonths} Monate alt</Text>
           <Text style={styles.selectedMeta}>{filteredSelectedProfile.verified ? 'Profil verifiziert' : 'Profil nicht verifiziert'}</Text>
           <AccentButton label="Profil öffnen" onPress={() => navigation.navigate('Profil', { profileId: filteredSelectedProfile.id })} style={styles.selectedButton} />
         </GlassCard>

@@ -173,7 +173,7 @@ const MatchingMapLeaflet = ({ center, radiusKm, profiles, events, onProfilePress
                 <PopupProfileImage uri={profile.profileImageUri} label={profile.nickname || 'Profilbild'} />
                 <PopupText strong>{profile.nickname || 'Unbekannt'}</PopupText>
                 <PopupText>{profile.age ? `${profile.age} Jahre` : 'Alter unbekannt'}</PopupText>
-                <PopupText>Matching: {profile.compatibility ?? 0}%</PopupText>
+                <PopupText>{profile.commonPreferenceCount ?? profile.matchEligibility?.commonPreferenceCount ?? 0} gemeinsame Vorlieben</PopupText>
                 <PopupText>Entfernung: {profile.distanceKm ?? '-'} km</PopupText>
                 <PopupText>Status: {(STATUS_CONFIG[profile.status] || STATUS_CONFIG.active).label}</PopupText>
               </View>

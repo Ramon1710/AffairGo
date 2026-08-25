@@ -78,24 +78,7 @@ Benötigt fuer: produktive Domain, SSL, Subdomains, Mail-Setup
 Noch einzurichten: DNS fuer Web, API, Verifizierungs-Mails und ggf. Deep Links
 
 7. Verifizierungs- und Sicherheitsdienste
-Noch auszuwählen und zu integrieren: Selfie-/Fake-Check, AWS Face Liveness fuer Profilbilder sowie Missbrauchs- und Moderationslogik
-
-8. AWS fuer Profilbild-Fakecheck
-Registrierung: https://aws.amazon.com/
-Benötigt fuer: Rekognition Face Liveness, CompareFaces, kurzlebige AWS-Credentials fuer den Liveness-Webflow, Secret-Management fuer Firebase Functions
-Noch einzutragen: AWS_COGNITO_IDENTITY_POOL_ID fuer den Webflow sowie die Rekognition-Berechtigungen in eu-central-1. Die Langzeit-Secrets liegen bereits in Firebase Functions Secrets.
-
-Konkreter Registrierungsbedarf fuer den jetzt vorbereiteten Selfie- und KI-Fake-Check:
-- Du brauchst einen Liveness-/Anti-Spoof-/Deepfake-Anbieter oder ein eigenes Backend, das Profilbild und Live-Selfie an einen solchen Dienst weiterleitet.
-- Danach muessen in `.env.local` mindestens `EXPO_PUBLIC_SELFIE_VERIFICATION_BASE_URL` und optional `EXPO_PUBLIC_SELFIE_VERIFICATION_PUBLIC_TOKEN` gesetzt werden.
-- Der Client ruft anschliessend `POST {BASE_URL}/verify-selfie` mit Profilbild, Live-Selfie, E-Mail und Spitzname auf.
-
-Konkreter Registrierungsbedarf fuer den jetzt eingebauten AWS-Profilbild-Fakecheck:
-- Du brauchst Firebase Cloud Functions auf dem Blaze-Plan sowie ein AWS-Konto in eu-central-1.
-- Die Langzeit-Secrets liegen nur in Firebase Functions Secrets, nie im Expo-Client.
-- Fuer den eigentlichen AWS Face Liveness Capture-Schritt braucht die App eine AWS Cognito Identity Pool Konfiguration fuer kurzlebige Browser-Credentials. Im Repo ist bereits eine eingebaute Route unter `/api/profile-photo-liveness` vorbereitet; optional kann sie ueber `EXPO_PUBLIC_PROFILE_PHOTO_LIVENESS_WEB_URL` überschrieben werden.
-- Die verwendete Cognito-Rolle fuer den Browser-Flow braucht laut AWS-Liveness-Setup mindestens die IAM-Berechtigung `rekognition:StartFaceLivenessSession`.
-- CompareFaces, das finale Freigeben des Profilbilds und das Loeschen von Temp-Dateien laufen serverseitig in Firebase Functions.
+Noch produktiv abzusichern: Missbrauchs- und Moderationslogik sowie die bestehende Altersverifikation. Profilbilder werden direkt validiert und in Firebase Storage gespeichert.
 
 Konkreter Registrierungsbedarf fuer das jetzt vorbereitete Abuse-, Moderations- und Fraud-Backend:
 - Du brauchst ein eigenes Moderations-Backend oder einen Anbieter fuer Trust & Safety, Rate-Limits, Fraud-Signale und Fallbearbeitung.
@@ -160,39 +143,13 @@ Fuer Firebase muessen zusaetzlich diese Werte in `.env` gesetzt werden:
 
 Wichtig: Fuer echte Bild-Uploads muessen in der Firebase Console sowohl Firestore als auch Firebase Storage aktiviert und mit produktiven Sicherheitsregeln abgesichert sein.
 
-Fuer den Selfie- und KI-Fake-Check muessen zusaetzlich diese Werte in `.env.local` gesetzt werden:
+Der Profilbild-Upload ist jetzt wie folgt aufgebaut:
 
-- `EXPO_PUBLIC_SELFIE_VERIFICATION_PROVIDER`
-- `EXPO_PUBLIC_SELFIE_VERIFICATION_BASE_URL`
-- `EXPO_PUBLIC_SELFIE_VERIFICATION_PUBLIC_TOKEN`
-
-Fuer den AWS-Profilbild-Fakecheck muessen zusaetzlich diese Werte gesetzt werden:
-
-- `AWS_COGNITO_IDENTITY_POOL_ID`
-- `AWS_COGNITO_REGION` (optional, Standard `eu-central-1`)
-- `EXPO_PUBLIC_PROFILE_PHOTO_LIVENESS_WEB_URL` (optional, Standard `/api/profile-photo-liveness`)
-
-Fuer Firebase Functions muessen diese Secrets gesetzt werden:
-
-- `AWS_ACCESS_KEY_ID`
-- `AWS_SECRET_ACCESS_KEY`
-- `PROFILE_IMAGE_VERIFICATION_SIGNING_KEY`
-
-Die neue Implementierung verwendet diese Firebase Functions:
-
-- `createFaceLivenessSession`
-- `getFaceLivenessResultAndCompareProfileImage`
-- `approveProfileImage`
-- `rejectAndDeleteTempProfileImage`
-
-Der Upload- und Freigabefluss ist jetzt wie folgt:
-
-1. Client lädt das gewählte Bild nach `tempProfileImages/{uid}/...` hoch.
-2. `createFaceLivenessSession` erstellt die AWS-Session in `eu-central-1`.
-3. Der Client öffnet die eingebaute Liveness-Webroute unter `/api/profile-photo-liveness` oder eine konfigurierte Override-URL.
-4. Nach erfolgreichem Liveness-Flow ruft der Client `getFaceLivenessResultAndCompareProfileImage` auf.
-5. Bei mindestens 90 Prozent Similarity ruft der Client `approveProfileImage` auf und das Bild wird nach `profileImages/{uid}/profile.jpg` verschoben.
-6. Bei Fehlern oder Mismatch wird das Temp-Bild gelöscht.
+1. Der Client waehlt ein lokales Bild aus.
+2. Das Bild wird lokal auf Dateityp und maximale Groesse von 8 MB geprueft.
+3. Das Bild wird direkt nach `profileImages/{uid}/...` in Firebase Storage hochgeladen.
+4. Danach wird der bestehende Nutzerdatensatz mit `profilePhotoUrl` und `profileImageUri` aktualisiert.
+5. Swipe und Matching Map bleiben wie bisher erst nach vorhandenem Profilbild freigeschaltet.
 
 Fuer Abuse-, Moderations- und Fraud-Checks muessen zusaetzlich diese Werte in `.env.local` gesetzt werden:
 
@@ -214,7 +171,6 @@ Fuer einen echten Onlinegang reicht der aktuelle Stand noch nicht aus. Vor dem L
 - Firebase auf produktive Regeln, Storage und ggf. Functions umstellen
 - Stadia Maps Key produktiv setzen und Expo-Web-Environment sauber konfigurieren
 - Reale In-App-Kaeufe nur dann produktiv anschliessen, wenn Night-Whisper nach der kostenfreien Phase wieder monetarisiert werden soll
-- Selfie-/Fake-Check, AWS Face Liveness und Profilbild-Freigabe produktiv anschliessen
 - Abuse-, Moderations-, Fraud- und Audit-Backend produktiv anschliessen und Fallbearbeitung serverseitig umsetzen
 - Live-Standorte serverseitig speichern, filtern und absichern
 - DSGVO-Prozesse fuer Datenexport, Kontoloeschung und Einwilligungen umsetzen
@@ -268,47 +224,7 @@ vercel --prod
 
 ## Hinweis
 
-Der Code ist auf produktive Weiterentwicklung ausgerichtet, aber noch nicht vollstaendig livegangsbereit. Externe Anbieter wie Stadia Maps sowie Sicherheits-, Datenschutz- und Verifizierungsdienste muessen noch final integriert und technisch abgesichert werden. Die Matching Map nutzt bereits echte Geraete-Location und Leaflet auf Web; fuer den produktiven Betrieb muss vor allem der gueltige Stadia Tile-Key gesetzt werden.
-
-## Firebase Deploy fuer Profilbild-Fakecheck
-
-1. Functions-Abhaengigkeiten installieren
-
-```bash
-cd functions
-npm install
-cd ..
-```
-
-2. Firebase Login und Projektwahl
-
-```bash
-firebase login
-firebase use <dein-firebase-projekt>
-```
-
-3. Secrets setzen
-
-```bash
-firebase functions:secrets:set AWS_ACCESS_KEY_ID
-firebase functions:secrets:set AWS_SECRET_ACCESS_KEY
-firebase functions:secrets:set PROFILE_IMAGE_VERIFICATION_SIGNING_KEY
-```
-
-4. Vercel- oder Hosting-Umgebungsvariablen fuer den Liveness-Webflow setzen
-
-```bash
-AWS_COGNITO_IDENTITY_POOL_ID=<deine-identity-pool-id>
-AWS_COGNITO_REGION=eu-central-1
-```
-
-Eine komplette kopierbare Vorlage fuer lokale Werte liegt in [.env.local.example](.env.local.example).
-
-5. Regeln und Functions deployen
-
-```bash
-firebase deploy --only functions:createFaceLivenessSession,functions:getFaceLivenessResultAndCompareProfileImage,functions:approveProfileImage,functions:rejectAndDeleteTempProfileImage,firestore:rules,storage
-```
+Der Code ist auf produktive Weiterentwicklung ausgerichtet, aber noch nicht vollstaendig livegangsbereit. Externe Anbieter wie Stadia Maps sowie Sicherheits- und Datenschutzdienste muessen noch final integriert und technisch abgesichert werden. Die Matching Map nutzt bereits echte Geraete-Location und Leaflet auf Web; fuer den produktiven Betrieb muss vor allem der gueltige Stadia Tile-Key gesetzt werden.
 
 Arbeitsregel fuer die weitere Entwicklung:
 

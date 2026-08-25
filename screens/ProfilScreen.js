@@ -1,23 +1,16 @@
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader, StatusPill, ToggleChip } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
-import { buildFaceLivenessUrl } from '../constants/profilePhotoVerificationProvider';
 import { useAffairGo } from '../context/AffairGoContext';
 import { EYE_OPTIONS, FIGURE_OPTIONS, GENDER_OPTIONS, HAIR_OPTIONS, MONTH_OPTIONS, SEARCH_GENDER_OPTIONS, SKIN_OPTIONS } from '../data/mockData';
 import { useNavigation, useRoute } from '../naviagtion/SimpleNavigation';
 import { allowScreenCaptureAsync, preventScreenCaptureAsync } from '../untils/screenCapture';
 
 const IMAGE_MEDIA_TYPE = ImagePicker.MediaTypeOptions?.Images ?? ImagePicker.MediaType?.Images;
-
-let NativeWebView = null;
-
-if (Platform.OS !== 'web') {
-  ({ WebView: NativeWebView } = require('react-native-webview'));
-}
 
 const REPORT_REASONS = [
   { value: 'spam', label: 'Spam oder Scam' },
@@ -65,7 +58,7 @@ const ProfilScreen = () => {
   const { width } = useWindowDimensions();
   const navigation = useNavigation();
   const route = useRoute();
-  const { currentUser, users, chats, updateCurrentUser, addGalleryItem, logout, preferenceOptions, tabooOptions, getCompatibility, changePassword, getProfileTravelSummary, verifyPendingEmail, accessStatusLabel, confirmPendingNickname, exportMyData, requestAccountDeletion, updateProfilePhoto, completeProfilePhotoVerification, discardPendingProfilePhotoVerification, launchProfilePhotoLivenessFlow, reportUser, moderationBackendConfigured, moderationAuditTrail, moderationFlags } = useAffairGo();
+  const { currentUser, users, chats, updateCurrentUser, addGalleryItem, logout, preferenceOptions, tabooOptions, getMatchEligibility, changePassword, getProfileTravelSummary, verifyPendingEmail, accessStatusLabel, confirmPendingNickname, exportMyData, requestAccountDeletion, updateProfilePhoto, reportUser, moderationBackendConfigured, moderationAuditTrail, moderationFlags } = useAffairGo();
   const isCompactWeb = Platform.OS === 'web' && width < 768;
   const viewedProfile = useMemo(() => (route.params?.profileId ? users.find((entry) => entry.id === route.params.profileId) : currentUser), [currentUser, route.params?.profileId, users]);
   const isOwnProfile = !route.params?.profileId || route.params.profileId === currentUser.id;
@@ -84,15 +77,10 @@ const ProfilScreen = () => {
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState('');
   const [uploadFeedback, setUploadFeedback] = useState('');
-  const [pendingProfilePhotoVerification, setPendingProfilePhotoVerification] = useState(null);
-  const [profilePhotoLivenessModalOpen, setProfilePhotoLivenessModalOpen] = useState(false);
-  const [profilePhotoLivenessUrl, setProfilePhotoLivenessUrl] = useState('');
   const [reportModalOpen, setReportModalOpen] = useState(false);
   const [reportReason, setReportReason] = useState(REPORT_REASONS[0].value);
   const [reportDescription, setReportDescription] = useState('');
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
-  const autoOpenedLivenessSessionRef = useRef('');
-  const webLivenessPopupRef = useRef(null);
 
   useEffect(() => {
     if (isOwnProfile) {
@@ -108,53 +96,6 @@ const ProfilScreen = () => {
   const updateField = (key, value) => {
     setSaveFeedback('');
     setDraft((previous) => ({ ...previous, [key]: value }));
-  };
-  const closePendingWebLivenessPopup = () => {
-    if (Platform.OS !== 'web') {
-      return;
-    }
-
-    const popup = webLivenessPopupRef.current;
-
-    if (popup && !popup.closed) {
-      popup.close();
-    }
-
-    webLivenessPopupRef.current = null;
-  };
-
-  const openWebLivenessPlaceholderPopup = () => {
-    if (Platform.OS !== 'web' || typeof window === 'undefined') {
-      return null;
-    }
-
-    const popup = window.open('', 'affairgo-profile-photo-liveness', 'width=480,height=820');
-
-    if (!popup) {
-      throw new Error('Das Popup fuer den Fakecheck wurde vom Browser blockiert. Bitte erlaube Popups fuer diese Seite.');
-    }
-
-    popup.document.write(`<!doctype html><html lang="de"><head><meta charset="utf-8"><title>Night-Whisper Fakecheck</title><style>body{margin:0;font-family:Arial,sans-serif;background:#111827;color:#f9fafb;display:grid;place-items:center;min-height:100vh;padding:24px;text-align:center}div{max-width:320px}strong{display:block;font-size:20px;margin-bottom:12px}span{opacity:.82;line-height:1.5}</style></head><body><div><strong>Fakecheck startet...</strong><span>Das Profilbild wird hochgeladen und die Live-Selfie-Pruefung vorbereitet.</span></div></body></html>`);
-    popup.document.close();
-    popup.focus?.();
-    webLivenessPopupRef.current = popup;
-    return popup;
-  };
-
-  const navigatePendingWebLivenessPopup = (url) => {
-    if (Platform.OS !== 'web' || !url) {
-      return false;
-    }
-
-    const popup = webLivenessPopupRef.current;
-
-    if (!popup || popup.closed) {
-      return false;
-    }
-
-    popup.location.href = url;
-    popup.focus?.();
-    return true;
   };
 
   const updateSearchAgeField = (key, value) => {
@@ -324,14 +265,10 @@ const ProfilScreen = () => {
       }
 
       const uploadResult = await updateProfilePhoto(asset);
-      setPendingProfilePhotoVerification(null);
       setDraft((previous) => ({
         ...previous,
         profilePhotoUrl: uploadResult.profilePhotoUrl,
         profileImageUri: uploadResult.profileImageUri,
-        profilePhotoVerified: Boolean(uploadResult.profilePhotoVerified),
-        profilePhotoVerifiedAt: uploadResult.profilePhotoVerifiedAt || '',
-        faceMatchSimilarity: Number(uploadResult.faceMatchSimilarity || 0),
         profilePhotoAgeMonths: 0,
         verificationState: uploadResult.verificationState || 'uploaded',
       }));
@@ -341,246 +278,12 @@ const ProfilScreen = () => {
         'Das Profilbild wurde gespeichert.'
       );
     } catch (error) {
-      autoOpenedLivenessSessionRef.current = '';
       setUploadFeedback(error.message || 'Profilbild konnte nicht hochgeladen werden.');
       Alert.alert('Profilbild konnte nicht hochgeladen werden', error.message || 'Bitte versuche es erneut.');
     } finally {
       setIsUploadingMedia(false);
     }
   };
-
-  const openPendingProfilePhotoLiveness = async () => {
-    if (!pendingProfilePhotoVerification) {
-      return;
-    }
-
-    const livenessUrl = buildFaceLivenessUrl({
-      sessionId: pendingProfilePhotoVerification.sessionId,
-      verificationToken: pendingProfilePhotoVerification.verificationToken,
-    });
-
-    if (!livenessUrl) {
-      await launchProfilePhotoLivenessFlow({
-        sessionId: pendingProfilePhotoVerification.sessionId,
-        verificationToken: pendingProfilePhotoVerification.verificationToken,
-      });
-      return;
-    }
-
-    if (Platform.OS === 'web') {
-      await launchProfilePhotoLivenessFlow({
-        sessionId: pendingProfilePhotoVerification.sessionId,
-        verificationToken: pendingProfilePhotoVerification.verificationToken,
-      });
-      return;
-    }
-
-    setProfilePhotoLivenessUrl(livenessUrl);
-    setProfilePhotoLivenessModalOpen(true);
-  };
-
-  const handleCompleteProfilePhotoVerification = async () => {
-    if (!pendingProfilePhotoVerification) {
-      return;
-    }
-
-    try {
-      setIsUploadingMedia(true);
-      const result = await completeProfilePhotoVerification(pendingProfilePhotoVerification);
-
-      if (result.pending) {
-        Alert.alert('Analyse läuft noch', result.message || 'Bitte schließe die Prüfung in wenigen Sekunden erneut ab.');
-        return;
-      }
-
-      if (!result.approved) {
-        setPendingProfilePhotoVerification(null);
-        Alert.alert('Profilbild abgelehnt', result.message || 'Das Bild konnte nicht verifiziert werden.');
-        return;
-      }
-
-      setPendingProfilePhotoVerification(null);
-      setDraft((previous) => ({
-        ...previous,
-        profilePhotoUrl: result.profilePhotoUrl,
-        profileImageUri: result.profileImageUri,
-        profilePhotoVerified: true,
-        profilePhotoVerifiedAt: result.profilePhotoVerifiedAt,
-        faceMatchSimilarity: result.faceMatchSimilarity,
-        profilePhotoAgeMonths: 0,
-        verificationState: 'verified',
-      }));
-      Alert.alert('Profilbild freigegeben', `Die Gesichtsähnlichkeit liegt bei ${Math.round(result.faceMatchSimilarity)} %. Dein Profilbild ist jetzt aktiv.`);
-    } catch (error) {
-      Alert.alert('Prüfung fehlgeschlagen', error.message || 'Die Profilbild-Prüfung konnte nicht abgeschlossen werden.');
-    } finally {
-      setIsUploadingMedia(false);
-    }
-  };
-
-  const handleDiscardPendingProfilePhotoVerification = async () => {
-    if (!pendingProfilePhotoVerification) {
-      return;
-    }
-
-    try {
-      setIsUploadingMedia(true);
-      await discardPendingProfilePhotoVerification(pendingProfilePhotoVerification);
-      setPendingProfilePhotoVerification(null);
-      setProfilePhotoLivenessModalOpen(false);
-      setProfilePhotoLivenessUrl('');
-      Alert.alert('Temporäres Bild gelöscht', 'Das ausstehende Profilbild wurde verworfen.');
-    } catch (error) {
-      Alert.alert('Löschen fehlgeschlagen', error.message || 'Das temporäre Profilbild konnte nicht gelöscht werden.');
-    } finally {
-      setIsUploadingMedia(false);
-    }
-  };
-
-  const handleNativeLivenessMessage = (event) => {
-    const rawPayload = event?.nativeEvent?.data;
-    const payload = typeof rawPayload === 'string'
-      ? (() => {
-          try {
-            return JSON.parse(rawPayload);
-          } catch {
-            return null;
-          }
-        })()
-      : rawPayload;
-
-    if (!payload || payload.type !== 'affairgo-face-liveness' || !pendingProfilePhotoVerification) {
-      return;
-    }
-
-    if (payload.sessionId !== pendingProfilePhotoVerification.sessionId || payload.verificationToken !== pendingProfilePhotoVerification.verificationToken) {
-      return;
-    }
-
-    if (payload.status === 'analysis_complete') {
-      setProfilePhotoLivenessModalOpen(false);
-      handleCompleteProfilePhotoVerification();
-      return;
-    }
-
-    if (payload.status === 'cancelled') {
-      setProfilePhotoLivenessModalOpen(false);
-      Alert.alert('Live-Selfie abgebrochen', 'Die Aufnahme wurde abgebrochen. Du kannst die Prüfung erneut öffnen oder das temporäre Bild verwerfen.');
-      return;
-    }
-
-    if (payload.status === 'error') {
-      setProfilePhotoLivenessModalOpen(false);
-      Alert.alert('Live-Selfie fehlgeschlagen', payload.errorMessage || 'Die Liveness-Prüfung konnte nicht abgeschlossen werden.');
-    }
-  };
-
-  useEffect(() => {
-    if (pendingProfilePhotoVerification) {
-      return;
-    }
-
-    autoOpenedLivenessSessionRef.current = '';
-    closePendingWebLivenessPopup();
-    setProfilePhotoLivenessModalOpen(false);
-    setProfilePhotoLivenessUrl('');
-  }, [pendingProfilePhotoVerification]);
-
-  useEffect(() => {
-    if (!pendingProfilePhotoVerification?.sessionId) {
-      return;
-    }
-
-    if (autoOpenedLivenessSessionRef.current === pendingProfilePhotoVerification.sessionId) {
-      return;
-    }
-
-    autoOpenedLivenessSessionRef.current = pendingProfilePhotoVerification.sessionId;
-
-    const openAutomatically = async () => {
-      try {
-        const livenessUrl = buildFaceLivenessUrl({
-          sessionId: pendingProfilePhotoVerification.sessionId,
-          verificationToken: pendingProfilePhotoVerification.verificationToken,
-        });
-
-        if (Platform.OS === 'web') {
-          if (!livenessUrl) {
-            throw new Error('Die Fakecheck-Seite ist noch nicht konfiguriert.');
-          }
-
-          if (!navigatePendingWebLivenessPopup(livenessUrl)) {
-            await launchProfilePhotoLivenessFlow({
-              sessionId: pendingProfilePhotoVerification.sessionId,
-              verificationToken: pendingProfilePhotoVerification.verificationToken,
-            });
-          }
-          return;
-        }
-
-        if (!livenessUrl) {
-          await launchProfilePhotoLivenessFlow({
-            sessionId: pendingProfilePhotoVerification.sessionId,
-            verificationToken: pendingProfilePhotoVerification.verificationToken,
-          });
-          return;
-        }
-
-        setProfilePhotoLivenessUrl(livenessUrl);
-        setProfilePhotoLivenessModalOpen(true);
-      } catch (error) {
-        autoOpenedLivenessSessionRef.current = '';
-        Alert.alert('Fakecheck konnte nicht gestartet werden', error.message || 'Die Live-Selfie-Prüfung konnte nicht automatisch geöffnet werden.');
-      }
-    };
-
-    openAutomatically();
-  }, [launchProfilePhotoLivenessFlow, pendingProfilePhotoVerification]);
-
-  useEffect(() => {
-    if (Platform.OS !== 'web' || !pendingProfilePhotoVerification) {
-      return undefined;
-    }
-
-    const livenessUrl = buildFaceLivenessUrl({
-      sessionId: pendingProfilePhotoVerification.sessionId,
-      verificationToken: pendingProfilePhotoVerification.verificationToken,
-    });
-    const expectedOrigin = livenessUrl ? new URL(livenessUrl, window.location.href).origin : window.location.origin;
-
-    const handleLivenessMessage = (event) => {
-      const payload = event.data;
-
-      if (!payload || payload.type !== 'affairgo-face-liveness') {
-        return;
-      }
-
-      if (expectedOrigin && event.origin !== expectedOrigin) {
-        return;
-      }
-
-      if (payload.sessionId !== pendingProfilePhotoVerification.sessionId || payload.verificationToken !== pendingProfilePhotoVerification.verificationToken) {
-        return;
-      }
-
-      if (payload.status === 'analysis_complete') {
-        handleCompleteProfilePhotoVerification();
-        return;
-      }
-
-      if (payload.status === 'cancelled') {
-        Alert.alert('Live-Selfie abgebrochen', 'Die Aufnahme wurde abgebrochen. Du kannst die Prüfung erneut öffnen oder das temporäre Bild verwerfen.');
-        return;
-      }
-
-      if (payload.status === 'error') {
-        Alert.alert('Live-Selfie fehlgeschlagen', payload.errorMessage || 'Die Liveness-Prüfung konnte nicht abgeschlossen werden.');
-      }
-    };
-
-    window.addEventListener('message', handleLivenessMessage);
-    return () => window.removeEventListener('message', handleLivenessMessage);
-  }, [pendingProfilePhotoVerification]);
 
   const handleAddGalleryImage = async () => {
     try {
@@ -661,6 +364,7 @@ const ProfilScreen = () => {
   const moderationTone = moderationProfile?.moderationState === 'restricted' ? 'danger' : moderationProfile?.moderationState === 'review' ? 'warning' : 'success';
   const moderationLabel = moderationProfile?.moderationState === 'restricted' ? 'Sicherheitsstatus eingeschränkt' : moderationProfile?.moderationState === 'review' ? 'Moderation prüft' : 'Sicherheitsstatus unauffällig';
   const recentModerationEntries = (moderationAuditTrail || []).slice(0, 5);
+  const viewedProfileMatch = !isOwnProfile && profile ? getMatchEligibility(currentUser, profile) : null;
 
   useEffect(() => {
     preventScreenCaptureAsync().catch(() => undefined);
@@ -678,7 +382,7 @@ const ProfilScreen = () => {
     <AppBackground>
       <ScreenHeader
         title={isOwnProfile ? 'Dein Profil' : profile.nickname}
-        subtitle={isOwnProfile ? 'Persönliche Daten' : `Kompatibilität ${getCompatibility(currentUser, profile)}%`}
+        subtitle={isOwnProfile ? 'Persönliche Daten' : `${viewedProfileMatch?.commonPreferenceCount || 0} gemeinsame Vorlieben`}
         leftAction={
           <Pressable onPress={() => navigation.goBack()}>
             <Ionicons name="arrow-back" size={28} color={affairGoTheme.colors.accentSoft} />
@@ -696,9 +400,6 @@ const ProfilScreen = () => {
         </View>
         {isOwnProfile ? <AccentButton label={isUploadingMedia ? 'Bild wird hochgeladen...' : 'Profilbild ändern'} variant="secondary" onPress={handleUploadProfilePhoto} disabled={isUploadingMedia} style={styles.avatarButton} /> : null}
         {isOwnProfile && uploadFeedback ? <Text style={styles.uploadFeedback}>{uploadFeedback}</Text> : null}
-        {isOwnProfile && pendingProfilePhotoVerification ? <AccentButton label="Live-Selfie öffnen" variant="secondary" onPress={openPendingProfilePhotoLiveness} disabled={isUploadingMedia} style={styles.avatarButton} /> : null}
-        {isOwnProfile && pendingProfilePhotoVerification ? <AccentButton label={isUploadingMedia ? 'Prüfung läuft...' : 'Prüfung abschließen'} onPress={handleCompleteProfilePhotoVerification} disabled={isUploadingMedia} style={styles.avatarButton} /> : null}
-        {isOwnProfile && pendingProfilePhotoVerification ? <AccentButton label="Temporäres Bild verwerfen" variant="secondary" onPress={handleDiscardPendingProfilePhotoVerification} disabled={isUploadingMedia} style={styles.avatarButton} /> : null}
         <Text style={styles.nameLine}>{isOwnProfile ? `${profile.firstName} ${profile.lastName}` : profile.nickname}</Text>
         <Text style={styles.metaLine}>{formatBirthDetails(profile)}</Text>
         <Text style={styles.metaLine}>{profile.gender}</Text>
@@ -706,8 +407,6 @@ const ProfilScreen = () => {
         <StatusPill label={ageVerificationLabel} tone={ageVerificationTone} style={styles.statusPill} />
         {isOwnProfile ? <StatusPill label={moderationLabel} tone={moderationTone} style={styles.statusPill} /> : null}
         {profile.ageVerificationProvider ? <Text style={styles.photoAge}>Altersprüfung: bestätigt</Text> : null}
-        {profile.profilePhotoVerifiedAt ? <Text style={styles.photoAge}>Profilbild verifiziert: {new Date(profile.profilePhotoVerifiedAt).toLocaleString('de-DE')}</Text> : null}
-        {profile.faceMatchSimilarity ? <Text style={styles.photoAge}>Face-Match: {Math.round(profile.faceMatchSimilarity)} %</Text> : null}
         <Text style={styles.photoAge}>
           {profile.profilePhotoUrl || profile.profileImageUri
             ? `Profilbild hochgeladen: vor ${profile.profilePhotoAgeMonths} Monaten`
@@ -715,7 +414,6 @@ const ProfilScreen = () => {
         </Text>
         {profile.profilePhotoAgeMonths >= 12 ? <Text style={styles.warnRed}>Rote Warnung: Profilbild älter als 12 Monate</Text> : null}
         {profile.profilePhotoAgeMonths >= 6 && profile.profilePhotoAgeMonths < 12 ? <Text style={styles.warnSoft}>Hinweis: Profilbild älter als 6 Monate</Text> : null}
-        {isOwnProfile && pendingProfilePhotoVerification ? <Text style={styles.warnSoft}>Temporäres Bild gewählt. Bitte schließe jetzt die Live-Selfie-Prüfung ab und bestätige danach die Freigabe.</Text> : null}
         {!isOwnProfile ? <AccentButton label="Profil melden" variant="secondary" onPress={() => setReportModalOpen(true)} style={styles.avatarButton} /> : null}
       </GlassCard>
 
@@ -957,32 +655,6 @@ const ProfilScreen = () => {
         </View>
       </Modal>
 
-      {Platform.OS !== 'web' && NativeWebView && profilePhotoLivenessUrl ? (
-        <Modal visible={profilePhotoLivenessModalOpen} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setProfilePhotoLivenessModalOpen(false)}>
-          <View style={styles.livenessModalShell}>
-            <View style={styles.livenessModalHeader}>
-              <View style={styles.livenessModalCopy}>
-                <Text style={styles.groupTitle}>Live-Selfie</Text>
-                <Text style={styles.copyLine}>Richte dein Gesicht in die Kamera und folge den AWS-Hinweisen.</Text>
-              </View>
-              <AccentButton label="Schließen" variant="secondary" onPress={() => setProfilePhotoLivenessModalOpen(false)} />
-            </View>
-            <View style={styles.livenessWebViewFrame}>
-              <NativeWebView
-                source={{ uri: profilePhotoLivenessUrl }}
-                onMessage={handleNativeLivenessMessage}
-                mediaPlaybackRequiresUserAction={false}
-                allowsInlineMediaPlayback
-                javaScriptEnabled
-                domStorageEnabled
-                startInLoadingState
-                allowsBackForwardNavigationGestures
-                style={styles.livenessWebView}
-              />
-            </View>
-          </View>
-        </Modal>
-      ) : null}
     </AppBackground>
   );
 };
@@ -1259,35 +931,6 @@ const styles = StyleSheet.create({
     color: affairGoTheme.colors.textMuted,
     lineHeight: 20,
     fontSize: 12,
-  },
-  livenessModalShell: {
-    flex: 1,
-    backgroundColor: '#f5ede3',
-    paddingTop: 18,
-    paddingHorizontal: 14,
-    paddingBottom: 14,
-  },
-  livenessModalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 12,
-  },
-  livenessModalCopy: {
-    flex: 1,
-  },
-  livenessWebViewFrame: {
-    flex: 1,
-    borderRadius: 24,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: affairGoTheme.colors.line,
-    backgroundColor: '#fffaf4',
-  },
-  livenessWebView: {
-    flex: 1,
-    backgroundColor: '#fffaf4',
   },
   auditList: {
     marginTop: 8,
