@@ -1424,6 +1424,22 @@ test('Community-Regeln: gültige aktuelle Version kann akzeptiert werden', async
   assert.equal(harness.firestore.store.get('communityRuleAcceptances/user-1').data.latestAcceptedVersion, DEFAULT_COMMUNITY_RULES_VERSION);
 });
 
+test('Community-Regeln: Zustimmung wird immer unter der authentifizierten UID gespeichert', async () => {
+  const harness = createHandlerHarness({
+    docs: createBaseDocs({ includeRuleAcceptance: false }),
+  });
+
+  await harness.acceptRulesHandler(createRequest({
+    data: {
+      rulesVersion: DEFAULT_COMMUNITY_RULES_VERSION,
+      userId: 'spoofed-user',
+    },
+  }));
+
+  assert.equal(harness.firestore.store.get('communityRuleAcceptances/user-1').data.userId, 'user-1');
+  assert.equal(harness.firestore.store.has('communityRuleAcceptances/spoofed-user'), false);
+});
+
 test('Community-Regeln: falsche Version wird beim Akzeptieren abgelehnt', async () => {
   const harness = createHandlerHarness({
     docs: createBaseDocs({ includeRuleAcceptance: false }),

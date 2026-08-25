@@ -14,10 +14,11 @@ const {
   buildAcceptedCommunityRulesEnvelope,
   buildCommunityRoomSections,
   formatCommunityEventDateLabel,
+  getCommunityAccessState,
   getCommunityAccessRequirements,
+  getCommunityNeedsRulesAcceptance,
   formatCommunityRulesVersionLabel,
   getCommunityActiveCountLabel,
-  getCommunityOverviewState,
   getCommunityRoomActivityLabel,
   getCommunityRoomTypeLabel,
   getCommunityRoomUnreadCount,
@@ -58,12 +59,20 @@ const CommunityScreen = () => {
   const accessRequirements = useMemo(() => getCommunityAccessRequirements(currentUser, auth.currentUser, rulesEnvelope), [currentUser, rulesEnvelope]);
   const currentRulesVersion = String(rulesEnvelope?.version || '').trim();
   const acceptedRulesVersion = String(rulesEnvelope?.acceptedVersion || '').trim();
-  const needsRulesAcceptance = Boolean(currentRulesVersion) && acceptedRulesVersion !== currentRulesVersion;
-  const showRulesModal = Boolean(rulesEnvelope) && accessRequirements.preRulesRequirementsMet && needsRulesAcceptance && rulesModalVisible;
+  const needsRulesAcceptance = getCommunityNeedsRulesAcceptance(rulesEnvelope);
+  const showRulesModal = Boolean(rulesEnvelope) && rulesModalVisible;
 
   useEffect(() => {
     rulesEnvelopeRef.current = rulesEnvelope;
   }, [rulesEnvelope]);
+
+  useEffect(() => {
+    if (!accessRequirements.preRulesRequirementsMet || !rulesLoaded || !needsRulesAcceptance || !rulesEnvelope?.version) {
+      return;
+    }
+
+    setRulesModalVisible(true);
+  }, [accessRequirements.preRulesRequirementsMet, needsRulesAcceptance, rulesEnvelope?.version, rulesLoaded]);
 
   const logCommunityOverviewDebug = (scope, details = {}) => {
     const error = details.error || null;
@@ -419,13 +428,16 @@ const CommunityScreen = () => {
   const noRoomsAvailable = roomsLoaded && !roomsWithPresence.length;
   const unreadRoomsCount = useMemo(() => getCommunityUnreadRoomsCount(roomsWithPresence, reads), [reads, roomsWithPresence]);
   const activeMembersLabel = getCommunityActiveCountLabel(presenceSummary.activeMemberCount, presenceSummary.publicCountThreshold);
-  const overviewState = getCommunityOverviewState({
+  const communityAccessState = useMemo(() => getCommunityAccessState({
+    accessRequirements,
+    rulesEnvelope,
+    rulesLoaded,
+    rulesError,
     roomsLoaded,
     readsLoaded,
-    rulesLoaded,
     loadError,
     roomCount: roomsWithPresence.length,
-  });
+  }), [accessRequirements, loadError, readsLoaded, roomsLoaded, roomsWithPresence.length, rulesEnvelope, rulesError, rulesLoaded]);
 
   const openRoom = (roomId) => {
     if (needsRulesAcceptance) {
@@ -452,10 +464,23 @@ const CommunityScreen = () => {
     }
   };
 
-  const handleRetryRooms = () => {
+  const handleRetryCommunity = async () => {
+    setAccessActionError('');
     setLoadError('');
+    setRulesError('');
     setRoomsLoaded(false);
-    setRoomsQueryKey((previous) => previous + 1);
+    setRulesLoaded(false);
+
+    try {
+      if (currentUser?.id && accessRequirements.preRulesRequirementsMet) {
+        await refreshRulesStatus({ userId: currentUser.id });
+      }
+    } catch (error) {
+      setRulesError('Die Community konnte nicht geladen werden. Bitte versuche es erneut.');
+    } finally {
+      setRulesLoaded(true);
+      setRoomsQueryKey((previous) => previous + 1);
+    }
   };
 
   const handleRefreshEmailVerification = async () => {
@@ -502,6 +527,15 @@ const CommunityScreen = () => {
     navigation.navigate('Profil');
   };
 
+  const openRulesModal = () => {
+    if (!rulesEnvelope) {
+      return;
+    }
+
+    setRulesError('');
+    setRulesModalVisible(true);
+  };
+
   const handleAcceptRules = async () => {
     if (!rulesEnvelope?.version || isAcceptingRules) {
       return;
@@ -538,6 +572,7 @@ const CommunityScreen = () => {
       const acceptedRulesVersionAfter = String(completedEnvelope?.acceptedVersion || '').trim();
       const needsRulesAcceptanceAfter = Boolean(String(completedEnvelope?.version || '').trim())
         && acceptedRulesVersionAfter !== String(completedEnvelope?.version || '').trim();
+      setRoomsQueryKey((previous) => previous + 1);
       console.log('[CommunityRules] ACCEPT_GATE_RESULT', {
         currentRulesVersion: String(completedEnvelope?.version || '').trim(),
         acceptedRulesVersionAfter,
@@ -630,7 +665,7 @@ const CommunityScreen = () => {
         <Text style={styles.activityHeadline}>{activeMembersLabel}</Text>
         {unreadRoomsCount > 0 ? <Text style={styles.activitySubline}>In {unreadRoomsCount} Räumen gibt es neue Nachrichten.</Text> : null}
         {rulesEnvelope ? (
-          <Pressable onPress={() => setRulesModalVisible(true)} style={styles.rulesLink}>
+          <Pressable onPress={openRulesModal} style={styles.rulesLink}>
             <Text style={styles.rulesLinkText}>Community-Regeln ansehen · {rulesVersionLabel}</Text>
           </Pressable>
         ) : null}
@@ -692,13 +727,13 @@ const CommunityScreen = () => {
       {rulesLoaded && rulesEnvelope && needsRulesAcceptance ? (
         <InfoBanner
           title="Regelzustimmung erforderlich"
-          detail="Du kannst die Raumübersicht sehen, musst aber vor dem Öffnen eines Chats zuerst die aktuellen Community-Regeln bestätigen."
+          detail="Bitte akzeptiere zuerst die aktuellen Community-Regeln. Die Raumübersicht bleibt sichtbar, einzelne Räume bleiben bis zur Zustimmung gesperrt."
           tone="warning"
           style={styles.infoBanner}
         />
       ) : null}
 
-      {rulesError && overviewState === 'ready' ? (
+      {rulesError && communityAccessState.status === 'allowed' ? (
         <InfoBanner
           title="Community-Regeln derzeit nicht erreichbar"
           detail={rulesError}
@@ -707,23 +742,23 @@ const CommunityScreen = () => {
         />
       ) : null}
 
-      {accessRequirements.preRulesRequirementsMet && overviewState === 'loading' ? (
+      {accessRequirements.preRulesRequirementsMet && communityAccessState.status === 'loading' ? (
         <GlassCard strong style={styles.stateCard}>
           <ActivityIndicator size="small" color={affairGoTheme.colors.accent} />
           <Text style={styles.stateTitle}>Community-Räume werden geladen …</Text>
         </GlassCard>
-      ) : accessRequirements.preRulesRequirementsMet && overviewState === 'error' ? (
+      ) : accessRequirements.preRulesRequirementsMet && communityAccessState.status === 'backend_error' ? (
         <GlassCard strong style={styles.stateCard}>
-          <Text style={styles.stateTitle}>{loadError}</Text>
-          <AccentButton label="Erneut versuchen" onPress={handleRetryRooms} style={styles.stateAction} />
+          <Text style={styles.stateTitle}>{communityAccessState.message || loadError || rulesError}</Text>
+          <AccentButton label="Erneut versuchen" onPress={handleRetryCommunity} style={styles.stateAction} />
         </GlassCard>
-      ) : accessRequirements.preRulesRequirementsMet && overviewState === 'empty' ? (
+      ) : accessRequirements.preRulesRequirementsMet && communityAccessState.status === 'empty' ? (
         <EmptyState
           title={currentUser?.isAdmin ? 'Es sind noch keine Community-Räume eingerichtet.' : 'Aktuell sind keine Community-Räume verfügbar.'}
           detail={currentUser?.isAdmin ? 'Die Raumabfrage war erfolgreich, aber es wurden keine aktiven Standardräume gefunden.' : 'Es wurden noch keine aktiven Räume freigeschaltet.'}
           action={currentUser?.isAdmin ? <AccentButton label={isSeedingRoom ? 'Räume werden ergänzt...' : 'Standardräume anlegen'} onPress={handleSeedRooms} disabled={isSeedingRoom} /> : null}
         />
-      ) : accessRequirements.preRulesRequirementsMet ? (
+      ) : accessRequirements.preRulesRequirementsMet && ['allowed', 'rules_acceptance_required'].includes(communityAccessState.status) ? (
         <ScrollView showsVerticalScrollIndicator={false}>
           {lastVisitedRoom ? (
             <GlassCard style={styles.lastVisitedCard}>
@@ -769,7 +804,7 @@ const CommunityScreen = () => {
                 <Text style={styles.rulesModalTitle}>{rulesEnvelope?.title || 'Community-Regeln'}</Text>
                 <Text style={styles.rulesModalMeta}>{rulesVersionLabel}</Text>
               </View>
-              {!needsRulesAcceptance ? (
+              {(!needsRulesAcceptance || !isAcceptingRules) ? (
                 <Pressable onPress={() => setRulesModalVisible(false)}>
                   <Ionicons name="close" size={24} color={affairGoTheme.colors.text} />
                 </Pressable>
@@ -787,6 +822,8 @@ const CommunityScreen = () => {
               ))}
             </ScrollView>
 
+            {rulesError ? <Text style={styles.errorText}>{rulesError}</Text> : null}
+
             {needsRulesAcceptance ? (
               <InfoBanner
                 title="Zustimmung erforderlich"
@@ -798,7 +835,7 @@ const CommunityScreen = () => {
             <View style={styles.rulesActions}>
               {needsRulesAcceptance ? (
                 <AccentButton
-                  label={isAcceptingRules ? 'Regeln werden bestätigt...' : 'Community-Regeln akzeptieren'}
+                  label={isAcceptingRules ? 'Regeln werden bestätigt...' : 'Regeln akzeptieren'}
                   onPress={handleAcceptRules}
                   disabled={isAcceptingRules || !rulesEnvelope?.version}
                 />
@@ -806,14 +843,7 @@ const CommunityScreen = () => {
               <AccentButton
                 label={!needsRulesAcceptance ? 'Schließen' : 'Zurück'}
                 variant="ghost"
-                onPress={() => {
-                  if (!needsRulesAcceptance) {
-                    setRulesModalVisible(false);
-                    return;
-                  }
-
-                  navigation.goBack();
-                }}
+                onPress={() => setRulesModalVisible(false)}
                 disabled={isAcceptingRules}
                 style={styles.rulesSecondaryAction}
               />

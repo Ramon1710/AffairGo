@@ -74,6 +74,9 @@ import {
     isPresenceFresh,
 } from '../untils/matching';
 import { buildSwipeDeckProfiles } from '../untils/matchingMap';
+import { getDefaultRadiusKm, normalizeRadiusKm } from '../untils/radius';
+
+const { markDirectChatsAsRead } = require('../untils/directChat');
 
 const AffairGoContext = createContext(null);
 const LIVE_LOCATION_INTERVAL_MS = 8000;
@@ -1064,6 +1067,7 @@ const normalizeUserProfile = (profile = {}, firebaseUser = null) => {
     dataExportRequestedAt: profile.dataExportRequestedAt || '',
     latitude: Number.isFinite(Number(profile.latitude)) ? Number(profile.latitude) : defaults.latitude,
     longitude: Number.isFinite(Number(profile.longitude)) ? Number(profile.longitude) : defaults.longitude,
+    radius: normalizeRadiusKm(profile.radius, defaults.radius),
     searchAgeMin,
     searchAgeMax,
     searchGenders: getSearchGenders(profile, defaults.searchGenders),
@@ -1139,6 +1143,7 @@ const toStoredProfile = (profile) => {
     dataExportRequestedAt: profile.dataExportRequestedAt || '',
     latitude: Number.isFinite(Number(profile.latitude)) ? Number(profile.latitude) : null,
     longitude: Number.isFinite(Number(profile.longitude)) ? Number(profile.longitude) : null,
+    radius: normalizeRadiusKm(profile.radius, createDefaultCurrentUser().radius),
     searchAgeMin,
     searchAgeMax,
     searchGenders: getSearchGenders(profile),
@@ -1417,31 +1422,7 @@ const buildPrivateLocationDocument = ({ exactLocation, accuracyMeters, lastUpdat
   };
 };
 
-const getFirestoreRadiusKm = (value) => {
-  const numericValue = Number(value);
-
-  if ([5, 10, 20, 50, 100, 150].includes(numericValue)) {
-    return numericValue;
-  }
-
-  if (numericValue <= 5) {
-    return 5;
-  }
-  if (numericValue <= 10) {
-    return 10;
-  }
-  if (numericValue <= 20) {
-    return 20;
-  }
-  if (numericValue <= 50) {
-    return 50;
-  }
-  if (numericValue <= 100) {
-    return 100;
-  }
-
-  return 150;
-};
+const getFirestoreRadiusKm = (value, fallback = getDefaultRadiusKm()) => normalizeRadiusKm(value, fallback);
 
 const getEventCoordinate = (event, fallbackLocation) => {
   const explicitCoordinate = normalizeLocationCoordinate(event?.coordinate);
@@ -2161,16 +2142,18 @@ export const AffairGoProvider = ({ children }) => {
   const [swipeHistory, setSwipeHistory] = useState([]);
   const [pendingVerificationId, setPendingVerificationId] = useState(null);
   const [selectedProfileId, setSelectedProfileId] = useState('u1');
-  const [currentRadius, setCurrentRadius] = useState(INITIAL_CURRENT_USER.radius);
+  const [currentRadius, setCurrentRadiusState] = useState(normalizeRadiusKm(INITIAL_CURRENT_USER.radius));
   const [featureIdeas, setFeatureIdeas] = useState([]);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [lastLocationSyncLabel, setLastLocationSyncLabel] = useState('Standort-Sync bereit');
   const [deviceLocation, setDeviceLocation] = useState(null);
   const [locationPermissionGranted, setLocationPermissionGranted] = useState(false);
   const [locationError, setLocationError] = useState('');
+  const [radiusUpdateError, setRadiusUpdateError] = useState('');
   const [publicMapLocations, setPublicMapLocations] = useState([]);
   const currentUserRef = useRef(currentUser);
   const activeRegistrationUidRef = useRef('');
+  const pendingCurrentRadiusRef = useRef(null);
 
   useEffect(() => {
     currentUserRef.current = currentUser;
@@ -2255,7 +2238,7 @@ export const AffairGoProvider = ({ children }) => {
   setChats(normalizeStoredChats(sessionData?.chats));
     setSwipeHistory(Array.isArray(sessionData?.swipeHistory) ? sessionData.swipeHistory : []);
     setDismissedProfiles(getDismissedSwipeIds(sessionData?.swipeHistory));
-    setCurrentRadius(normalizedProfile.radius || INITIAL_CURRENT_USER.radius);
+    setCurrentRadiusState(normalizedProfile.radius);
     setIsAuthenticated(true);
 
     return normalizedProfile;
@@ -2370,7 +2353,9 @@ export const AffairGoProvider = ({ children }) => {
           setSwipeHistory([]);
           setDismissedProfiles([]);
           setPendingVerificationId(null);
-          setCurrentRadius(INITIAL_CURRENT_USER.radius);
+          pendingCurrentRadiusRef.current = null;
+          setCurrentRadiusState(normalizeRadiusKm(INITIAL_CURRENT_USER.radius));
+          setRadiusUpdateError('');
           setDeviceLocation(null);
           setLocationPermissionGranted(false);
           setLocationError('');
@@ -2401,7 +2386,30 @@ export const AffairGoProvider = ({ children }) => {
 
           const snapshotData = profileSnapshot.data();
           const normalizedProfile = normalizeUserProfile({ id: profileSnapshot.id, ...snapshotData }, firebaseUser);
-          setCurrentUser((previous) => ({ ...previous, ...normalizedProfile }));
+          const snapshotRadius = normalizeRadiusKm(normalizedProfile.radius);
+
+          setCurrentUser((previous) => {
+            const shouldKeepPendingRadius = Number.isFinite(Number(pendingCurrentRadiusRef.current))
+              && snapshotRadius !== pendingCurrentRadiusRef.current;
+
+            return {
+              ...previous,
+              ...normalizedProfile,
+              radius: shouldKeepPendingRadius ? previous.radius : snapshotRadius,
+            };
+          });
+          setCurrentRadiusState((previousRadius) => {
+            if (Number.isFinite(Number(pendingCurrentRadiusRef.current)) && snapshotRadius !== pendingCurrentRadiusRef.current) {
+              return previousRadius;
+            }
+
+            if (snapshotRadius === pendingCurrentRadiusRef.current) {
+              pendingCurrentRadiusRef.current = null;
+              setRadiusUpdateError('');
+            }
+
+            return snapshotRadius;
+          });
           setChats(normalizeStoredChats(snapshotData?.chats));
         }, (error) => {
           console.warn('AffairGo profile realtime warning', error);
@@ -2713,7 +2721,11 @@ export const AffairGoProvider = ({ children }) => {
     const userId = auth.currentUser?.uid || latestCurrentUser.id;
 
     if (!userId || userId === 'me') {
-      return;
+      return {
+        skipped: true,
+        savedToFirestore: false,
+        savedToProvider: false,
+      };
     }
 
     const storedProfile = toStoredProfile({
@@ -2723,8 +2735,12 @@ export const AffairGoProvider = ({ children }) => {
     });
     console.log('AffairGo SAVE PAYLOAD patch', buildDebugProfilePayload(storedProfile));
 
+    let savedToFirestore = false;
+    let savedToProvider = false;
+
     try {
       await setDoc(doc(db, 'users', userId), patch, { merge: true });
+      savedToFirestore = true;
     } catch (error) {
       console.warn('AffairGo direct patch save warning', error);
     }
@@ -2735,9 +2751,57 @@ export const AffairGoProvider = ({ children }) => {
         10000,
         'Die Profiländerungen konnten serverseitig nicht rechtzeitig gespeichert werden.'
       );
+      savedToProvider = true;
     } catch (error) {
       console.warn('AffairGo patch save warning', error);
     }
+
+    return {
+      savedToFirestore,
+      savedToProvider,
+    };
+  };
+
+  const setCurrentRadius = async (value) => {
+    const latestCurrentUser = currentUserRef.current;
+    const previousRadius = normalizeRadiusKm(latestCurrentUser.radius);
+    const nextRadius = normalizeRadiusKm(value, previousRadius);
+
+    if (nextRadius === previousRadius && nextRadius === currentRadius) {
+      setRadiusUpdateError('');
+      return {
+        changed: false,
+        radius: nextRadius,
+        saved: true,
+      };
+    }
+
+    pendingCurrentRadiusRef.current = nextRadius;
+    setRadiusUpdateError('');
+    setCurrentRadiusState(nextRadius);
+    setCurrentUser((previous) => ({ ...previous, radius: nextRadius }));
+
+    const persistResult = await persistCurrentUserPatch({ radius: nextRadius });
+
+    if (!persistResult.savedToFirestore) {
+      pendingCurrentRadiusRef.current = null;
+      setCurrentRadiusState(previousRadius);
+      setCurrentUser((previous) => ({ ...previous, radius: previousRadius }));
+      setRadiusUpdateError('Der neue Suchradius konnte nicht gespeichert werden. Bitte versuche es erneut.');
+
+      return {
+        changed: true,
+        radius: previousRadius,
+        saved: false,
+      };
+    }
+
+    return {
+      changed: true,
+      radius: nextRadius,
+      saved: true,
+      providerSaved: persistResult.savedToProvider,
+    };
   };
 
   const updateChatsForUser = async (ownerUserId, payload) => {
@@ -2749,6 +2813,30 @@ export const AffairGoProvider = ({ children }) => {
       targetUserId: ownerUserId,
       ...payload,
     });
+  };
+
+  const refreshChats = async () => {
+    if (!auth.currentUser) {
+      return chats;
+    }
+
+    await syncCurrentUserFromFirebase(auth.currentUser);
+    return currentUserRef.current?.chats || chats;
+  };
+
+  const markChatAsRead = async ({ chatId = '', userId = '' } = {}) => {
+    const result = markDirectChatsAsRead(chats, { chatId, userId });
+
+    if (!result.changed) {
+      return result.chats;
+    }
+
+    setChats(result.chats);
+    persistCurrentUserPatch({ chats: result.chats }).catch((error) => {
+      console.warn('AffairGo chat read persist warning', error);
+    });
+
+    return result.chats;
   };
 
   const persistModerationAuditEntry = async (entry, extraPatch = {}) => {
@@ -3477,6 +3565,12 @@ export const AffairGoProvider = ({ children }) => {
       nextPatch.verifiedMatchesOnly = Boolean(nextPatch.verifiedMatchesOnly);
     }
 
+    if ('radius' in nextPatch) {
+      nextPatch.radius = normalizeRadiusKm(nextPatch.radius, latestCurrentUser.radius);
+      pendingCurrentRadiusRef.current = nextPatch.radius;
+      setRadiusUpdateError('');
+    }
+
     if ('preferences' in nextPatch) {
       nextPatch.preferences = normalizeOptionList(nextPatch.preferences, PREFERENCE_OPTIONS, latestCurrentUser.preferences);
 
@@ -3504,12 +3598,25 @@ export const AffairGoProvider = ({ children }) => {
 
     setCurrentUser(nextCurrentUser);
 
-    await Promise.all([
+    if ('radius' in nextPatch) {
+      setCurrentRadiusState(nextPatch.radius);
+    }
+
+    const [persistResult] = await Promise.all([
       persistCurrentUserPatch(nextPatch),
       ('searchActive' in nextPatch) && deviceLocation
         ? publishLiveLocation(deviceLocation, nextCurrentUser)
         : Promise.resolve([]),
     ]);
+
+    if ('radius' in nextPatch) {
+      if (!persistResult.savedToFirestore) {
+        pendingCurrentRadiusRef.current = null;
+        setCurrentRadiusState(normalizeRadiusKm(latestCurrentUser.radius));
+        setCurrentUser(latestCurrentUser);
+        setRadiusUpdateError('Der neue Suchradius konnte nicht gespeichert werden. Bitte versuche es erneut.');
+      }
+    }
 
     if (requestedEmail !== null) {
       return requestEmailChange(requestedEmail);
@@ -4125,6 +4232,7 @@ export const AffairGoProvider = ({ children }) => {
     mapCenterCoordinates,
     locationPermissionGranted,
     locationError,
+    radiusUpdateError,
     pendingVerificationId,
     exploreCities: EXPLORE_CITIES,
     preferenceOptions: PREFERENCE_OPTIONS,
@@ -4150,6 +4258,8 @@ export const AffairGoProvider = ({ children }) => {
     deleteTravelPlan,
     respondToSwipe,
     rewindLastSwipe,
+    refreshChats,
+    markChatAsRead,
     sendMessage,
     softBlock,
     createEvent,

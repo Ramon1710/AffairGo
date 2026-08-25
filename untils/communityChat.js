@@ -589,6 +589,151 @@ const getCommunityNeedsRulesAcceptance = (rulesEnvelope = null) => {
   return Boolean(currentRulesVersion) && acceptedRulesVersion !== currentRulesVersion;
 };
 
+const getCommunityAccessState = ({
+  accessRequirements = {},
+  rulesEnvelope = null,
+  rulesLoaded = false,
+  rulesError = '',
+  roomsLoaded = false,
+  readsLoaded = false,
+  loadError = '',
+  roomCount = 0,
+} = {}) => {
+  const normalizedRulesEnvelope = rulesEnvelope ? normalizeCommunityRulesEnvelope(rulesEnvelope) : null;
+  const needsRulesAcceptance = accessRequirements.preRulesRequirementsMet === true
+    && getCommunityNeedsRulesAcceptance(normalizedRulesEnvelope);
+  const hasRulesError = Boolean(String(rulesError || '').trim());
+  const hasLoadError = Boolean(String(loadError || '').trim());
+
+  if (!accessRequirements.loggedIn) {
+    return {
+      status: 'login_required',
+      accessAllowed: false,
+      accessReason: 'logged_out',
+      needsRulesAcceptance: false,
+      message: 'Bitte melde dich zuerst an.',
+    };
+  }
+
+  if (!accessRequirements.emailVerified) {
+    return {
+      status: 'email_verification_required',
+      accessAllowed: false,
+      accessReason: 'email_not_verified',
+      needsRulesAcceptance: false,
+      message: 'Bitte bestaetige zuerst deine E-Mail-Adresse.',
+    };
+  }
+
+  if (!accessRequirements.ageVerified) {
+    return {
+      status: 'age_verification_required',
+      accessAllowed: false,
+      accessReason: 'age_not_verified',
+      needsRulesAcceptance: false,
+      message: 'Die Altersfreigabe ist noch nicht abgeschlossen.',
+    };
+  }
+
+  if (!accessRequirements.accountActive) {
+    return {
+      status: 'account_inactive',
+      accessAllowed: false,
+      accessReason: 'account_pending_deletion',
+      needsRulesAcceptance: false,
+      message: 'Die Community ist derzeit deaktiviert.',
+    };
+  }
+
+  if (!accessRequirements.moderationAllowed) {
+    return {
+      status: 'moderation_restricted',
+      accessAllowed: false,
+      accessReason: 'moderation_restricted',
+      needsRulesAcceptance: false,
+      message: 'Dein Community-Zugang wurde voruebergehend eingeschraenkt.',
+    };
+  }
+
+  if (!rulesLoaded) {
+    return {
+      status: 'loading',
+      accessAllowed: false,
+      accessReason: 'loading_rules',
+      needsRulesAcceptance: false,
+      message: '',
+    };
+  }
+
+  if (normalizedRulesEnvelope?.active === false) {
+    return {
+      status: 'community_disabled',
+      accessAllowed: false,
+      accessReason: 'community_disabled',
+      needsRulesAcceptance: false,
+      message: 'Die Community ist derzeit deaktiviert.',
+    };
+  }
+
+  if (hasRulesError) {
+    return {
+      status: 'backend_error',
+      accessAllowed: false,
+      accessReason: 'rules_unavailable',
+      needsRulesAcceptance: false,
+      message: 'Die Community konnte nicht geladen werden. Bitte versuche es erneut.',
+    };
+  }
+
+  if (needsRulesAcceptance) {
+    return {
+      status: 'rules_acceptance_required',
+      accessAllowed: true,
+      accessReason: 'rules_not_accepted',
+      needsRulesAcceptance: true,
+      message: 'Bitte akzeptiere zuerst die aktuellen Community-Regeln.',
+    };
+  }
+
+  if (!roomsLoaded || !readsLoaded) {
+    return {
+      status: 'loading',
+      accessAllowed: false,
+      accessReason: 'loading_rooms',
+      needsRulesAcceptance: false,
+      message: '',
+    };
+  }
+
+  if (hasLoadError) {
+    return {
+      status: 'backend_error',
+      accessAllowed: false,
+      accessReason: 'rooms_unavailable',
+      needsRulesAcceptance: false,
+      message: 'Die Community konnte nicht geladen werden. Bitte versuche es erneut.',
+    };
+  }
+
+  if (Number(roomCount) < 1) {
+    return {
+      status: 'empty',
+      accessAllowed: true,
+      accessReason: 'no_rooms',
+      needsRulesAcceptance: false,
+      message: 'Derzeit sind keine Community-Raeume verfuegbar.',
+    };
+  }
+
+  return {
+    status: 'allowed',
+    accessAllowed: true,
+    accessReason: 'allowed',
+    needsRulesAcceptance: false,
+    message: '',
+  };
+};
+
 const toCommunityRulesEnvelopePayload = (envelope = {}, acceptanceOverride) => ({
   rules: {
     version: String(envelope?.version || '').trim(),
@@ -689,6 +834,7 @@ module.exports = {
   formatCommunityDateTime,
   formatCommunityRulesVersionLabel,
   getCommunityActiveCountLabel,
+  getCommunityAccessState,
   getCommunityOverviewState,
   getPreparedCommunityText,
   getCommunityChatBanMessage,

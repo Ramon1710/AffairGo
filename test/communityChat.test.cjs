@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const {
   COMMUNITY_MESSAGE_MAX_LENGTH,
   COMMUNITY_REPORT_COMMENT_MAX_LENGTH,
@@ -21,6 +22,7 @@ const {
   getCommunityRoomUnreadLabel,
   getCommunityUnreadRoomsCount,
   formatCommunityRulesVersionLabel,
+  getCommunityAccessState,
   getCommunityAccessRequirements,
   getCommunityNeedsRulesAcceptance,
   hasUnreadCommunityRoom,
@@ -421,6 +423,193 @@ test('Stale Rules-Response überschreibt erfolgreiche Acceptance nicht mehr', ()
   assert.equal(mergedEnvelope.acceptedVersion, '1.0');
   assert.equal(mergedEnvelope.acceptedCurrent, true);
   assert.equal(getCommunityNeedsRulesAcceptance(mergedEnvelope), false);
+});
+
+test('Community-Access-State bietet Regelzustimmung statt generischer Sperre an', () => {
+  const accessRequirements = getCommunityAccessRequirements({
+    id: 'u1',
+    emailVerified: true,
+    ageVerified: true,
+    ageVerificationStatus: 'verified',
+    moderationState: 'clear',
+  }, { uid: 'u1', emailVerified: true }, {
+    rules: { version: '1.0', active: true, sections: [{ heading: 'A', paragraphs: ['B'] }] },
+    acceptance: null,
+  });
+
+  const state = getCommunityAccessState({
+    accessRequirements,
+    rulesEnvelope: {
+      rules: { version: '1.0', active: true, sections: [{ heading: 'A', paragraphs: ['B'] }] },
+      acceptance: null,
+    },
+    rulesLoaded: true,
+    roomsLoaded: true,
+    readsLoaded: true,
+    roomCount: 2,
+  });
+
+  assert.equal(state.status, 'rules_acceptance_required');
+  assert.equal(state.accessAllowed, true);
+  assert.equal(state.accessReason, 'rules_not_accepted');
+  assert.equal(state.needsRulesAcceptance, true);
+  assert.equal(state.message, 'Bitte akzeptiere zuerst die aktuellen Community-Regeln.');
+});
+
+test('Community-Access-State erkennt bestehenden Zugriff nach aktueller Zustimmung', () => {
+  const accessRequirements = getCommunityAccessRequirements({
+    id: 'u1',
+    emailVerified: true,
+    ageVerified: true,
+    ageVerificationStatus: 'approved',
+    moderationState: 'clear',
+  }, { uid: 'u1', emailVerified: true }, {
+    rules: { version: '1.0', active: true, sections: [{ heading: 'A', paragraphs: ['B'] }] },
+    acceptance: { latestAcceptedVersion: '1.0' },
+  });
+
+  const state = getCommunityAccessState({
+    accessRequirements,
+    rulesEnvelope: {
+      rules: { version: '1.0', active: true, sections: [{ heading: 'A', paragraphs: ['B'] }] },
+      acceptance: { latestAcceptedVersion: '1.0' },
+    },
+    rulesLoaded: true,
+    roomsLoaded: true,
+    readsLoaded: true,
+    roomCount: 2,
+  });
+
+  assert.equal(state.status, 'allowed');
+  assert.equal(state.accessAllowed, true);
+  assert.equal(state.accessReason, 'allowed');
+  assert.equal(state.needsRulesAcceptance, false);
+});
+
+test('Community-Access-State verlangt neue Zustimmung nach Versionssprung', () => {
+  const accessRequirements = getCommunityAccessRequirements({
+    id: 'u1',
+    emailVerified: true,
+    ageVerified: true,
+    ageVerificationStatus: 'verified',
+    moderationState: 'clear',
+  }, { uid: 'u1', emailVerified: true }, {
+    rules: { version: '2.0', active: true, sections: [{ heading: 'A', paragraphs: ['B'] }] },
+    acceptance: { latestAcceptedVersion: '1.0' },
+  });
+
+  const state = getCommunityAccessState({
+    accessRequirements,
+    rulesEnvelope: {
+      rules: { version: '2.0', active: true, sections: [{ heading: 'A', paragraphs: ['B'] }] },
+      acceptance: { latestAcceptedVersion: '1.0' },
+    },
+    rulesLoaded: true,
+    roomsLoaded: true,
+    readsLoaded: true,
+    roomCount: 1,
+  });
+
+  assert.equal(state.status, 'rules_acceptance_required');
+  assert.equal(state.needsRulesAcceptance, true);
+});
+
+test('Community-Access-State liefert konkrete Hinweise für E-Mail, Alter und Moderation', () => {
+  const emailRequirements = getCommunityAccessRequirements({
+    id: 'u1',
+    emailVerified: false,
+    ageVerified: true,
+    ageVerificationStatus: 'verified',
+    moderationState: 'clear',
+  }, { uid: 'u1', emailVerified: false }, null);
+  const ageRequirements = getCommunityAccessRequirements({
+    id: 'u1',
+    emailVerified: true,
+    ageVerified: false,
+    ageVerificationStatus: 'pending',
+    moderationState: 'clear',
+  }, { uid: 'u1', emailVerified: true }, null);
+  const moderationRequirements = getCommunityAccessRequirements({
+    id: 'u1',
+    emailVerified: true,
+    ageVerified: true,
+    ageVerificationStatus: 'verified',
+    moderationState: 'restricted',
+  }, { uid: 'u1', emailVerified: true }, null);
+
+  assert.equal(getCommunityAccessState({ accessRequirements: emailRequirements }).status, 'email_verification_required');
+  assert.equal(getCommunityAccessState({ accessRequirements: ageRequirements }).status, 'age_verification_required');
+  assert.equal(getCommunityAccessState({ accessRequirements: moderationRequirements }).status, 'moderation_restricted');
+});
+
+test('Community-Access-State liefert Backendfehler statt falscher Zugriffsverweigerung', () => {
+  const accessRequirements = getCommunityAccessRequirements({
+    id: 'u1',
+    emailVerified: true,
+    ageVerified: true,
+    ageVerificationStatus: 'verified',
+    moderationState: 'clear',
+  }, { uid: 'u1', emailVerified: true }, {
+    rules: { version: '1.0', active: true, sections: [{ heading: 'A', paragraphs: ['B'] }] },
+    acceptance: { latestAcceptedVersion: '1.0' },
+  });
+
+  const state = getCommunityAccessState({
+    accessRequirements,
+    rulesEnvelope: {
+      rules: { version: '1.0', active: true, sections: [{ heading: 'A', paragraphs: ['B'] }] },
+      acceptance: { latestAcceptedVersion: '1.0' },
+    },
+    rulesLoaded: true,
+    rulesError: 'timeout',
+    roomsLoaded: true,
+    readsLoaded: true,
+    roomCount: 2,
+  });
+
+  assert.equal(state.status, 'backend_error');
+  assert.equal(state.message, 'Die Community konnte nicht geladen werden. Bitte versuche es erneut.');
+});
+
+test('Community-Access-State erkennt erlaubten Leerzustand ohne Räume', () => {
+  const accessRequirements = getCommunityAccessRequirements({
+    id: 'u1',
+    emailVerified: true,
+    ageVerified: true,
+    ageVerificationStatus: 'verified',
+    moderationState: 'clear',
+  }, { uid: 'u1', emailVerified: true }, {
+    rules: { version: '1.0', active: true, sections: [{ heading: 'A', paragraphs: ['B'] }] },
+    acceptance: { latestAcceptedVersion: '1.0' },
+  });
+
+  const state = getCommunityAccessState({
+    accessRequirements,
+    rulesEnvelope: {
+      rules: { version: '1.0', active: true, sections: [{ heading: 'A', paragraphs: ['B'] }] },
+      acceptance: { latestAcceptedVersion: '1.0' },
+    },
+    rulesLoaded: true,
+    roomsLoaded: true,
+    readsLoaded: true,
+    roomCount: 0,
+  });
+
+  assert.equal(state.status, 'empty');
+  assert.equal(state.accessAllowed, true);
+  assert.equal(state.message, 'Derzeit sind keine Community-Raeume verfuegbar.');
+});
+
+test('Community-Screen enthält Regeln-Link, Modal-Fehleranzeige und Voll-Reload-Retry', () => {
+  const source = fs.readFileSync('/workspaces/AffairGo/screens/CommunityScreen.js', 'utf8');
+
+  assert.match(source, /Community-Regeln ansehen/u);
+  assert.match(source, /const openRulesModal = \(\) =>/u);
+  assert.match(source, /const handleRetryCommunity = async \(\) =>/u);
+  assert.match(source, /await refreshRulesStatus\(\{ userId: currentUser\.id \}\)/u);
+  assert.match(source, /setRoomsQueryKey\(\(previous\) => previous \+ 1\)/u);
+  assert.match(source, /\{rulesError \? <Text style=\{styles\.errorText\}>\{rulesError\}<\/Text> : null\}/u);
+  assert.match(source, /'Regeln akzeptieren'/u);
 });
 
 test('Regelabschnitte lassen sich für den Admin-Editor serialisieren und parsen', () => {

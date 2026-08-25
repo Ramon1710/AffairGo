@@ -1,6 +1,6 @@
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { AccentButton, AppBackground, EmptyState, GlassCard, InfoBanner, InlineStat, ScreenHeader, SectionTitle, StatusPill } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { accessColors, affairGoTheme, travelModeColors } from '../constants/affairGoTheme';
@@ -8,6 +8,7 @@ import { useAffairGo } from '../context/AffairGoContext';
 import { DASHBOARD_SIGNAL_CARDS, EMPTY_STATE_COPY } from '../data/mockData';
 import { db } from '../firebase';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
+import { formatRadiusKm } from '../untils/radius';
 
 const {
   getCommunityUnreadRoomsCount,
@@ -26,6 +27,7 @@ const Dashboard = () => {
   const navigation = useNavigation();
   const {
     currentUser,
+    currentRadius,
     visibleProfiles,
     events,
     nearbyOnlineProfiles,
@@ -146,7 +148,7 @@ const Dashboard = () => {
 
       <View style={styles.travelRow}>
         <View style={styles.statCluster}>
-          <InlineStat label="Radius" value={`${currentUser.radius} km`} />
+          <InlineStat label="Radius" value={formatRadiusKm(currentRadius)} />
           <InlineStat label="Online jetzt" value={String(nearbyOnlineProfiles.length)} accent={affairGoTheme.colors.success} />
           <InlineStat label="Zugang" value="Kostenfrei" accent={accessColors[currentUser.membership] || affairGoTheme.colors.accent} />
         </View>

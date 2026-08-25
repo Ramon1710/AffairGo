@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { AccentButton, AppBackground, GlassCard, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
+import { AccentButton, AppBackground, GlassCard, InfoBanner, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
 import MatchingMapLeaflet from '../components/MatchingMapLeaflet';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme, travelModeColors } from '../constants/affairGoTheme';
 import { getMapProviderLabel, hasConfiguredMapApiKey } from '../constants/mapProvider';
 import { useAffairGo } from '../context/AffairGoContext';
-import { RADIUS_OPTIONS } from '../data/mockData';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
 import { buildRadarProfiles, filterMatchingMapProfiles } from '../untils/matchingMap';
+import { formatRadiusKm, getAllowedRadiusOptions } from '../untils/radius';
 
 const getProfileMapStatus = (profile, travelSummary) => {
   if (profile?.mapStatus) {
@@ -49,6 +49,7 @@ const MatchingMapScreen = () => {
     locationError,
     locationPermissionGranted,
     mapCenterCoordinates,
+    radiusUpdateError,
     requestLiveLocationAccess,
     selectedProfile,
     setCurrentRadius,
@@ -129,10 +130,14 @@ const MatchingMapScreen = () => {
         </GlassCard>
       ) : null}
 
+      {radiusUpdateError ? (
+        <InfoBanner tone="warning" title="Radius noch nicht gespeichert" message={radiusUpdateError} />
+      ) : null}
+
       <View style={styles.filters}>
-        {RADIUS_OPTIONS.filter((radius) => [5, 10, 20, 50, 100, 150].includes(radius)).map((radius) => (
+        {getAllowedRadiusOptions().map((radius) => (
           <View key={radius} style={styles.filterChip}>
-            <ToggleChip label={`${radius} km`} active={currentRadius === radius} onPress={() => setCurrentRadius(radius)} />
+            <ToggleChip label={formatRadiusKm(radius)} active={currentRadius === radius} onPress={() => setCurrentRadius(radius)} />
           </View>
         ))}
       </View>
