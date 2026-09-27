@@ -7,6 +7,7 @@ const {
   COMMUNITY_REPORT_REASON_OPTIONS,
   COMMUNITY_RATE_LIMIT_ERROR_MESSAGE,
   COMMUNITY_ROOM_ID,
+  COMMUNITY_RULES_UNCONFIRMED_MESSAGE,
   buildAcceptedCommunityRulesEnvelope,
   buildCommunityRoomSections,
   buildCommunityMentionsPayload,
@@ -27,6 +28,7 @@ const {
   getCommunityNeedsRulesAcceptance,
   hasUnreadCommunityRoom,
   insertCommunityMention,
+  isCommunityRulesAcceptanceConfirmed,
   mapCommunityErrorMessage,
   mergeCommunityRulesEnvelope,
   normalizeCommunityMessage,
@@ -650,4 +652,201 @@ test('Neue-Nachrichten-Trenner bleibt aus, wenn nichts neuer ist', () => {
   const readEntry = normalizeCommunityRoomRead({ roomId: 'r1', lastReadMessageId: 'm2', lastReadAt: '2026-08-23T10:05:00.000Z' }, 'u1__r1');
 
   assert.equal(findCommunityUnreadDividerIndex(messages, readEntry), -1);
+});
+
+test('Bestätigung gilt nur bei exakter Versions-Übereinstimmung nach Server-Reload', () => {
+  const confirmedEnvelope = normalizeCommunityRulesEnvelope({
+    rules: { version: '1.0', sections: [{ heading: 'A', paragraphs: ['B'] }] },
+    acceptance: { latestAcceptedVersion: '1.0' },
+  });
+
+  assert.equal(isCommunityRulesAcceptanceConfirmed(confirmedEnvelope, '1.0'), true);
+});
+
+test('Bestätigung schlägt fehl, solange die Version noch nicht als akzeptiert zurückgelesen wurde', () => {
+  const staleEnvelope = normalizeCommunityRulesEnvelope({
+    rules: { version: '1.0', sections: [{ heading: 'A', paragraphs: ['B'] }] },
+    acceptance: null,
+  });
+
+  assert.equal(isCommunityRulesAcceptanceConfirmed(staleEnvelope, '1.0'), false);
+});
+
+test('Ein veralteter Akzeptanz-Snapshot überschreibt den bestätigten Erfolg nicht', () => {
+  const outdatedEnvelope = normalizeCommunityRulesEnvelope({
+    rules: { version: '1.0', sections: [{ heading: 'A', paragraphs: ['B'] }] },
+    acceptance: { latestAcceptedVersion: '0.9' },
+  });
+
+  assert.equal(isCommunityRulesAcceptanceConfirmed(outdatedEnvelope, '1.0'), false);
+});
+
+test('String-Version "1.0" bleibt bei der Bestätigungsprüfung unverändert und wird nicht numerisch verglichen', () => {
+  const envelope = normalizeCommunityRulesEnvelope({
+    rules: { version: '1.0', sections: [{ heading: 'A', paragraphs: ['B'] }] },
+    acceptance: { latestAcceptedVersion: '1.0' },
+  });
+
+  assert.equal(envelope.version, '1.0');
+  assert.equal(typeof envelope.version, 'string');
+  assert.equal(isCommunityRulesAcceptanceConfirmed(envelope, 1), false);
+  assert.equal(isCommunityRulesAcceptanceConfirmed(envelope, '1.0'), true);
+});
+
+test('Callable-Fehlercodes werden für den Zustimmungs-Dialog verständlich übersetzt', () => {
+  assert.match(mapCommunityErrorMessage({ code: 'unauthenticated' }, 'accept'), /erneut an/u);
+  assert.match(mapCommunityErrorMessage({ code: 'not-found' }, 'accept'), /nicht verfügbar/u);
+  assert.match(mapCommunityErrorMessage({ code: 'unavailable' }, 'accept'), /nicht erreichbar/u);
+  assert.match(mapCommunityErrorMessage({ code: 'invalid-argument' }, 'accept'), /Regelversion/u);
+  assert.match(mapCommunityErrorMessage({ code: 'internal' }, 'accept'), /unerwarteter Fehler/u);
+  assert.match(
+    mapCommunityErrorMessage({ code: 'failed-precondition' }, 'accept'),
+    /aktualisiert/u,
+  );
+  assert.match(
+    mapCommunityErrorMessage({ code: 'permission-denied', details: { reason: 'outdated_rules_version' } }, 'accept'),
+    /aktualisiert/u,
+  );
+});
+
+test('Unbestätigte, aber gesendete Zustimmung erhält eine eigene Meldung statt Scheinerfolg', () => {
+  assert.equal(
+    COMMUNITY_RULES_UNCONFIRMED_MESSAGE,
+    'Die Zustimmung wurde gesendet, konnte aber noch nicht bestätigt werden. Bitte versuche es erneut.',
+  );
+});
+
+test('CommunityScreen: Zustimmung wird gegen Doppelklick abgesichert und erst nach bestätigtem Reload geschlossen', () => {
+  const source = fs.readFileSync('/workspaces/AffairGo/screens/CommunityScreen.js', 'utf8');
+
+  assert.match(source, /const isAcceptingRulesRef = useRef\(false\)/u);
+  assert.match(source, /if \(!rulesEnvelope\?\.version \|\| isAcceptingRulesRef\.current\)/u);
+  assert.match(source, /isAcceptingRulesRef\.current = true;/u);
+  assert.match(source, /preserveAcceptedState: false/u);
+  assert.match(source, /isCommunityRulesAcceptanceConfirmed\(confirmedEnvelope, requestedVersion\)/u);
+  assert.match(source, /if \(isConfirmed\) \{\s*setRulesModalVisible\(false\);/u);
+  assert.match(source, /setRulesError\(COMMUNITY_RULES_UNCONFIRMED_MESSAGE\)/u);
+  assert.match(source, /mapCommunityErrorMessage\(error, 'accept'\)/u);
+});
+
+test('CommunityRoomScreen: Zustimmung wird gegen Doppelklick abgesichert und serverseitig bestätigt', () => {
+  const source = fs.readFileSync('/workspaces/AffairGo/screens/CommunityRoomScreen.js', 'utf8');
+
+  assert.match(source, /const isAcceptingRulesRef = useRef\(false\)/u);
+  assert.match(source, /if \(!rulesEnvelope\?\.version \|\| isAcceptingRulesRef\.current\)/u);
+  assert.match(source, /preserveAcceptedState: false/u);
+  assert.match(source, /isCommunityRulesAcceptanceConfirmed\(confirmedEnvelope, requestedVersion\)/u);
+  assert.match(source, /setRulesError\(COMMUNITY_RULES_UNCONFIRMED_MESSAGE\)/u);
+});
+
+// Simuliert exakt den in handleAcceptRules verwendeten Ablauf mit den echten,
+// exportierten Prüf-/Merge-Helfern, um die Kernlogik ohne RN-Renderer zu verifizieren.
+const runAcceptRulesFlowSimulation = async ({ acceptImpl, getRulesImpl, initialEnvelope }) => {
+  const isAcceptingRulesRef = { current: false };
+  const state = { rulesEnvelope: initialEnvelope, rulesModalVisible: true, rulesError: '' };
+
+  const handleAcceptRulesSimulation = async () => {
+    if (!state.rulesEnvelope?.version || isAcceptingRulesRef.current) {
+      return;
+    }
+
+    const requestedVersion = String(state.rulesEnvelope.version || '').trim();
+    isAcceptingRulesRef.current = true;
+
+    const acceptResponse = await acceptImpl({ rulesVersion: requestedVersion });
+
+    if (acceptResponse?.ok !== true) {
+      isAcceptingRulesRef.current = false;
+      return;
+    }
+
+    // preserveAcceptedState: false -> Rohantwort wird ohne Merge mit altem State normalisiert.
+    const confirmedEnvelope = normalizeCommunityRulesEnvelope(await getRulesImpl());
+    const isConfirmed = isCommunityRulesAcceptanceConfirmed(confirmedEnvelope, requestedVersion);
+
+    state.rulesEnvelope = confirmedEnvelope;
+
+    if (isConfirmed) {
+      state.rulesModalVisible = false;
+      state.rulesError = '';
+    } else {
+      state.rulesError = COMMUNITY_RULES_UNCONFIRMED_MESSAGE;
+    }
+
+    isAcceptingRulesRef.current = false;
+  };
+
+  await Promise.all([handleAcceptRulesSimulation(), handleAcceptRulesSimulation()]);
+
+  return state;
+};
+
+test('Vollständiger Erfolgsablauf: ein Klick bestätigt "1.0" serverseitig, schließt das Modal und macht die Übersicht sichtbar', async () => {
+  let acceptCallCount = 0;
+  let capturedPayload = null;
+  let getRulesCallCount = 0;
+
+  const initialEnvelope = normalizeCommunityRulesEnvelope({
+    rules: { version: '1.0', title: 'Regeln', sections: [{ heading: 'A', paragraphs: ['B'] }] },
+    acceptance: null,
+  });
+
+  assert.equal(getCommunityNeedsRulesAcceptance(initialEnvelope), true);
+
+  const finalState = await runAcceptRulesFlowSimulation({
+    initialEnvelope,
+    acceptImpl: async (payload) => {
+      acceptCallCount += 1;
+      capturedPayload = payload;
+      return { ok: true, rulesVersion: '1.0', acceptedVersion: '1.0', accepted: true, alreadyAccepted: false };
+    },
+    getRulesImpl: async () => {
+      getRulesCallCount += 1;
+      return {
+        rules: { version: '1.0', title: 'Regeln', sections: [{ heading: 'A', paragraphs: ['B'] }] },
+        acceptance: { latestAcceptedVersion: '1.0' },
+      };
+    },
+  });
+
+  assert.equal(acceptCallCount, 1, 'genau ein Callable-Aufruf trotz Doppelklick-Versuch');
+  assert.equal(getRulesCallCount, 1);
+  assert.deepEqual(Object.keys(capturedPayload), ['rulesVersion'], 'Client überträgt keine UID');
+  assert.equal(capturedPayload.rulesVersion, '1.0');
+  assert.equal(finalState.rulesEnvelope.acceptedVersion, '1.0');
+  assert.equal(isCommunityRulesAcceptanceConfirmed(finalState.rulesEnvelope, '1.0'), true);
+  assert.equal(getCommunityNeedsRulesAcceptance(finalState.rulesEnvelope), false);
+  assert.equal(finalState.rulesModalVisible, false);
+  assert.equal(finalState.rulesError, '');
+
+  // Ein verspäteter älterer Snapshot darf den bestätigten Zustand nicht zurücksetzen.
+  const staleOlderEnvelope = normalizeCommunityRulesEnvelope({
+    rules: { version: '1.0', title: 'Regeln', sections: [{ heading: 'A', paragraphs: ['B'] }] },
+    acceptance: null,
+  });
+  const mergedAfterStaleSnapshot = mergeCommunityRulesEnvelope(finalState.rulesEnvelope, staleOlderEnvelope);
+
+  assert.equal(mergedAfterStaleSnapshot.acceptedCurrent, true);
+  assert.equal(getCommunityNeedsRulesAcceptance(mergedAfterStaleSnapshot), false);
+});
+
+test('Nicht bestätigter Fall: Callable meldet Erfolg, Reload zeigt aber noch keine passende Version -> Modal bleibt offen', async () => {
+  const initialEnvelope = normalizeCommunityRulesEnvelope({
+    rules: { version: '1.0', title: 'Regeln', sections: [{ heading: 'A', paragraphs: ['B'] }] },
+    acceptance: null,
+  });
+
+  const finalState = await runAcceptRulesFlowSimulation({
+    initialEnvelope,
+    acceptImpl: async () => ({ ok: true, rulesVersion: '1.0', acceptedVersion: '1.0', accepted: true, alreadyAccepted: false }),
+    getRulesImpl: async () => ({
+      // Eventual-Consistency-Lag: Zustimmung ist serverseitig noch nicht sichtbar.
+      rules: { version: '1.0', title: 'Regeln', sections: [{ heading: 'A', paragraphs: ['B'] }] },
+      acceptance: null,
+    }),
+  });
+
+  assert.equal(finalState.rulesModalVisible, true, 'Modal bleibt offen ohne bestätigten Reload');
+  assert.equal(finalState.rulesError, COMMUNITY_RULES_UNCONFIRMED_MESSAGE);
+  assert.equal(getCommunityNeedsRulesAcceptance(finalState.rulesEnvelope), true, 'kein lokaler Scheinerfolg');
 });

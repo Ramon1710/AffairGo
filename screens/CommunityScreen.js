@@ -11,7 +11,6 @@ import { useNavigation } from '../naviagtion/SimpleNavigation';
 
 const {
   COMMUNITY_ROOM_ID,
-  buildAcceptedCommunityRulesEnvelope,
   buildCommunityRoomSections,
   formatCommunityEventDateLabel,
   getCommunityAccessState,
@@ -25,6 +24,7 @@ const {
   getCommunityRoomUnreadLabel,
   getCommunityUnreadRoomsCount,
   hasUnreadCommunityRoom,
+  isCommunityRulesAcceptanceConfirmed,
   mapCommunityErrorMessage,
   mergeCommunityRulesEnvelope,
   normalizeCommunityPresenceSummary,
@@ -32,13 +32,17 @@ const {
   normalizeCommunityRoom,
   normalizeCommunityRoomRead,
   sortCommunityRooms,
+  COMMUNITY_RULES_UNCONFIRMED_MESSAGE,
 } = require('../untils/communityChat');
+
+const isDevEnvironment = typeof __DEV__ !== 'undefined' && __DEV__ === true;
 
 const CommunityScreen = () => {
   const navigation = useNavigation();
   const { currentUser, refreshCurrentUserVerificationStatus, resendCurrentUserVerificationEmail } = useAffairGo();
   const rulesEnvelopeRef = useRef(null);
   const rulesLoadRequestIdRef = useRef(0);
+  const isAcceptingRulesRef = useRef(false);
   const [rooms, setRooms] = useState([]);
   const [reads, setReads] = useState([]);
   const [roomsLoaded, setRoomsLoaded] = useState(false);
@@ -537,65 +541,104 @@ const CommunityScreen = () => {
   };
 
   const handleAcceptRules = async () => {
-    if (!rulesEnvelope?.version || isAcceptingRules) {
+    // Ref-Lock verhindert einen zweiten Request bei Doppelklick, unabhängig vom State-Batching.
+    if (!rulesEnvelope?.version || isAcceptingRulesRef.current) {
       return;
     }
 
-    try {
-      setIsAcceptingRules(true);
-      setRulesError('');
+    const requestedVersion = String(rulesEnvelope.version || '').trim();
+    isAcceptingRulesRef.current = true;
+    setIsAcceptingRules(true);
+    setRulesError('');
+
+    if (isDevEnvironment) {
       console.log('[CommunityRules] ACCEPT_CLICK', {
+        functionName: 'acceptCommunityRules',
+        region: 'europe-west1',
+        rulesVersion: requestedVersion,
+        hasUid: Boolean(auth.currentUser?.uid),
         currentRulesVersion,
         acceptedRulesVersion,
         needsRulesAcceptance,
       });
-      const acceptResponse = await acceptCommunityRules({ rulesVersion: rulesEnvelope.version });
-      console.log('[CommunityRules] ACCEPT_SERVER_SUCCESS', {
-        result: acceptResponse,
-      });
-      const acceptedEnvelope = buildAcceptedCommunityRulesEnvelope(rulesEnvelopeRef.current || rulesEnvelope, acceptResponse);
-      applyRulesEnvelope(acceptedEnvelope);
-      setRulesModalVisible(false);
-      console.log('[CommunityRules] ACCEPT_LOCAL_UPDATE', {
-        acceptedVersion: currentRulesVersion,
-      });
-      const refreshedEnvelope = await refreshRulesStatus({ userId: currentUser.id, preserveAcceptedState: true }).catch((error) => {
-        logCommunityOverviewDebug('rules-refresh-after-accept-failed', {
-          error,
-          query: 'post-accept:getCommunityRules',
-          communityRulesVersion: acceptedEnvelope.version,
-          acceptedRulesVersion: acceptedEnvelope.acceptedVersion,
-        });
-        return acceptedEnvelope;
-      });
-      const completedEnvelope = refreshedEnvelope || acceptedEnvelope;
-      const acceptedRulesVersionAfter = String(completedEnvelope?.acceptedVersion || '').trim();
-      const needsRulesAcceptanceAfter = Boolean(String(completedEnvelope?.version || '').trim())
-        && acceptedRulesVersionAfter !== String(completedEnvelope?.version || '').trim();
-      setRoomsQueryKey((previous) => previous + 1);
-      console.log('[CommunityRules] ACCEPT_GATE_RESULT', {
-        currentRulesVersion: String(completedEnvelope?.version || '').trim(),
-        acceptedRulesVersionAfter,
-        needsRulesAcceptanceAfter,
-      });
+    }
+
+    let acceptResponse = null;
+
+    try {
+      acceptResponse = await acceptCommunityRules({ rulesVersion: requestedVersion });
     } catch (error) {
-      console.error('[CommunityRules] ACCEPT_ERROR', {
-        code: error?.code,
-        message: error?.message,
-      });
+      if (isDevEnvironment) {
+        console.error('[CommunityRules] ACCEPT_CALLABLE_ERROR', {
+          code: error?.code,
+          message: error?.message,
+          reason: error?.details?.reason,
+        });
+      }
+
       const reason = String(error?.details?.reason || '').toLowerCase();
 
       if (['email_not_verified', 'age_not_verified', 'account_pending_deletion', 'moderation_restricted'].includes(reason)) {
         setRulesModalVisible(false);
         setRulesError('');
-        return;
+      } else {
+        // Modal bleibt offen, lokaler Akzeptanzstatus wird nicht auf Erfolg gesetzt.
+        setRulesError(mapCommunityErrorMessage(error, 'accept'));
       }
 
-      setRulesError('Die Community-Regeln konnten nicht bestätigt werden. Bitte versuche es erneut.');
-    } finally {
+      isAcceptingRulesRef.current = false;
       setIsAcceptingRules(false);
-      console.log('[CommunityRules] ACCEPT_FINALLY');
+      return;
     }
+
+    if (isDevEnvironment) {
+      console.log('[CommunityRules] ACCEPT_SERVER_SUCCESS', { result: acceptResponse });
+    }
+
+    if (acceptResponse?.ok !== true) {
+      logCommunityOverviewDebug('accept-response-not-ok', {
+        acceptResponse,
+      });
+      setRulesError(mapCommunityErrorMessage(new Error('accept_not_ok'), 'accept'));
+      isAcceptingRulesRef.current = false;
+      setIsAcceptingRules(false);
+      return;
+    }
+
+    // Erfolg nur nach serverseitig bestätigtem Reload wirksam machen, kein optimistisches Schließen.
+    let confirmedEnvelope = null;
+
+    try {
+      confirmedEnvelope = await refreshRulesStatus({ userId: currentUser.id, preserveAcceptedState: false });
+    } catch (error) {
+      logCommunityOverviewDebug('rules-refresh-after-accept-failed', {
+        error,
+        query: 'post-accept:getCommunityRules',
+        communityRulesVersion: requestedVersion,
+      });
+    }
+
+    const isConfirmed = isCommunityRulesAcceptanceConfirmed(confirmedEnvelope, requestedVersion);
+
+    if (isDevEnvironment) {
+      console.log('[CommunityRules] ACCEPT_GATE_RESULT', {
+        currentRulesVersion: String(confirmedEnvelope?.version || '').trim(),
+        acceptedRulesVersionAfter: String(confirmedEnvelope?.acceptedVersion || '').trim(),
+        needsRulesAcceptanceAfter: !isConfirmed,
+      });
+    }
+
+    if (isConfirmed) {
+      setRulesModalVisible(false);
+      setRulesError('');
+      setRoomsQueryKey((previous) => previous + 1);
+    } else {
+      // Ein verspäteter/veralteter Snapshot darf den offenen Zustand nicht als Erfolg tarnen.
+      setRulesError(COMMUNITY_RULES_UNCONFIRMED_MESSAGE);
+    }
+
+    isAcceptingRulesRef.current = false;
+    setIsAcceptingRules(false);
   };
 
   const renderRoomCard = (room, prominent = false) => {

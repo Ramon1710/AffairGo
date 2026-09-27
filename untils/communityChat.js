@@ -392,9 +392,47 @@ const getCommunityChatBanMessage = (error) => {
   return 'Dein Zugang zum Schreiben im Community-Chat ist momentan eingeschränkt.';
 };
 
+const COMMUNITY_RULES_UNCONFIRMED_MESSAGE = 'Die Zustimmung wurde gesendet, konnte aber noch nicht bestätigt werden. Bitte versuche es erneut.';
+
 const mapCommunityErrorMessage = (error, context = 'send') => {
   const code = String(error?.code || '').toLowerCase();
   const reason = String(error?.details?.reason || '').toLowerCase();
+
+  if (context === 'accept') {
+    if (code === 'unauthenticated') {
+      return 'Bitte melde dich erneut an, um die Community-Regeln zu bestätigen.';
+    }
+
+    if (code === 'permission-denied') {
+      if (reason === 'outdated_rules_version' || reason === 'community_rules_not_accepted') {
+        return 'Die Community-Regeln wurden zwischenzeitlich aktualisiert. Bitte lade die Regeln erneut und bestätige sie noch einmal.';
+      }
+
+      return getCommunityAccessDeniedMessage(reason);
+    }
+
+    if (code === 'failed-precondition') {
+      return 'Die Community-Regeln wurden zwischenzeitlich aktualisiert. Bitte lade die Regeln erneut und bestätige sie noch einmal.';
+    }
+
+    if (code === 'invalid-argument') {
+      return 'Die Regelversion konnte nicht übermittelt werden. Bitte lade die Seite neu.';
+    }
+
+    if (code === 'not-found') {
+      return 'Die Bestätigungsfunktion ist derzeit nicht verfügbar. Bitte versuche es später erneut.';
+    }
+
+    if (code === 'unavailable' || code === 'deadline-exceeded') {
+      return 'Der Server ist derzeit nicht erreichbar. Bitte versuche es erneut.';
+    }
+
+    if (code === 'internal') {
+      return 'Es ist ein unerwarteter Fehler aufgetreten. Bitte versuche es erneut.';
+    }
+
+    return 'Die Community-Regeln konnten nicht bestätigt werden. Bitte versuche es erneut.';
+  }
 
   if (code === 'resource-exhausted') {
     return COMMUNITY_RATE_LIMIT_ERROR_MESSAGE;
@@ -762,6 +800,17 @@ const buildAcceptedCommunityRulesEnvelope = (currentEnvelope = {}, acceptRespons
   }));
 };
 
+const isCommunityRulesAcceptanceConfirmed = (envelope = null, expectedVersion = '') => {
+  const normalizedEnvelope = envelope ? normalizeCommunityRulesEnvelope(envelope) : null;
+  const normalizedExpectedVersion = String(expectedVersion || '').trim();
+
+  return Boolean(normalizedEnvelope)
+    && Boolean(normalizedExpectedVersion)
+    && normalizedEnvelope.version === normalizedExpectedVersion
+    && normalizedEnvelope.acceptedVersion === normalizedExpectedVersion
+    && normalizedEnvelope.acceptedCurrent === true;
+};
+
 const mergeCommunityRulesEnvelope = (currentEnvelope = null, nextEnvelope = {}) => {
   const normalizedNext = normalizeCommunityRulesEnvelope(nextEnvelope);
   const normalizedCurrent = currentEnvelope ? normalizeCommunityRulesEnvelope(currentEnvelope) : null;
@@ -818,6 +867,7 @@ module.exports = {
   COMMUNITY_REPORT_REASON_OPTIONS,
   COMMUNITY_RATE_LIMIT_ERROR_MESSAGE,
   COMMUNITY_REMOVED_MESSAGE_LABEL,
+  COMMUNITY_RULES_UNCONFIRMED_MESSAGE,
   COMMUNITY_ROOM_DESCRIPTION,
   COMMUNITY_ROOM_GROUP_TITLES,
   COMMUNITY_ROOM_ID,
@@ -850,6 +900,7 @@ module.exports = {
   getCommunityUnreadRoomsCount,
   hasUnreadCommunityRoom,
   insertCommunityMention,
+  isCommunityRulesAcceptanceConfirmed,
   mapCommunityErrorMessage,
   mergeCommunityRulesEnvelope,
   normalizeCommunityDraft,

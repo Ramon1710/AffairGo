@@ -39,7 +39,7 @@ const {
   COMMUNITY_REPORT_COMMENT_MAX_LENGTH,
   COMMUNITY_REPORT_REASON_OPTIONS,
   COMMUNITY_ROOM_ROUTE_FALLBACK,
-  buildAcceptedCommunityRulesEnvelope,
+  COMMUNITY_RULES_UNCONFIRMED_MESSAGE,
   buildCommunityMentionsPayload,
   clampCommunityDraft,
   findCommunityUnreadDividerIndex,
@@ -52,6 +52,7 @@ const {
   getCommunityReactionSummary,
   getCommunityRoomTypeLabel,
   insertCommunityMention,
+  isCommunityRulesAcceptanceConfirmed,
   mapCommunityErrorMessage,
   mergeCommunityRulesEnvelope,
   normalizeCommunityMessage,
@@ -62,6 +63,7 @@ const {
 
 const BOTTOM_THRESHOLD_PX = 72;
 const PROFILE_FALLBACK = COMMUNITY_FALLBACK_NICKNAME || 'Night-Whisper Mitglied';
+const isDevEnvironment = typeof __DEV__ !== 'undefined' && __DEV__ === true;
 
 const CommunityRoomScreen = () => {
   const navigation = useNavigation();
@@ -81,6 +83,7 @@ const CommunityRoomScreen = () => {
   const visitReadStateInitializedRef = useRef(false);
   const rulesEnvelopeRef = useRef(null);
   const rulesLoadRequestIdRef = useRef(0);
+  const isAcceptingRulesRef = useRef(false);
   const [room, setRoom] = useState(null);
   const [roomLoaded, setRoomLoaded] = useState(false);
   const [messagesLoaded, setMessagesLoaded] = useState(false);
@@ -367,57 +370,92 @@ const CommunityRoomScreen = () => {
   }, [accessRequirements.preRulesRequirementsMet, currentUser?.id]);
 
   const handleAcceptRules = async () => {
-    if (!rulesEnvelope?.version || isAcceptingRules) {
+    // Ref-Lock verhindert einen zweiten Request bei Doppelklick, unabhängig vom State-Batching.
+    if (!rulesEnvelope?.version || isAcceptingRulesRef.current) {
       return;
     }
 
-    try {
-      setIsAcceptingRules(true);
-      setRulesError('');
+    const requestedVersion = String(rulesEnvelope.version || '').trim();
+    isAcceptingRulesRef.current = true;
+    setIsAcceptingRules(true);
+    setRulesError('');
+
+    if (isDevEnvironment) {
       console.log('[CommunityRules] ACCEPT_CLICK', {
+        functionName: 'acceptCommunityRules',
+        region: 'europe-west1',
+        rulesVersion: requestedVersion,
+        hasUid: Boolean(auth.currentUser?.uid),
         currentRulesVersion,
         acceptedRulesVersion,
         needsRulesAcceptance,
       });
-      const acceptResponse = await acceptCommunityRules({ rulesVersion: rulesEnvelope.version });
-      console.log('[CommunityRules] ACCEPT_SERVER_SUCCESS', {
-        result: acceptResponse,
-      });
-      const acceptedEnvelope = buildAcceptedCommunityRulesEnvelope(rulesEnvelopeRef.current || rulesEnvelope, acceptResponse);
-      applyRulesEnvelope(acceptedEnvelope);
-      console.log('[CommunityRules] ACCEPT_LOCAL_UPDATE', {
-        acceptedVersion: currentRulesVersion,
-      });
-      const refreshedEnvelope = await refreshRulesStatus({ userId: currentUser.id, preserveAcceptedState: true }).catch((error) => {
-        logCommunityRoomRulesDebug('rules-refresh-after-accept-failed', { error });
-        return acceptedEnvelope;
-      });
-      const completedEnvelope = refreshedEnvelope || acceptedEnvelope;
-      const acceptedRulesVersionAfter = String(completedEnvelope?.acceptedVersion || '').trim();
-      const needsRulesAcceptanceAfter = Boolean(String(completedEnvelope?.version || '').trim())
-        && acceptedRulesVersionAfter !== String(completedEnvelope?.version || '').trim();
-      console.log('[CommunityRules] ACCEPT_GATE_RESULT', {
-        currentRulesVersion: String(completedEnvelope?.version || '').trim(),
-        acceptedRulesVersionAfter,
-        needsRulesAcceptanceAfter,
-      });
+    }
+
+    let acceptResponse = null;
+
+    try {
+      acceptResponse = await acceptCommunityRules({ rulesVersion: requestedVersion });
     } catch (error) {
-      console.error('[CommunityRules] ACCEPT_ERROR', {
-        code: error?.code,
-        message: error?.message,
-      });
+      if (isDevEnvironment) {
+        console.error('[CommunityRules] ACCEPT_CALLABLE_ERROR', {
+          code: error?.code,
+          message: error?.message,
+          reason: error?.details?.reason,
+        });
+      }
+
       const reason = String(error?.details?.reason || '').toLowerCase();
 
       if (['email_not_verified', 'age_not_verified', 'account_pending_deletion', 'moderation_restricted'].includes(reason)) {
         setRulesError('');
-        return;
+      } else {
+        setRulesError(mapCommunityErrorMessage(error, 'accept'));
       }
 
-      setRulesError('Die Community-Regeln konnten nicht bestätigt werden. Bitte versuche es erneut.');
-    } finally {
+      isAcceptingRulesRef.current = false;
       setIsAcceptingRules(false);
-      console.log('[CommunityRules] ACCEPT_FINALLY');
+      return;
     }
+
+    if (isDevEnvironment) {
+      console.log('[CommunityRules] ACCEPT_SERVER_SUCCESS', { result: acceptResponse });
+    }
+
+    if (acceptResponse?.ok !== true) {
+      logCommunityRoomRulesDebug('accept-response-not-ok', { acceptResponse });
+      setRulesError(mapCommunityErrorMessage(new Error('accept_not_ok'), 'accept'));
+      isAcceptingRulesRef.current = false;
+      setIsAcceptingRules(false);
+      return;
+    }
+
+    let confirmedEnvelope = null;
+
+    try {
+      confirmedEnvelope = await refreshRulesStatus({ userId: currentUser.id, preserveAcceptedState: false });
+    } catch (error) {
+      logCommunityRoomRulesDebug('rules-refresh-after-accept-failed', { error });
+    }
+
+    const isConfirmed = isCommunityRulesAcceptanceConfirmed(confirmedEnvelope, requestedVersion);
+
+    if (isDevEnvironment) {
+      console.log('[CommunityRules] ACCEPT_GATE_RESULT', {
+        currentRulesVersion: String(confirmedEnvelope?.version || '').trim(),
+        acceptedRulesVersionAfter: String(confirmedEnvelope?.acceptedVersion || '').trim(),
+        needsRulesAcceptanceAfter: !isConfirmed,
+      });
+    }
+
+    if (isConfirmed) {
+      setRulesError('');
+    } else {
+      setRulesError(COMMUNITY_RULES_UNCONFIRMED_MESSAGE);
+    }
+
+    isAcceptingRulesRef.current = false;
+    setIsAcceptingRules(false);
   };
 
   const scrollToLatest = (animated = true) => {
