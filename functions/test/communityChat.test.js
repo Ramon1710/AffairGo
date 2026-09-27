@@ -33,6 +33,7 @@ const {
   COMMUNITY_PRESENCE_STATUSES,
   getCommunityPresenceStatus,
 } = require('../communityPresence');
+const { buildCommunityRulesAcceptanceRecord } = require('../communityRules');
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
@@ -200,17 +201,25 @@ class MockFirestore {
     return `auto-${nextValue}`;
   }
 
-  _resolveSentinels(value) {
+  _resolveSentinels(value, path = '', insideArray = false) {
     if (value && typeof value === 'object') {
       if (value.__type === 'serverTimestamp') {
+        if (insideArray) {
+          // Spiegelt das echte Firestore-SDK: Sentinels sind in Arrays unzulässig.
+          throw new Error(`Value for argument "data" is not a valid Firestore document. FieldValue.serverTimestamp() cannot be used inside of an array (found in field "${path}").`);
+        }
+
         return new Date(this.nowProvider()).toISOString();
       }
 
       if (Array.isArray(value)) {
-        return value.map((entry) => this._resolveSentinels(entry));
+        return value.map((entry, index) => this._resolveSentinels(entry, `${path}.\`${index}\``, true));
       }
 
-      return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, this._resolveSentinels(entry)]));
+      return Object.fromEntries(Object.entries(value).map(([key, entry]) => [
+        key,
+        this._resolveSentinels(entry, path ? `${path}.${key}` : key, insideArray),
+      ]));
     }
 
     return value;
@@ -263,6 +272,23 @@ class MockFirestore {
 
 const createFieldValueStub = () => ({
   serverTimestamp: () => ({ __type: 'serverTimestamp' }),
+});
+
+// Spiegelt firebase-admin Timestamp: konkreter Wert, kein Sentinel.
+const createTimestampStub = (nowProvider = () => Date.now()) => ({
+  now: () => {
+    const millis = nowProvider();
+
+    return {
+      __type: 'timestamp',
+      seconds: Math.floor(millis / 1000),
+      nanoseconds: (millis % 1000) * 1e6,
+      toDate: () => new Date(millis),
+      isEqual(other) {
+        return other?.__type === 'timestamp' && other.seconds === this.seconds && other.nanoseconds === this.nanoseconds;
+      },
+    };
+  },
 });
 
 const createLoggerStub = () => {
@@ -426,6 +452,8 @@ const createHandlerHarness = ({
   const acceptRulesHandler = createAcceptCommunityRulesHandler({
     firestore,
     fieldValue: createFieldValueStub(),
+    timestamp: createTimestampStub(() => clock.nowMs),
+    logger,
   });
   const publishRulesHandler = createPublishCommunityRulesHandler({
     firestore,
@@ -470,7 +498,14 @@ const createRequest = ({ auth = { uid: 'user-1', token: { email_verified: true }
 });
 
 const expectHttpsError = async (promise, code) => {
-  await assert.rejects(promise, (error) => error instanceof HttpsError && error.code === code);
+  let captured = null;
+
+  await assert.rejects(promise, (error) => {
+    captured = error;
+    return error instanceof HttpsError && error.code === code;
+  });
+
+  return captured;
 };
 
 test('Test 1: nicht authentifizierter Nutzer wird abgelehnt', async () => {
@@ -1268,7 +1303,9 @@ test('Seed: fehlende Standardräume werden ergänzt und bestehende bleiben erhal
 
   assert.equal(result.created, true);
   assert.equal(harness.firestore.store.get(`communityRooms/${DEFAULT_COMMUNITY_ROOM_ID}`).data.description, 'Bereits vorhanden');
-  assert.equal(result.createdRoomIds.length, DEFAULT_COMMUNITY_ROOMS.length);
+  assert.equal(result.createdRoomIds.length, DEFAULT_COMMUNITY_ROOMS.length - 1);
+  assert.equal(result.createdRoomIds.includes(DEFAULT_COMMUNITY_ROOM_ID), false, 'der bestehende Raum wird nicht neu angelegt');
+  assert.deepEqual(result.failedRoomIds, []);
 });
 
 test('Seed: normales Mitglied darf Standardräume nicht ergänzen', async () => {
@@ -1312,11 +1349,160 @@ test('Seed: bestehende Legacy-Standardräume werden auf aktive Felder nachgezoge
   const result = await seedHandler(createRequest({ data: {} }));
   const repairedRoom = harness.firestore.store.get(`communityRooms/${DEFAULT_COMMUNITY_ROOM_ID}`).data;
 
-  assert.equal(result.created, true);
-  assert.ok(result.createdRoomIds.includes(DEFAULT_COMMUNITY_ROOM_ID));
+  assert.equal(result.changed, true);
+  assert.ok(result.updatedRoomIds.includes(DEFAULT_COMMUNITY_ROOM_ID));
+  assert.equal(result.createdRoomIds.includes(DEFAULT_COMMUNITY_ROOM_ID), false);
   assert.equal(repairedRoom.active, true);
   assert.equal(repairedRoom.manualActive, true);
   assert.equal(repairedRoom.messageCount, 0);
+});
+
+const createEmptyRoomsHarness = () => {
+  const harness = createHandlerHarness({
+    docs: createBaseDocs({ userProfileOverrides: { isAdmin: true, role: 'admin' } }),
+  });
+
+  for (const path of Array.from(harness.firestore.store.keys())) {
+    if (path.startsWith('communityRooms/')) {
+      harness.firestore.store.delete(path);
+    }
+  }
+
+  const seedHandler = require('../communityChat').createSeedCommunityRoomsHandler({
+    firestore: harness.firestore,
+    fieldValue: createFieldValueStub(),
+  });
+
+  return { harness, seedHandler };
+};
+
+const readSeededRooms = (harness) => DEFAULT_COMMUNITY_ROOMS
+  .map((room) => harness.firestore.store.get(`communityRooms/${room.id}`)?.data || null);
+
+test('Starträume: der Seed legt genau die vier globalen Starträume an', async () => {
+  const { harness, seedHandler } = createEmptyRoomsHarness();
+
+  const result = await seedHandler(createRequest({ data: {} }));
+
+  assert.equal(DEFAULT_COMMUNITY_ROOMS.length, 4);
+  assert.equal(result.ok, true);
+  assert.equal(result.created, true);
+  assert.equal(result.createdRoomIds.length, 4);
+  assert.deepEqual(result.unchangedRoomIds, []);
+  assert.deepEqual(result.failedRoomIds, []);
+
+  const seededRooms = readSeededRooms(harness);
+
+  assert.deepEqual(seededRooms.map((room) => room.name), [
+    'Offener Treffpunkt',
+    'Kennenlernen und Flirten',
+    'Swinger und Paare',
+    'Sex und Fantasien',
+  ]);
+});
+
+test('Starträume: alle Starträume sind aktiv und global', async () => {
+  const { harness, seedHandler } = createEmptyRoomsHarness();
+
+  await seedHandler(createRequest({ data: {} }));
+
+  readSeededRooms(harness).forEach((room) => {
+    assert.equal(room.active, true);
+    assert.equal(room.manualActive, true);
+    assert.equal(room.type, 'GLOBAL');
+    assert.equal(room.region, null);
+    assert.equal(room.eventId, null);
+    assert.equal(typeof room.description, 'string');
+    assert.ok(room.description.trim().length > 0);
+  });
+});
+
+test('Starträume: stabile IDs und Slugs folgen dem vorhandenen Schema', async () => {
+  const { harness, seedHandler } = createEmptyRoomsHarness();
+
+  await seedHandler(createRequest({ data: {} }));
+
+  assert.deepEqual(DEFAULT_COMMUNITY_ROOMS.map((room) => room.id), [
+    DEFAULT_COMMUNITY_ROOM_ID,
+    'kennenlernen-und-flirten',
+    'swinger-und-paare',
+    'sex-und-fantasien',
+  ]);
+
+  readSeededRooms(harness).forEach((room, index) => {
+    assert.equal(room.id, DEFAULT_COMMUNITY_ROOMS[index].id);
+    assert.equal(room.slug, DEFAULT_COMMUNITY_ROOMS[index].slug);
+  });
+});
+
+test('Starträume: wiederholter Seed erzeugt keine Duplikate', async () => {
+  const { harness, seedHandler } = createEmptyRoomsHarness();
+
+  await seedHandler(createRequest({ data: {} }));
+  const secondResult = await seedHandler(createRequest({ data: {} }));
+
+  const roomPaths = Array.from(harness.firestore.store.keys()).filter((path) => path.startsWith('communityRooms/') && !path.includes('/messages/'));
+
+  assert.equal(roomPaths.length, DEFAULT_COMMUNITY_ROOMS.length);
+  assert.equal(secondResult.created, false);
+  assert.equal(secondResult.changed, false);
+  assert.deepEqual(secondResult.createdRoomIds, []);
+  assert.deepEqual(secondResult.updatedRoomIds, []);
+  assert.equal(secondResult.unchangedRoomIds.length, DEFAULT_COMMUNITY_ROOMS.length);
+});
+
+test('Starträume: ein erneuter Seed löscht vorhandene Nachrichten und Lesestände nicht', async () => {
+  const { harness, seedHandler } = createEmptyRoomsHarness();
+
+  await seedHandler(createRequest({ data: {} }));
+
+  harness.firestore.store.set(`communityRooms/${DEFAULT_COMMUNITY_ROOM_ID}/messages/m1`, {
+    data: { id: 'm1', text: 'Hallo Community', userId: 'user-1' },
+    version: 1,
+  });
+  harness.firestore.store.set('communityRoomReads/user-1__whisper-lounge', {
+    data: { userId: 'user-1', roomId: DEFAULT_COMMUNITY_ROOM_ID, lastReadMessageCount: 1 },
+    version: 1,
+  });
+  harness.firestore.store.set(`communityRooms/${DEFAULT_COMMUNITY_ROOM_ID}`, {
+    data: { ...harness.firestore.store.get(`communityRooms/${DEFAULT_COMMUNITY_ROOM_ID}`).data, messageCount: 1 },
+    version: 2,
+  });
+
+  await seedHandler(createRequest({ data: {} }));
+
+  assert.equal(harness.firestore.store.get(`communityRooms/${DEFAULT_COMMUNITY_ROOM_ID}/messages/m1`).data.text, 'Hallo Community');
+  assert.equal(harness.firestore.store.get('communityRoomReads/user-1__whisper-lounge').data.lastReadMessageCount, 1);
+  assert.equal(harness.firestore.store.get(`communityRooms/${DEFAULT_COMMUNITY_ROOM_ID}`).data.messageCount, 1);
+});
+
+test('Starträume: ein benutzerdefinierter Raumname wird durch den Seed nicht überschrieben', async () => {
+  const { harness, seedHandler } = createEmptyRoomsHarness();
+
+  await seedHandler(createRequest({ data: {} }));
+
+  harness.firestore.store.set('communityRooms/swinger-und-paare', {
+    data: { ...harness.firestore.store.get('communityRooms/swinger-und-paare').data, name: 'Eigener Name', description: 'Eigene Beschreibung' },
+    version: 2,
+  });
+
+  await seedHandler(createRequest({ data: {} }));
+
+  const customRoom = harness.firestore.store.get('communityRooms/swinger-und-paare').data;
+
+  assert.equal(customRoom.name, 'Eigener Name');
+  assert.equal(customRoom.description, 'Eigene Beschreibung');
+});
+
+test('Starträume: nach erfolgreichem Seed liefert die aktive Raum-Query vier Treffer', async () => {
+  const { harness, seedHandler } = createEmptyRoomsHarness();
+
+  await seedHandler(createRequest({ data: {} }));
+
+  const activeRooms = Array.from(harness.firestore.store.entries())
+    .filter(([path, entry]) => path.startsWith('communityRooms/') && !path.includes('/messages/') && entry.data.active === true);
+
+  assert.equal(activeRooms.length, 4, 'rooms-query-empty verschwindet nach dem Seed');
 });
 
 test('Raumzugriff: Nachricht an inaktiven Raum wird abgelehnt', async () => {
@@ -1456,6 +1642,198 @@ test('Community-Regeln: erneutes Akzeptieren der aktuellen Version bleibt idempo
   assert.equal(result.ok, true);
   assert.equal(result.alreadyAccepted, true);
   assert.equal(result.acceptedVersion, DEFAULT_COMMUNITY_RULES_VERSION);
+});
+
+test('Akzeptanz-Dokument: acceptedVersions[].acceptedAt ist ein konkreter Timestamp und kein Sentinel', async () => {
+  const harness = createHandlerHarness({
+    docs: createBaseDocs({ includeRuleAcceptance: false }),
+    nowMs: 1_700_000_000_000,
+  });
+
+  await harness.acceptRulesHandler(createRequest({ data: { rulesVersion: DEFAULT_COMMUNITY_RULES_VERSION } }));
+
+  const stored = harness.firestore.store.get('communityRuleAcceptances/user-1').data;
+
+  assert.equal(Array.isArray(stored.acceptedVersions), true);
+  assert.equal(stored.acceptedVersions.length, 1);
+
+  const entry = stored.acceptedVersions[0];
+
+  assert.equal(entry.version, DEFAULT_COMMUNITY_RULES_VERSION);
+  assert.equal(entry.acceptedAt.__type, 'timestamp');
+  assert.notEqual(entry.acceptedAt.__type, 'serverTimestamp');
+  assert.equal(entry.acceptedAt.seconds, Math.floor(1_700_000_000_000 / 1000));
+  assert.equal(stored.latestAcceptedAt.__type, 'timestamp', 'latestAcceptedAt nutzt denselben konkreten Timestamp');
+  assert.equal(stored.latestAcceptedAt.seconds, entry.acceptedAt.seconds);
+});
+
+test('Akzeptanz-Dokument: innerhalb von acceptedVersions liegt kein serverTimestamp-Sentinel', () => {
+  const record = buildCommunityRulesAcceptanceRecord({
+    uid: 'user-1',
+    version: '1.0',
+    existingHistory: [],
+    fieldValue: createFieldValueStub(),
+    acceptedAt: createTimestampStub(() => 1_700_000_000_000).now(),
+  });
+
+  const findSentinelPath = (value, path = '', insideArray = false) => {
+    if (value && typeof value === 'object') {
+      if (value.__type === 'serverTimestamp') {
+        return insideArray ? path : null;
+      }
+
+      if (Array.isArray(value)) {
+        return value.reduce((found, entry, index) => found || findSentinelPath(entry, `${path}.${index}`, true), null);
+      }
+
+      return Object.entries(value).reduce(
+        (found, [key, entry]) => found || findSentinelPath(entry, path ? `${path}.${key}` : key, insideArray),
+        null,
+      );
+    }
+
+    return null;
+  };
+
+  assert.equal(findSentinelPath(record), null, 'kein Sentinel innerhalb eines Arrays');
+  // Top-Level-Sentinel bleibt erlaubt und vom Datenmodell vorgesehen.
+  assert.equal(record.updatedAt.__type, 'serverTimestamp');
+});
+
+test('Akzeptanz-Dokument: das echte Firestore-SDK akzeptiert das zu schreibende Dokument', () => {
+  const { Firestore, FieldValue: RealFieldValue, Timestamp: RealTimestamp } = require('@google-cloud/firestore');
+  const db = new Firestore({ projectId: 'demo-acceptance-validation', ssl: false });
+  const ref = db.collection('communityRuleAcceptances').doc('user-1');
+
+  const record = buildCommunityRulesAcceptanceRecord({
+    uid: 'user-1',
+    version: '1.0',
+    existingHistory: [{ version: '0.9', acceptedAt: RealTimestamp.fromMillis(1_600_000_000_000) }],
+    fieldValue: RealFieldValue,
+    acceptedAt: RealTimestamp.now(),
+  });
+
+  assert.doesNotThrow(() => db.batch().set(ref, record, { merge: true }));
+});
+
+test('Akzeptanz-Dokument: das echte Firestore-SDK lehnt einen Sentinel im Array weiterhin ab', () => {
+  const { Firestore, FieldValue: RealFieldValue } = require('@google-cloud/firestore');
+  const db = new Firestore({ projectId: 'demo-acceptance-validation', ssl: false });
+  const ref = db.collection('communityRuleAcceptances').doc('user-1');
+
+  assert.throws(
+    () => db.batch().set(ref, {
+      acceptedVersions: [{ version: '1.0', acceptedAt: RealFieldValue.serverTimestamp() }],
+    }, { merge: true }),
+    /cannot be used inside of an array/u,
+  );
+});
+
+test('Akzeptanz-Dokument: Versionswechsel erhält die bestehende Historie ohne Duplikate', async () => {
+  const harness = createHandlerHarness({
+    docs: createBaseDocs({ userProfileOverrides: { isAdmin: true, role: 'admin' }, includeRuleAcceptance: false }),
+    nowMs: 1_700_000_000_000,
+  });
+
+  await harness.acceptRulesHandler(createRequest({ data: { rulesVersion: DEFAULT_COMMUNITY_RULES_VERSION } }));
+
+  await harness.publishRulesHandler(createRequest({
+    data: {
+      version: '1.1',
+      title: 'Night-Whisper Community-Regeln',
+      sections: [{ heading: '1. Respekt', paragraphs: ['Bleibe respektvoll.'] }],
+    },
+  }));
+
+  await harness.acceptRulesHandler(createRequest({ data: { rulesVersion: '1.1' } }));
+
+  const stored = harness.firestore.store.get('communityRuleAcceptances/user-1').data;
+
+  assert.equal(stored.latestAcceptedVersion, '1.1');
+  assert.deepEqual(stored.acceptedVersions.map((entry) => entry.version), [DEFAULT_COMMUNITY_RULES_VERSION, '1.1']);
+  stored.acceptedVersions.forEach((entry) => {
+    assert.equal(entry.acceptedAt?.__type, 'timestamp');
+  });
+});
+
+test('Akzeptanz-Dokument: wiederholte Zustimmung erzeugt keinen doppelten Historieneintrag', async () => {
+  const harness = createHandlerHarness({
+    docs: createBaseDocs({ includeRuleAcceptance: false }),
+  });
+
+  await harness.acceptRulesHandler(createRequest({ data: { rulesVersion: DEFAULT_COMMUNITY_RULES_VERSION } }));
+  const second = await harness.acceptRulesHandler(createRequest({ data: { rulesVersion: DEFAULT_COMMUNITY_RULES_VERSION } }));
+
+  const stored = harness.firestore.store.get('communityRuleAcceptances/user-1').data;
+
+  assert.equal(second.alreadyAccepted, true);
+  assert.equal(stored.acceptedVersions.length, 1);
+  assert.equal(stored.acceptedVersions.filter((entry) => entry.version === DEFAULT_COMMUNITY_RULES_VERSION).length, 1);
+});
+
+test('Akzeptanz-Dokument: es werden keine undefined-Werte geschrieben', async () => {
+  const harness = createHandlerHarness({
+    docs: createBaseDocs({ includeRuleAcceptance: false }),
+  });
+
+  await harness.acceptRulesHandler(createRequest({ data: { rulesVersion: DEFAULT_COMMUNITY_RULES_VERSION } }));
+
+  const stored = harness.firestore.store.get('communityRuleAcceptances/user-1').data;
+
+  const hasUndefined = (value) => {
+    if (value === undefined) {
+      return true;
+    }
+
+    if (Array.isArray(value)) {
+      return value.some(hasUndefined);
+    }
+
+    if (value && typeof value === 'object' && typeof value.toDate !== 'function') {
+      return Object.values(value).some(hasUndefined);
+    }
+
+    return false;
+  };
+
+  assert.equal(hasUndefined(stored), false);
+});
+
+test('Akzeptanz-Dokument: fehlender konkreter Timestamp erzeugt einen kontrollierten internal-Fehler ohne Stacktrace', async () => {
+  const logger = createLoggerStub();
+  const clock = { nowMs: 0 };
+  const firestore = new MockFirestore(createBaseDocs({ includeRuleAcceptance: false }), () => clock.nowMs);
+  const handler = createAcceptCommunityRulesHandler({
+    firestore,
+    fieldValue: createFieldValueStub(),
+    // Fehlerhafte Injektion: liefert einen Sentinel statt eines konkreten Timestamps.
+    timestamp: { now: () => ({ __type: 'serverTimestamp' }) },
+    logger,
+  });
+
+  const error = await expectHttpsError(handler(createRequest({ data: { rulesVersion: DEFAULT_COMMUNITY_RULES_VERSION } })), 'internal');
+
+  assert.equal(error.message, 'Die Zustimmung konnte nicht gespeichert werden. Bitte versuche es erneut.');
+  assert.equal(/at\s|\.js:\d+/u.test(error.message), false, 'kein Stacktrace an den Client');
+  assert.equal(firestore.store.has('communityRuleAcceptances/user-1'), false);
+
+  const logEntry = logger.entries.find((entry) => entry.message === '[communityRules] acceptance_record_build_failed');
+
+  assert.ok(logEntry, 'technischer Kontext wird serverseitig protokolliert');
+  assert.equal(logEntry.payload.reason, 'invalid_acceptance_record');
+  assert.equal(logEntry.payload.rulesVersion, DEFAULT_COMMUNITY_RULES_VERSION);
+  assert.equal('uid' in logEntry.payload, false, 'keine UID im Log');
+  assert.equal('email' in logEntry.payload, false, 'keine E-Mail im Log');
+  assert.equal('token' in logEntry.payload, false, 'kein Token im Log');
+});
+
+test('Test-Mock: der Firestore-Mock verdeckt Sentinels in Arrays nicht mehr', () => {
+  const firestore = new MockFirestore(new Map(), () => 0);
+
+  assert.throws(
+    () => firestore._resolveSentinels({ acceptedVersions: [{ acceptedAt: { __type: 'serverTimestamp' } }] }),
+    /cannot be used inside of an array/u,
+  );
 });
 
 test('Community-Regeln: Admin kann neue Version veröffentlichen', async () => {

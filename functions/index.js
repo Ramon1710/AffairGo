@@ -1,6 +1,6 @@
 const admin = require('firebase-admin');
 const { getApps } = require('firebase-admin/app');
-const { getFirestore, FieldValue } = require('firebase-admin/firestore');
+const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const {
   createAcceptCommunityRulesHandler,
@@ -42,6 +42,7 @@ const getCommunityRulesHandler = createGetCommunityRulesHandler({
 const acceptCommunityRulesHandler = createAcceptCommunityRulesHandler({
   firestore: getFirestore(),
   fieldValue: FieldValue,
+  timestamp: Timestamp,
 });
 const publishCommunityRulesHandler = createPublishCommunityRulesHandler({
   firestore: getFirestore(),

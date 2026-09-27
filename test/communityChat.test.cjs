@@ -7,6 +7,7 @@ const {
   COMMUNITY_REPORT_REASON_OPTIONS,
   COMMUNITY_RATE_LIMIT_ERROR_MESSAGE,
   COMMUNITY_ROOM_ID,
+  COMMUNITY_ROOM_DISPLAY_ORDER,
   COMMUNITY_RULES_UNCONFIRMED_MESSAGE,
   buildAcceptedCommunityRulesEnvelope,
   buildCommunityRoomSections,
@@ -17,6 +18,7 @@ const {
   getCommunityChatBanMessage,
   getCommunityOverviewState,
   getCommunityRoomUnreadCount,
+  getCommunityRoomTypeLabel,
   getPreparedCommunityText,
   getCommunityMentionMatch,
   getCommunityReactionSummary,
@@ -36,6 +38,7 @@ const {
   normalizeCommunityRoom,
   normalizeCommunityRoomRead,
   parseCommunityRulesEditor,
+  sortCommunityRooms,
   stringifyCommunityRulesSections,
 } = require('../untils/communityChat');
 
@@ -849,4 +852,111 @@ test('Nicht bestätigter Fall: Callable meldet Erfolg, Reload zeigt aber noch ke
   assert.equal(finalState.rulesModalVisible, true, 'Modal bleibt offen ohne bestätigten Reload');
   assert.equal(finalState.rulesError, COMMUNITY_RULES_UNCONFIRMED_MESSAGE);
   assert.equal(getCommunityNeedsRulesAcceptance(finalState.rulesEnvelope), true, 'kein lokaler Scheinerfolg');
+});
+
+const buildStarterRooms = () => [
+  normalizeCommunityRoom({ id: 'sex-und-fantasien', name: 'Sex und Fantasien', type: 'GLOBAL', active: true, description: 'Offener 18+-Austausch', messageCount: 0 }, 'sex-und-fantasien'),
+  normalizeCommunityRoom({ id: 'whisper-lounge', name: 'Offener Treffpunkt', type: 'GLOBAL', active: true, description: 'Offener Austausch', messageCount: 0 }, 'whisper-lounge'),
+  normalizeCommunityRoom({ id: 'swinger-und-paare', name: 'Swinger und Paare', type: 'GLOBAL', active: true, description: 'Austausch für Paare', messageCount: 0 }, 'swinger-und-paare'),
+  normalizeCommunityRoom({ id: 'kennenlernen-und-flirten', name: 'Kennenlernen und Flirten', type: 'GLOBAL', active: true, description: 'Lerne Mitglieder kennen', messageCount: 0 }, 'kennenlernen-und-flirten'),
+];
+
+test('Starträume: die feste Anzeigereihenfolge ist unabhängig von der Eingabereihenfolge', () => {
+  const sortedRooms = sortCommunityRooms(buildStarterRooms());
+
+  assert.deepEqual(sortedRooms.map((room) => room.id), [
+    'whisper-lounge',
+    'kennenlernen-und-flirten',
+    'swinger-und-paare',
+    'sex-und-fantasien',
+  ]);
+  assert.deepEqual(sortedRooms.map((room) => room.id), [...COMMUNITY_ROOM_DISPLAY_ORDER]);
+});
+
+test('Starträume: alle vier Starträume landen in der Gruppe Allgemein', () => {
+  const sections = buildCommunityRoomSections(buildStarterRooms());
+
+  assert.equal(sections.length, 1);
+  assert.equal(sections[0].title, 'Allgemein');
+  assert.equal(sections[0].rooms.length, 4);
+  sections[0].rooms.forEach((room) => {
+    assert.equal(room.type, 'GLOBAL');
+    assert.equal(room.active, true);
+    assert.equal(getCommunityRoomTypeLabel(room.type), 'Global');
+    assert.ok(room.name.trim().length > 0);
+    assert.ok(room.description.trim().length > 0);
+  });
+});
+
+test('Starträume: der Leerzustand verschwindet, sobald aktive Räume vorhanden sind', () => {
+  const accessRequirements = getCommunityAccessRequirements({
+    id: 'u1',
+    emailVerified: true,
+    ageVerified: true,
+    ageVerificationStatus: 'verified',
+    moderationState: 'clear',
+  }, { uid: 'u1', emailVerified: true }, {
+    rules: { version: '1.0', active: true, sections: [{ heading: 'A', paragraphs: ['B'] }] },
+    acceptance: { latestAcceptedVersion: '1.0' },
+  });
+
+  const baseState = {
+    accessRequirements,
+    rulesEnvelope: {
+      rules: { version: '1.0', active: true, sections: [{ heading: 'A', paragraphs: ['B'] }] },
+      acceptance: { latestAcceptedVersion: '1.0' },
+    },
+    rulesLoaded: true,
+    roomsLoaded: true,
+    readsLoaded: true,
+  };
+
+  assert.equal(getCommunityAccessState({ ...baseState, roomCount: 0 }).status, 'empty');
+  assert.equal(getCommunityAccessState({ ...baseState, roomCount: 4 }).status, 'allowed');
+});
+
+test('Starträume: ohne bestätigte Regelversion bleibt der Raumeinstieg gesperrt', () => {
+  const accessRequirements = getCommunityAccessRequirements({
+    id: 'u1',
+    emailVerified: true,
+    ageVerified: true,
+    ageVerificationStatus: 'verified',
+    moderationState: 'clear',
+  }, { uid: 'u1', emailVerified: true }, {
+    rules: { version: '1.0', active: true, sections: [{ heading: 'A', paragraphs: ['B'] }] },
+    acceptance: null,
+  });
+
+  assert.equal(accessRequirements.canReadOverview, true, 'Übersicht bleibt sichtbar');
+  assert.equal(accessRequirements.canReadMessages, false, 'Raumeinstieg bleibt gesperrt');
+});
+
+test('Starträume: ein Klick öffnet den bestehenden CommunityRoomScreen mit der Raum-ID', () => {
+  const source = fs.readFileSync('/workspaces/AffairGo/screens/CommunityScreen.js', 'utf8');
+
+  assert.match(source, /const openRoom = \(roomId\) => \{/u);
+  assert.match(source, /navigation\.navigate\('CommunityRoom', \{ roomId \}\)/u);
+  assert.match(source, /onPress=\{\(\) => openRoom\(room\.id\)\}/u);
+  // Raumkarte zeigt Name, Typ-Kennzeichnung, Beschreibung und Aktivitaets-/Ungelesen-Anzeige.
+  assert.match(source, /<Text style=\{styles\.roomTitle\}>\{room\.name\}<\/Text>/u);
+  assert.match(source, /getCommunityRoomTypeLabel\(room\.type\)/u);
+  assert.match(source, /<Text style=\{styles\.roomDescription\}>\{room\.description\}<\/Text>/u);
+  assert.match(source, /getCommunityRoomUnreadLabel\(room, readEntry\)/u);
+});
+
+test('Starträume: Melden und Blockieren stehen im Raum weiterhin zur Verfügung', () => {
+  const source = fs.readFileSync('/workspaces/AffairGo/screens/CommunityRoomScreen.js', 'utf8');
+
+  assert.match(source, /reportCommunityContent/u);
+  assert.match(source, /blockCommunityUser/u);
+  assert.match(source, /unblockCommunityUser/u);
+});
+
+test('Starträume: der Seed lässt sich ausschließlich von Admins auslösen', () => {
+  const source = fs.readFileSync('/workspaces/AffairGo/screens/CommunityScreen.js', 'utf8');
+
+  assert.match(source, /if \(!currentUser\?\.isAdmin \|\| isSeedingRoom\) \{\s*return;/u);
+  assert.match(source, /action=\{currentUser\?\.isAdmin \? <AccentButton label=\{isSeedingRoom \? 'Räume werden ergänzt\.\.\.' : 'Standardräume anlegen'\}/u);
+  // Kein direkter Firestore-Schreibzugriff auf communityRooms aus dem Client.
+  assert.equal(/setDoc\(\s*doc\(db, 'communityRooms'/u.test(source), false);
 });

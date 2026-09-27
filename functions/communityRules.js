@@ -167,24 +167,82 @@ const normalizeCommunityRulesConfig = (value = {}) => ({
   updatedAt: value.updatedAt || null,
 });
 
-const buildCommunityRulesAcceptanceRecord = ({ uid, version, existingHistory = [], fieldValue }) => {
+// Firestore lehnt FieldValue-Sentinels innerhalb von Arrays ab; Timestamp-Werte sind dort erlaubt.
+const isFirestoreSentinelValue = (value) => {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  if (value.__type === 'serverTimestamp') {
+    return true;
+  }
+
+  if (typeof value.toDate === 'function' || value instanceof Date) {
+    return false;
+  }
+
+  if (typeof value._methodName === 'string') {
+    return true;
+  }
+
+  const constructorName = value.constructor?.name || '';
+
+  return /FieldValue|Transform|Sentinel/i.test(constructorName) && typeof value.isEqual === 'function';
+};
+
+const assertNoFirestoreSentinelsInsideArrays = (value, path = '', insideArray = false) => {
+  if (isFirestoreSentinelValue(value)) {
+    if (insideArray) {
+      throw new Error(`Firestore sentinel is not allowed inside an array (field "${path || '<root>'}")`);
+    }
+
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => {
+      assertNoFirestoreSentinelsInsideArrays(entry, `${path}.\`${index}\``, true);
+    });
+
+    return value;
+  }
+
+  if (value && typeof value === 'object' && typeof value.toDate !== 'function' && !(value instanceof Date)) {
+    Object.entries(value).forEach(([key, entry]) => {
+      assertNoFirestoreSentinelsInsideArrays(entry, path ? `${path}.${key}` : key, insideArray);
+    });
+  }
+
+  return value;
+};
+
+const buildCommunityRulesAcceptanceRecord = ({ uid, version, existingHistory = [], fieldValue, acceptedAt }) => {
+  if (!acceptedAt || isFirestoreSentinelValue(acceptedAt)) {
+    throw new Error('buildCommunityRulesAcceptanceRecord requires a concrete server-generated Timestamp for acceptedAt');
+  }
+
   const dedupedHistory = Array.isArray(existingHistory)
-    ? existingHistory.filter((entry) => normalizeOptionalString(entry?.version) && normalizeOptionalString(entry?.version) !== version)
+    ? existingHistory
+      .filter((entry) => normalizeOptionalString(entry?.version) && normalizeOptionalString(entry?.version) !== version)
+      .map((entry) => ({
+        version: normalizeOptionalString(entry.version),
+        acceptedAt: entry.acceptedAt ?? null,
+      }))
     : [];
 
-  return {
+  return assertNoFirestoreSentinelsInsideArrays({
     userId: uid,
     latestAcceptedVersion: version,
-    latestAcceptedAt: fieldValue.serverTimestamp(),
+    latestAcceptedAt: acceptedAt,
     updatedAt: fieldValue.serverTimestamp(),
     acceptedVersions: [
       ...dedupedHistory,
       {
         version,
-        acceptedAt: fieldValue.serverTimestamp(),
+        acceptedAt,
       },
     ],
-  };
+  });
 };
 
 module.exports = {
@@ -195,12 +253,14 @@ module.exports = {
   DEFAULT_COMMUNITY_RULES_SECTIONS,
   DEFAULT_COMMUNITY_RULES_TITLE,
   DEFAULT_COMMUNITY_RULES_VERSION,
+  assertNoFirestoreSentinelsInsideArrays,
   buildCommunityRulesAcceptanceRecord,
   buildCommunityRulesConfigRecord,
   buildCommunityRulesVersionRecord,
   buildDefaultCommunityRulesConfig,
   cloneRulesSections,
   getCommunityRulesErrorDetails,
+  isFirestoreSentinelValue,
   normalizeCommunityRulesConfig,
   sanitizeCommunityRulesSections,
   sanitizeCommunityRulesTitle,

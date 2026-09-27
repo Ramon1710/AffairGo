@@ -2446,6 +2446,11 @@ export const AffairGoProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
+    // Geschützte Collections erst abfragen, wenn der Auth-Zustand vollständig bereit ist.
+    if (!isAuthReady || !isAuthenticated) {
+      return undefined;
+    }
+
     const excludedUserId = currentUser.id === 'me' ? '' : currentUser.id;
     const unsubscribeUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
       const storedUsers = snapshot.docs
@@ -2471,9 +2476,13 @@ export const AffairGoProvider = ({ children }) => {
     return () => {
       unsubscribeUsers();
     };
-  }, [currentUser.id]);
+  }, [currentUser.id, isAuthReady, isAuthenticated]);
 
   useEffect(() => {
+    if (!isAuthReady || !isAuthenticated) {
+      return undefined;
+    }
+
     let active = true;
 
     loadStoredFeatureIdeas().then((storedIdeas) => {
@@ -2485,9 +2494,13 @@ export const AffairGoProvider = ({ children }) => {
     return () => {
       active = false;
     };
-  }, []);
+  }, [isAuthReady, isAuthenticated]);
 
   useEffect(() => {
+    if (!isAuthReady || !isAuthenticated) {
+      return undefined;
+    }
+
     let active = true;
 
     const bootstrapEvents = async () => {
@@ -2504,7 +2517,7 @@ export const AffairGoProvider = ({ children }) => {
     return () => {
       active = false;
     };
-  }, []);
+  }, [isAuthReady, isAuthenticated]);
 
   const requestLiveLocationAccess = async () => {
     try {

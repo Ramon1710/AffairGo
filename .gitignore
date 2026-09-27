@@ -40,4 +40,9 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
+# firebase emulator artifacts
+firestore-debug.log
+firebase-debug.log
+ui-debug.log
+
 app-example

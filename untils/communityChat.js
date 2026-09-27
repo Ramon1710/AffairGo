@@ -1,7 +1,14 @@
 const COMMUNITY_ROOM_ID = 'whisper-lounge';
-const COMMUNITY_ROOM_NAME = 'Whisper Lounge';
-const COMMUNITY_ROOM_DESCRIPTION = 'Der offene Community-Chat von Night-Whisper.';
+const COMMUNITY_ROOM_NAME = 'Offener Treffpunkt';
+const COMMUNITY_ROOM_DESCRIPTION = 'Offener Austausch, Kennenlernen und allgemeine Gespräche innerhalb der Night-Whisper-Community.';
 const COMMUNITY_ROOM_ROUTE_FALLBACK = 'whisper-lounge';
+// Feste Anzeigereihenfolge der Starträume, identisch zu DEFAULT_COMMUNITY_ROOMS in functions/communityChat.js.
+const COMMUNITY_ROOM_DISPLAY_ORDER = Object.freeze([
+  'whisper-lounge',
+  'kennenlernen-und-flirten',
+  'swinger-und-paare',
+  'sex-und-fantasien',
+]);
 const COMMUNITY_MESSAGE_MAX_LENGTH = 1000;
 const COMMUNITY_MESSAGE_COUNTER_THRESHOLD = 800;
 const COMMUNITY_FALLBACK_NICKNAME = 'Night-Whisper Mitglied';
@@ -134,6 +141,14 @@ const sortCommunityRooms = (rooms = [], options = {}) => {
 
     if (left.id === lastVisitedRoomId || right.id === lastVisitedRoomId) {
       return left.id === lastVisitedRoomId ? -1 : 1;
+    }
+
+    const leftDeclaredOrder = COMMUNITY_ROOM_DISPLAY_ORDER.indexOf(left.id);
+    const rightDeclaredOrder = COMMUNITY_ROOM_DISPLAY_ORDER.indexOf(right.id);
+
+    if (leftDeclaredOrder !== rightDeclaredOrder) {
+      return (leftDeclaredOrder === -1 ? Number.MAX_SAFE_INTEGER : leftDeclaredOrder)
+        - (rightDeclaredOrder === -1 ? Number.MAX_SAFE_INTEGER : rightDeclaredOrder);
     }
 
     if (left.lastMessageAtMs !== right.lastMessageAtMs) {
@@ -869,6 +884,7 @@ module.exports = {
   COMMUNITY_REMOVED_MESSAGE_LABEL,
   COMMUNITY_RULES_UNCONFIRMED_MESSAGE,
   COMMUNITY_ROOM_DESCRIPTION,
+  COMMUNITY_ROOM_DISPLAY_ORDER,
   COMMUNITY_ROOM_GROUP_TITLES,
   COMMUNITY_ROOM_ID,
   COMMUNITY_ROOM_NAME,

@@ -107,73 +107,44 @@ const DEFAULT_COMMUNITY_ROOM_ID = 'whisper-lounge';
 const DEFAULT_COMMUNITY_ROOM_SLUG = 'whisper-lounge';
 const DEFAULT_COMMUNITY_ROOM = Object.freeze({
   id: DEFAULT_COMMUNITY_ROOM_ID,
-  name: 'Whisper Lounge',
+  name: 'Offener Treffpunkt',
   slug: DEFAULT_COMMUNITY_ROOM_SLUG,
-  description: 'Der offene Community-Chat von Night-Whisper.',
+  description: 'Offener Austausch, Kennenlernen und allgemeine Gespräche innerhalb der Night-Whisper-Community.',
   type: COMMUNITY_ROOM_TYPES.GLOBAL,
   region: null,
   active: true,
   eventId: null,
 });
+// Reihenfolge dieser Liste bestimmt die feste Anzeigereihenfolge der Starträume.
 const DEFAULT_COMMUNITY_ROOMS = Object.freeze([
   DEFAULT_COMMUNITY_ROOM,
   {
-    id: 'neu-bei-night-whisper',
-    name: 'Neu bei Night-Whisper',
-    slug: 'neu-bei-night-whisper',
-    description: 'Ein Raum für neue Mitglieder, Fragen und erste Kontakte in der Community.',
+    id: 'kennenlernen-und-flirten',
+    name: 'Kennenlernen und Flirten',
+    slug: 'kennenlernen-und-flirten',
+    description: 'Lerne andere Community-Mitglieder kennen und tausche dich unverbindlich mit ihnen aus.',
     type: COMMUNITY_ROOM_TYPES.GLOBAL,
     region: null,
     active: true,
     eventId: null,
   },
   {
-    id: 'events-partys',
-    name: 'Events & Partys',
-    slug: 'events-partys',
-    description: 'Austausch über Partys, Treffen und Community-Momente bei Night-Whisper.',
+    id: 'swinger-und-paare',
+    name: 'Swinger und Paare',
+    slug: 'swinger-und-paare',
+    description: 'Austausch für Paare, Singles und Menschen mit Interesse an der Swinger-Szene.',
     type: COMMUNITY_ROOM_TYPES.GLOBAL,
     region: null,
     active: true,
     eventId: null,
   },
   {
-    id: 'nrw',
-    name: 'NRW',
-    slug: 'nrw',
-    description: 'Austausch für Mitglieder aus Nordrhein-Westfalen.',
-    type: COMMUNITY_ROOM_TYPES.REGION,
-    region: 'NRW',
-    active: true,
-    eventId: null,
-  },
-  {
-    id: 'norddeutschland',
-    name: 'Norddeutschland',
-    slug: 'norddeutschland',
-    description: 'Community-Gespräche für Mitglieder aus dem Norden Deutschlands.',
-    type: COMMUNITY_ROOM_TYPES.REGION,
-    region: 'NORD',
-    active: true,
-    eventId: null,
-  },
-  {
-    id: 'sueddeutschland',
-    name: 'Süddeutschland',
-    slug: 'sueddeutschland',
-    description: 'Austausch für Mitglieder aus Süddeutschland.',
-    type: COMMUNITY_ROOM_TYPES.REGION,
-    region: 'SUED',
-    active: true,
-    eventId: null,
-  },
-  {
-    id: 'ostdeutschland',
-    name: 'Ostdeutschland',
-    slug: 'ostdeutschland',
-    description: 'Ein Raum für Gespräche und Verabredungen in Ostdeutschland.',
-    type: COMMUNITY_ROOM_TYPES.REGION,
-    region: 'OST',
+    id: 'sex-und-fantasien',
+    name: 'Sex und Fantasien',
+    slug: 'sex-und-fantasien',
+    description: 'Offener 18+-Austausch über Wünsche, Erfahrungen und Fantasien. Respekt und gegenseitiges Einvernehmen sind verpflichtend.',
+    type: COMMUNITY_ROOM_TYPES.GLOBAL,
+    region: null,
     active: true,
     eventId: null,
   },
@@ -779,6 +750,17 @@ const getCommunityRulesVersionRef = (firestore, version) => firestore.collection
 
 const getCommunityRulesAcceptanceRef = (firestore, uid) => firestore.collection(COMMUNITY_RULE_ACCEPTANCES_COLLECTION).doc(uid);
 const getCommunityPresenceRef = (firestore, uid) => firestore.collection('communityPresence').doc(uid);
+
+// Liefert einen konkreten serverseitigen Timestamp, weil Sentinels in Arrays von Firestore abgelehnt werden.
+const resolveCommunityServerTimestamp = (timestamp = null) => {
+  if (timestamp && typeof timestamp.now === 'function') {
+    return timestamp.now();
+  }
+
+  const { Timestamp } = require('firebase-admin/firestore');
+
+  return Timestamp.now();
+};
 
 const ensureCurrentCommunityRulesConfigInTransaction = async ({ firestore, transaction, fieldValue }) => {
   const configRef = getCommunityRulesConfigRef(firestore);
@@ -2076,7 +2058,7 @@ const createModerateCommunityReportHandler = ({ firestore, fieldValue, now = () 
   };
 };
 
-const createSeedCommunityRoomsHandler = ({ firestore, fieldValue }) => {
+const createSeedCommunityRoomsHandler = ({ firestore, fieldValue, logger = console }) => {
   return async (request) => {
     const uid = request.auth?.uid;
 
@@ -2092,76 +2074,95 @@ const createSeedCommunityRoomsHandler = ({ firestore, fieldValue }) => {
     });
     const createdBy = normalizeOptionalString(profile.nickname) || uid;
     const createdRoomIds = [];
-    const skippedRoomIds = [];
+    const updatedRoomIds = [];
+    const unchangedRoomIds = [];
+    const failedRoomIds = [];
 
     for (const room of DEFAULT_COMMUNITY_ROOMS) {
       const roomRef = firestore.collection('communityRooms').doc(room.id);
-      const roomSnapshot = await roomRef.get();
 
-      if (roomSnapshot.exists) {
-        const existingRoom = roomSnapshot.data() || {};
-        const repairPatch = {};
+      try {
+        const roomSnapshot = await roomRef.get();
 
-        if (typeof existingRoom.name !== 'string' || !existingRoom.name.trim()) {
-          repairPatch.name = room.name;
+        if (roomSnapshot.exists) {
+          const existingRoom = roomSnapshot.data() || {};
+          const repairPatch = {};
+
+          if (typeof existingRoom.name !== 'string' || !existingRoom.name.trim()) {
+            repairPatch.name = room.name;
+          }
+
+          if (typeof existingRoom.slug !== 'string' || !existingRoom.slug.trim()) {
+            repairPatch.slug = room.slug;
+          }
+
+          if (typeof existingRoom.description !== 'string' || !existingRoom.description.trim()) {
+            repairPatch.description = room.description;
+          }
+
+          if (typeof existingRoom.type !== 'string' || !existingRoom.type.trim()) {
+            repairPatch.type = room.type;
+          }
+
+          if (existingRoom.region === undefined) {
+            repairPatch.region = room.region;
+          }
+
+          if (typeof existingRoom.active !== 'boolean') {
+            repairPatch.active = room.active === true;
+          }
+
+          if (typeof existingRoom.manualActive !== 'boolean') {
+            repairPatch.manualActive = room.active === true;
+          }
+
+          if (!Number.isFinite(Number(existingRoom.messageCount))) {
+            repairPatch.messageCount = 0;
+          }
+
+          if (Object.keys(repairPatch).length) {
+            // Nur fehlende Felder ergänzen: vorhandene Inhalte, Nachrichten und Lesestände bleiben unberührt.
+            repairPatch.updatedAt = fieldValue.serverTimestamp();
+            await roomRef.set(repairPatch, { merge: true });
+            updatedRoomIds.push(room.id);
+          } else {
+            unchangedRoomIds.push(room.id);
+          }
+
+          continue;
         }
 
-        if (typeof existingRoom.slug !== 'string' || !existingRoom.slug.trim()) {
-          repairPatch.slug = room.slug;
-        }
-
-        if (typeof existingRoom.description !== 'string' || !existingRoom.description.trim()) {
-          repairPatch.description = room.description;
-        }
-
-        if (typeof existingRoom.type !== 'string' || !existingRoom.type.trim()) {
-          repairPatch.type = room.type;
-        }
-
-        if (existingRoom.region === undefined) {
-          repairPatch.region = room.region;
-        }
-
-        if (typeof existingRoom.active !== 'boolean') {
-          repairPatch.active = room.active === true;
-        }
-
-        if (typeof existingRoom.manualActive !== 'boolean') {
-          repairPatch.manualActive = room.active === true;
-        }
-
-        if (!Number.isFinite(Number(existingRoom.messageCount))) {
-          repairPatch.messageCount = 0;
-        }
-
-        if (Object.keys(repairPatch).length) {
-          repairPatch.updatedAt = fieldValue.serverTimestamp();
-          await roomRef.set(repairPatch, { merge: true });
-          createdRoomIds.push(room.id);
-        } else {
-          skippedRoomIds.push(room.id);
-        }
-
-        continue;
+        await roomRef.set({
+          ...room,
+          manualActive: room.active === true,
+          createdBy,
+          createdAt: fieldValue.serverTimestamp(),
+          updatedAt: fieldValue.serverTimestamp(),
+          lastMessageAt: null,
+          messageCount: 0,
+        }, { merge: true });
+        createdRoomIds.push(room.id);
+      } catch (error) {
+        logger.error('[communityRooms] seed_room_failed', {
+          scope: 'community-rooms',
+          reason: 'seed_room_failed',
+          roomId: room.id,
+          errorMessage: typeof error?.message === 'string' ? error.message : null,
+        });
+        failedRoomIds.push(room.id);
       }
-
-      await roomRef.set({
-        ...room,
-        manualActive: room.active === true,
-        createdBy,
-        createdAt: fieldValue.serverTimestamp(),
-        updatedAt: fieldValue.serverTimestamp(),
-        lastMessageAt: null,
-        messageCount: 0,
-      }, { merge: true });
-      createdRoomIds.push(room.id);
     }
 
     return {
-      ok: true,
+      ok: failedRoomIds.length === 0,
       created: createdRoomIds.length > 0,
+      changed: createdRoomIds.length > 0 || updatedRoomIds.length > 0,
       createdRoomIds,
-      skippedRoomIds,
+      updatedRoomIds,
+      unchangedRoomIds,
+      failedRoomIds,
+      // Rückwärtskompatibel zum bisherigen Feldnamen.
+      skippedRoomIds: unchangedRoomIds,
     };
   };
 };
@@ -2762,7 +2763,7 @@ const createGetCommunityRulesHandler = ({ firestore, fieldValue }) => {
   };
 };
 
-const createAcceptCommunityRulesHandler = ({ firestore, fieldValue }) => {
+const createAcceptCommunityRulesHandler = ({ firestore, fieldValue, timestamp = null, logger = console }) => {
   return async (request) => {
     const uid = request.auth?.uid;
 
@@ -2817,12 +2818,30 @@ const createAcceptCommunityRulesHandler = ({ firestore, fieldValue }) => {
         };
       }
 
-      transaction.set(acceptanceRef, buildCommunityRulesAcceptanceRecord({
-        uid,
-        version: config.version,
-        existingHistory: acceptanceSnapshot.exists ? acceptanceSnapshot.data()?.acceptedVersions : [],
-        fieldValue,
-      }), { merge: true });
+      let acceptanceRecord = null;
+
+      try {
+        acceptanceRecord = buildCommunityRulesAcceptanceRecord({
+          uid,
+          version: config.version,
+          existingHistory: acceptanceSnapshot.exists ? acceptanceSnapshot.data()?.acceptedVersions : [],
+          fieldValue,
+          acceptedAt: resolveCommunityServerTimestamp(timestamp),
+        });
+      } catch (error) {
+        // Datenmodellfehler (z. B. Sentinel im Array) sichtbar machen, ohne Details an den Client zu geben.
+        logger.error('[communityRules] acceptance_record_build_failed', {
+          scope: 'community-rules',
+          reason: 'invalid_acceptance_record',
+          rulesVersion: config.version,
+          historyLength: Array.isArray(acceptanceSnapshot.data?.()?.acceptedVersions) ? acceptanceSnapshot.data().acceptedVersions.length : 0,
+          errorMessage: typeof error?.message === 'string' ? error.message : null,
+        });
+
+        throw new HttpsError('internal', 'Die Zustimmung konnte nicht gespeichert werden. Bitte versuche es erneut.', getCommunityRulesErrorDetails('acceptance_write_failed'));
+      }
+
+      transaction.set(acceptanceRef, acceptanceRecord, { merge: true });
 
       return {
         ok: true,

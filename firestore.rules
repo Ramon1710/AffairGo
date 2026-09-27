@@ -11,7 +11,7 @@ service cloud.firestore {
     }
 
     function currentUserProfileExists() {
-      return isSignedIn() && currentUserProfile().exists();
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
     }
 
     function hasVerifiedCommunityEmail() {
@@ -72,8 +72,8 @@ service cloud.firestore {
 
     function currentCommunityRulesAccepted() {
       return canReadCommunity()
-        && currentCommunityRules().exists()
-        && get(/databases/$(database)/documents/communityRuleAcceptances/$(request.auth.uid)).exists()
+        && exists(/databases/$(database)/documents/communityConfig/rules)
+        && exists(/databases/$(database)/documents/communityRuleAcceptances/$(request.auth.uid))
         && get(/databases/$(database)/documents/communityRuleAcceptances/$(request.auth.uid)).data.latestAcceptedVersion == currentCommunityRules().data.version;
     }
 
