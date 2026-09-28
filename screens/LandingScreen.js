@@ -6,7 +6,7 @@ import { useAffairGo } from '../context/AffairGoContext';
 import { WEBSITE_SECTIONS } from '../data/mockData';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
 
-const appIcon = require('../App-ICON.png');
+const brandLogo = require('../assets/branding/night-whisper-logo.png');
 
 const LandingScreen = () => {
   const { width } = useWindowDimensions();
@@ -18,7 +18,7 @@ const LandingScreen = () => {
     <AppBackground contentContainerStyle={styles.content}>
       <View style={[styles.hero, Platform.OS === 'web' && !isCompactWeb && styles.heroWeb]}>
         <View style={styles.heroCopy}>
-          <Image source={appIcon} style={styles.logo} resizeMode="contain" />
+          <Image source={brandLogo} style={styles.logo} resizeMode="contain" />
           <View style={styles.badge}>
             <Ionicons name="heart" size={18} color={affairGoTheme.colors.accent} />
             <Text style={styles.badgeText}>Night-Whisper</Text>
@@ -120,10 +120,10 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   logo: {
-    width: Platform.OS === 'web' ? 116 : 92,
-    height: Platform.OS === 'web' ? 116 : 92,
-    marginBottom: 18,
-    borderRadius: 28,
+    width: Platform.OS === 'web' ? 420 : 260,
+    height: Platform.OS === 'web' ? 120 : 76,
+    marginBottom: 20,
+    alignSelf: 'flex-start',
   },
   badge: {
     alignSelf: 'flex-start',
