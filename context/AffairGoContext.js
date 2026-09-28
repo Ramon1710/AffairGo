@@ -67,12 +67,14 @@ import {
 } from '../data/mockData';
 import { auth, authReady, db, storage } from '../firebase';
 import {
+  buildMatchedProfiles,
     DEFAULT_PRESENCE_STALE_AFTER_MS,
     getCompatibility as getCompatibilityScore,
     getMatchEligibility as getMatchEligibilityScore,
     hasStoredProfilePhoto,
     isPresenceFresh,
 } from '../untils/matching';
+import { getProfileCompletionState } from '../untils/profileStatus';
 import { buildSwipeDeckProfiles } from '../untils/matchingMap';
 import { getDefaultRadiusKm, normalizeRadiusKm } from '../untils/radius';
 
@@ -1149,14 +1151,15 @@ const toStoredProfile = (profile) => {
     searchGenders: getSearchGenders(profile),
     emailVerified: Boolean(profile.emailVerified),
     nicknameUnique: Boolean(profile.nickname) && !profile.pendingNickname,
-    profileCompleted: Boolean(
-      aliasValues.firstName
-      && aliasValues.lastName
-      && aliasValues.gender
-      && aliasValues.height
-      && aliasValues.figure
-      && resolveProfilePhotoValue(profile)
-    ),
+    profileCompleted: getProfileCompletionState({
+      firstName: aliasValues.firstName,
+      lastName: aliasValues.lastName,
+      gender: aliasValues.gender,
+      height: aliasValues.height,
+      figure: aliasValues.figure,
+      profilePhotoUrl: aliasValues.profilePhoto,
+      profileImageUri: aliasValues.profilePhoto,
+    }).isComplete,
     nicknameLower: normalizeGermanComparison(profile.nickname),
     updatedAt: serverTimestamp(),
   };
@@ -3093,15 +3096,14 @@ export const AffairGoProvider = ({ children }) => {
 
   const swipeProfiles = useMemo(() => buildSwipeDeckProfiles(visibleProfiles, dismissedProfiles), [dismissedProfiles, visibleProfiles]);
 
-  const matchedProfiles = chats
-    .filter((chat) => chat.match)
-    .map((chat) => users.find((user) => user.id === chat.userId))
-    .filter(Boolean);
+  const matchedProfiles = useMemo(() => buildMatchedProfiles(currentUser, chats, users, {
+    locationStaleAfterMs: LOCATION_STALE_AFTER_MS,
+  }), [chats, currentUser, users]);
   const swipesUsed = swipeHistory.length;
   const remainingSwipes = null;
   const swipeLimitReached = false;
 
-  const nearbyOnlineProfiles = visibleProfiles.slice(0, 3);
+  const nearbyOnlineProfiles = matchedProfiles.filter((profile) => profile.online).slice(0, 3);
   const visibleMapEvents = useMemo(() => events
     .map((event) => buildEventMapItem(event, mapCenterCoordinates || DEFAULT_MAP_LOCATION))
     .filter((event) => event.distanceKm <= currentRadius), [currentRadius, events, mapCenterCoordinates]);

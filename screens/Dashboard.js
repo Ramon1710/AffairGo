@@ -1,526 +1,324 @@
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
-import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { AccentButton, AppBackground, EmptyState, GlassCard, InfoBanner, InlineStat, ScreenHeader, SectionTitle, StatusPill } from '../components/AffairGoUI';
+import { useMemo } from 'react';
+import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { AccentButton, AppBackground, EmptyState, GlassCard, InlineStat, ScreenHeader, StatusPill } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
-import { accessColors, affairGoTheme, travelModeColors } from '../constants/affairGoTheme';
+import { accessColors, affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
-import { DASHBOARD_SIGNAL_CARDS, EMPTY_STATE_COPY } from '../data/mockData';
-import { db } from '../firebase';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
+import { getProfileCompletionState } from '../untils/profileStatus';
 import { formatRadiusKm } from '../untils/radius';
 
-const {
-  getCommunityUnreadRoomsCount,
-  normalizeCommunityRoom,
-  normalizeCommunityRoomRead,
-} = require('../untils/communityChat');
+const DashboardMetricCard = ({ title, value, detail, tone = 'default', actionLabel, onPress, state = 'ready', testID }) => {
+  if (state === 'loading') {
+    return (
+      <GlassCard strong style={styles.metricCard}>
+        <Text style={styles.metricEyebrow}>{title}</Text>
+        <Text style={styles.metricValue}>...</Text>
+        <Text style={styles.metricDetail}>Wird geladen...</Text>
+      </GlassCard>
+    );
+  }
 
-const quickActions = [
-  { key: 'MatchingMap', label: 'Matching Map', icon: 'map-outline', requiresVisibility: true },
-  { key: 'Swipe', label: 'Swipe', icon: 'swap-horizontal-outline', requiresVisibility: true },
-  { key: 'Chat', label: 'Chats', icon: 'chatbubbles-outline' },
-  { key: 'Community', label: 'Community', icon: 'people-outline' },
-];
+  if (state === 'error') {
+    return (
+      <GlassCard strong style={styles.metricCard}>
+        <Text style={styles.metricEyebrow}>{title}</Text>
+        <Text style={styles.metricValue}>-</Text>
+        <Text style={styles.metricDetail}>{detail}</Text>
+      </GlassCard>
+    );
+  }
+
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={!onPress}
+      testID={testID}
+      style={({ pressed }) => [styles.metricPressable, pressed && onPress ? styles.metricPressablePressed : null]}
+    >
+      <GlassCard strong style={styles.metricCard}>
+        <View style={styles.metricHeader}>
+          <Text style={styles.metricEyebrow}>{title}</Text>
+          <StatusPill label={tone === 'success' ? 'Live' : 'Aktiv'} tone={tone} />
+        </View>
+        <Text style={styles.metricValue}>{value}</Text>
+        <Text style={styles.metricDetail}>{detail}</Text>
+        {actionLabel ? <Text style={styles.metricAction}>{actionLabel}</Text> : null}
+      </GlassCard>
+    </Pressable>
+  );
+};
 
 const Dashboard = () => {
   const navigation = useNavigation();
+  const { width } = useWindowDimensions();
   const {
-    currentUser,
-    currentRadius,
-    visibleProfiles,
-    events,
-    nearbyOnlineProfiles,
-    getProfileTravelSummary,
     accessStatusLabel,
-    locationPermissionGranted,
+    currentRadius,
+    currentUser,
     locationError,
+    locationPermissionGranted,
+    matchedProfiles,
+    nearbyOnlineProfiles,
     requestLiveLocationAccess,
     updateCurrentUser,
   } = useAffairGo();
-  const [isTogglingVisibility, setIsTogglingVisibility] = useState(false);
-  const [communityRooms, setCommunityRooms] = useState([]);
-  const [communityReads, setCommunityReads] = useState([]);
-  const hasProfilePhoto = Boolean(currentUser.profilePhotoUrl || currentUser.profileImageUri);
+  const profileCompletion = useMemo(() => getProfileCompletionState(currentUser), [currentUser]);
   const visibilityEnabled = Boolean(currentUser.searchActive && locationPermissionGranted);
-  const matchingAccessEnabled = Boolean(visibilityEnabled && hasProfilePhoto);
-  const unreadCommunityRoomsCount = useMemo(() => getCommunityUnreadRoomsCount(communityRooms, communityReads), [communityReads, communityRooms]);
+  const matchCount = matchedProfiles.length;
+  const onlineMatchCount = nearbyOnlineProfiles.length;
+  const isTablet = width >= 760;
+  const isDesktop = width >= 1180;
 
-  useEffect(() => {
-    const roomsQuery = query(collection(db, 'communityRooms'), where('active', '==', true));
-    const unsubscribe = onSnapshot(roomsQuery, (snapshot) => {
-      setCommunityRooms(snapshot.docs.map((roomDoc) => normalizeCommunityRoom({ id: roomDoc.id, ...roomDoc.data() }, roomDoc.id)));
-    }, () => {
-      setCommunityRooms([]);
-    });
+  const handleProfileStatusPress = () => {
+    navigation.navigate('Profil');
+  };
 
-    return () => {
-      unsubscribe();
-    };
-  }, []);
+  const handleMatchesPress = (filter = 'all') => {
+    navigation.navigate('Explore', { segment: 'matches', filter });
+  };
 
-  useEffect(() => {
-    if (!currentUser?.id) {
-      setCommunityReads([]);
-      return undefined;
-    }
-
-    const readsQuery = query(collection(db, 'communityRoomReads'), where('userId', '==', currentUser.id));
-    const unsubscribe = onSnapshot(readsQuery, (snapshot) => {
-      setCommunityReads(snapshot.docs.map((readDoc) => normalizeCommunityRoomRead({ id: readDoc.id, ...readDoc.data() }, readDoc.id)));
-    }, () => {
-      setCommunityReads([]);
-    });
-
-    return () => {
-      unsubscribe();
-    };
-  }, [currentUser?.id]);
-
-  const handleVisibilityToggle = async () => {
-    if (isTogglingVisibility) {
+  const handleVisibilityPress = async () => {
+    if (visibilityEnabled) {
+      await updateCurrentUser({ searchActive: false });
       return;
     }
 
-    try {
-      setIsTogglingVisibility(true);
-
-      if (visibilityEnabled) {
-        updateCurrentUser({ searchActive: false }).catch((error) => {
-          console.warn('AffairGo visibility toggle warning', error);
-        });
-        return;
-      }
-
-      const granted = await requestLiveLocationAccess();
-
-      if (!granted) {
-        updateCurrentUser({ searchActive: false }).catch((error) => {
-          console.warn('AffairGo visibility permission warning', error);
-        });
-        return;
-      }
-
-      updateCurrentUser({ searchActive: true }).catch((error) => {
-        console.warn('AffairGo visibility activation warning', error);
-      });
-    } finally {
-      setIsTogglingVisibility(false);
-    }
-  };
-
-  const openQuickAction = (action) => {
-    if (action.requiresVisibility && !matchingAccessEnabled) {
+    const granted = await requestLiveLocationAccess();
+    if (!granted) {
       return;
     }
 
-    navigation.navigate(action.key);
+    await updateCurrentUser({ searchActive: true });
   };
-  const toTripList = (trips, mode) => {
-    if (!Array.isArray(trips)) {
-      return [];
-    }
-
-    return trips
-      .filter((trip) => trip && typeof trip === 'object')
-      .filter((trip) => trip.startDate || trip.endDate || trip.city || trip.street)
-      .map((trip) => ({ ...trip, mode, id: trip.id || `${mode}-${trip.startDate || 'draft'}-${trip.city || 'unknown'}` }));
-  };
-  const plannedTrips = [
-    ...toTripList(currentUser.travelPlans?.business, 'business'),
-    ...toTripList(currentUser.travelPlans?.vacation, 'vacation'),
-  ];
 
   return (
     <AppBackground>
       <ScreenHeader
-        title="Dashboard"
-        subtitle={currentUser.nickname}
+        title="Aktuelles"
+        subtitle={currentUser.nickname || 'Night Whisper'}
         rightAction={
           <Pressable
             style={[styles.profileButton, { borderColor: accessColors[currentUser.membership] || affairGoTheme.colors.accent }]}
             onPress={() => navigation.navigate('Profil')}
           >
-            <Ionicons name="person-outline" size={24} color={accessColors[currentUser.membership] || affairGoTheme.colors.accent} />
+            <Ionicons name="person-outline" size={22} color={accessColors[currentUser.membership] || affairGoTheme.colors.accent} />
           </Pressable>
         }
       />
 
-      <View style={styles.travelRow}>
-        <View style={styles.statCluster}>
-          <InlineStat label="Radius" value={formatRadiusKm(currentRadius)} />
-          <InlineStat label="Online jetzt" value={String(nearbyOnlineProfiles.length)} accent={affairGoTheme.colors.success} />
-          <InlineStat label="Zugang" value="Kostenfrei" accent={accessColors[currentUser.membership] || affairGoTheme.colors.accent} />
+      <View style={styles.summaryStrip}>
+        <StatusPill label={`Radius ${formatRadiusKm(currentRadius)}`} tone="default" />
+        <StatusPill label={accessStatusLabel} tone="info" />
+      </View>
+
+      <View style={styles.metricsGrid}>
+        {!profileCompletion.isComplete ? (
+          <View style={[styles.metricColumn, isTablet ? styles.metricColumnTablet : null, isDesktop ? styles.metricColumnDesktopThird : null]}>
+            <Pressable onPress={handleProfileStatusPress} testID="profile-status-card" style={({ pressed }) => [styles.metricPressable, pressed ? styles.metricPressablePressed : null]}>
+              <GlassCard strong style={styles.profileStatusCard}>
+                <View style={styles.metricHeader}>
+                  <Text style={styles.metricEyebrow}>Profilstatus</Text>
+                  <StatusPill label={`${profileCompletion.percent}%`} tone="warning" />
+                </View>
+                <Text style={styles.profileStatusValue}>{profileCompletion.percent}% vollständig</Text>
+                <View style={styles.progressTrack}>
+                  <View style={[styles.progressFill, { width: `${profileCompletion.percent}%` }]} />
+                </View>
+                <Text style={styles.profileStatusDetail} numberOfLines={3}>
+                  Es fehlen noch: {profileCompletion.missingFieldLabels.join(', ')}.
+                </Text>
+                <Text style={styles.metricAction}>Zum Profil und fehlende Angaben ergänzen</Text>
+              </GlassCard>
+            </Pressable>
+          </View>
+        ) : null}
+
+        <View style={[styles.metricColumn, isTablet ? styles.metricColumnTablet : null, isDesktop ? styles.metricColumnDesktopThird : null]}>
+          <DashboardMetricCard
+            title="Matches"
+            value={String(matchCount)}
+            detail={matchCount ? 'Aktuell gültige Matches in deinem Bestand.' : 'Noch keine aktuell gültigen Matches vorhanden.'}
+            actionLabel="Kennenlernen öffnen"
+            onPress={() => handleMatchesPress('all')}
+            state="ready"
+            testID="matches-card"
+          />
         </View>
-        <Text style={styles.membershipText}>{accessStatusLabel}</Text>
+
+        <View style={[styles.metricColumn, isTablet ? styles.metricColumnTablet : null, isDesktop ? styles.metricColumnDesktopThird : null]}>
+          <DashboardMetricCard
+            title="Online-Matches"
+            value={String(onlineMatchCount)}
+            detail={onlineMatchCount ? 'Diese Matches sind im aktuellen Presence-Fenster online.' : 'Zurzeit ist keines deiner gültigen Matches online.'}
+            actionLabel="Mit Online-Filter öffnen"
+            onPress={() => handleMatchesPress('online')}
+            state="ready"
+            tone="success"
+            testID="online-matches-card"
+          />
+        </View>
       </View>
 
       <GlassCard strong style={styles.visibilityCard}>
-        <View style={styles.visibilityHeader}>
-          <View style={styles.visibilityCopy}>
-            <Text style={styles.visibilityTitle}>Sichtbarkeit</Text>
-            <Text style={styles.visibilityStatus}>{visibilityEnabled ? 'Aktiv' : 'Inaktiv'}</Text>
-          </View>
-          <AccentButton
-            label={isTogglingVisibility ? 'Aktualisiere...' : visibilityEnabled ? 'Deaktivieren' : 'Aktivieren'}
-            variant={visibilityEnabled ? 'secondary' : 'primary'}
-            onPress={handleVisibilityToggle}
-            disabled={isTogglingVisibility}
-            style={styles.visibilityButton}
-          />
+        <View style={styles.metricHeader}>
+          <Text style={styles.metricEyebrow}>Sichtbarkeit</Text>
+          <StatusPill label={visibilityEnabled ? 'Aktiv' : 'Inaktiv'} tone={visibilityEnabled ? 'success' : 'default'} />
         </View>
-        {!matchingAccessEnabled ? (
-          <Text style={styles.visibilityHint}>
-            {hasProfilePhoto
-              ? 'Sichtbarkeit und Standort aktivieren, um Swipe und Matching Map zu nutzen.'
-              : 'Nur mit Profilbild möglich. Lade zuerst in deinem Profil ein Bild hoch, dann werden Swipe und Matching Map freigeschaltet.'}
-            {locationError ? ` ${locationError}` : ''}
-          </Text>
-        ) : null}
-      </GlassCard>
-
-      <View style={styles.grid}>
-        {quickActions.map((action) => (
-          <Pressable
-            key={action.key}
-            style={styles.tile}
-            onPress={() => openQuickAction(action)}
-            disabled={action.requiresVisibility && !matchingAccessEnabled}
-          >
-            <GlassCard strong style={[styles.tileCard, action.requiresVisibility && !matchingAccessEnabled ? styles.tileCardDisabled : null]}>
-              {action.key === 'Community' && unreadCommunityRoomsCount > 0 ? (
-                <View style={styles.communityBadge}>
-                  <Text style={styles.communityBadgeText}>{unreadCommunityRoomsCount}</Text>
-                </View>
-              ) : null}
-              <Ionicons
-                name={action.icon}
-                size={56}
-                color={action.requiresVisibility && !matchingAccessEnabled ? affairGoTheme.colors.textMuted : affairGoTheme.colors.accent}
-              />
-              <Text style={[styles.tileLabel, action.requiresVisibility && !matchingAccessEnabled ? styles.tileLabelDisabled : null]}>{action.label}</Text>
-              {action.requiresVisibility && !matchingAccessEnabled ? <Text style={styles.tileHint}>Nur mit Profilbild moeglich</Text> : null}
-            </GlassCard>
-          </Pressable>
-        ))}
-      </View>
-
-      <GlassCard style={styles.communityCard}>
-        <Text style={styles.communityTitle}>Whisper Lounge</Text>
-        <Text style={styles.communityCopy}>
-          {unreadCommunityRoomsCount > 0
-            ? `In ${unreadCommunityRoomsCount} Räumen gibt es neue Nachrichten.`
-            : 'Neue Aktivität in deiner Community erscheint hier, sobald Räume neue Nachrichten haben.'}
+        <View style={styles.visibilityStatsRow}>
+          <InlineStat label="Radius" value={formatRadiusKm(currentRadius)} />
+          <InlineStat label="Matches" value={String(matchCount)} accent={affairGoTheme.colors.accent} />
+          <InlineStat label="Online" value={String(onlineMatchCount)} accent={affairGoTheme.colors.accentSoft} />
+        </View>
+        <Text style={styles.visibilityTitle}>Matching und Matching Map nutzen denselben Radius und dieselbe Sichtbarkeit.</Text>
+        <Text style={styles.visibilityDetail}>
+          {visibilityEnabled
+            ? 'Dein Profil ist aktuell für passende Personen sichtbar.'
+            : 'Aktiviere deine Sichtbarkeit, damit Matches und Map wieder vollständig arbeiten.'}
+          {locationError ? ` ${locationError}` : ''}
         </Text>
-        {unreadCommunityRoomsCount > 0 ? <StatusPill label={`${unreadCommunityRoomsCount}`} tone="info" style={styles.communityStatusPill} /> : null}
-        <AccentButton label="Community öffnen" variant="secondary" onPress={() => navigation.navigate('Community')} style={styles.communityButton} />
+        <AccentButton
+          label={visibilityEnabled ? 'Sichtbarkeit pausieren' : 'Sichtbarkeit aktivieren'}
+          variant={visibilityEnabled ? 'secondary' : 'primary'}
+          onPress={handleVisibilityPress}
+          style={styles.visibilityButton}
+        />
       </GlassCard>
 
-      {currentUser.isAdmin ? (
-        <GlassCard style={styles.communityCard}>
-          <Text style={styles.communityTitle}>Community Moderation</Text>
-          <Text style={styles.communityCopy}>Prüfe offene Meldungen, entferne Nachrichten und setze Community-Schreibsperren.</Text>
-          <AccentButton label="Moderation öffnen" variant="secondary" onPress={() => navigation.navigate('CommunityModeration')} style={styles.communityButton} />
-        </GlassCard>
+      {!matchCount ? (
+        <EmptyState
+          title="Noch keine Matches aktiv"
+          detail="Vervollständige dein Profil und halte deine Sichtbarkeit aktiv. Danach erscheinen passende Kontakte in Kennenlernen und auf der Matching Map."
+          action={<AccentButton label="Matching Map öffnen" variant="secondary" onPress={() => navigation.navigate('MatchingMap')} />}
+        />
       ) : null}
-
-      <GlassCard style={styles.travelMenu}>
-        <Pressable style={styles.menuItem} onPress={() => navigation.navigate('TravelPlanner', { mode: 'business' })}>
-          <Text style={styles.menuItemText}>Dienstreise</Text>
-        </Pressable>
-        <Pressable style={styles.menuItem} onPress={() => navigation.navigate('TravelPlanner', { mode: 'vacation' })}>
-          <Text style={styles.menuItemText}>Urlaub</Text>
-        </Pressable>
-        <Pressable style={styles.menuItem} onPress={() => navigation.navigate('Event')}>
-          <Text style={styles.menuItemText}>Veranstaltungen in der Nähe</Text>
-        </Pressable>
-      </GlassCard>
-
-      <View style={styles.signalGrid}>
-        {DASHBOARD_SIGNAL_CARDS.map((card) => (
-          <GlassCard key={card.id} style={styles.signalCard}>
-            <StatusPill label={card.title} tone="info" style={styles.signalPill} />
-            <Text style={styles.signalDetail}>{card.detail}</Text>
-          </GlassCard>
-        ))}
-      </View>
-
-      <SectionTitle title="Veranstaltungen" aside="Werbung" />
-      {events.length ? events.slice(0, 2).map((event) => (
-        <GlassCard key={event.id} style={styles.eventCard}>
-          <Text style={styles.eventTitle}>{event.title}</Text>
-          <Text style={styles.eventText}>{event.date}, {event.time}</Text>
-          <Text style={styles.eventText}>{event.address}</Text>
-          <Text style={styles.eventText}>{event.distanceKm} km entfernt, {event.participants.total} Anmeldungen</Text>
-          <AccentButton label="Event öffnen" variant="secondary" onPress={() => navigation.navigate('Event')} style={styles.eventButton} />
-        </GlassCard>
-      )) : (
-        <EmptyState
-          title={EMPTY_STATE_COPY.events.title}
-          detail={EMPTY_STATE_COPY.events.detail}
-          action={<AccentButton label="Event anlegen" variant="secondary" onPress={() => navigation.navigate('Event')} />}
-        />
-      )}
-
-      <SectionTitle title="Geplante Reisen" aside="Dashboard" />
-      {plannedTrips.length ? plannedTrips.map((trip) => (
-        <GlassCard key={trip.id} style={styles.eventCard}>
-          <Text style={styles.eventTitle}>{trip.mode === 'business' ? 'Dienstreise' : 'Urlaub'}</Text>
-          <Text style={styles.eventText}>{trip.city || 'Ohne Ort'}{trip.postalCode ? `, ${trip.postalCode}` : ''}</Text>
-          <Text style={styles.eventText}>{trip.startDate} bis {trip.endDate}</Text>
-          <Text style={styles.eventText}>{trip.fromTime} bis {trip.toTime}</Text>
-          {trip.street ? <Text style={styles.eventText}>{trip.street}</Text> : null}
-        </GlassCard>
-      )) : (
-        <EmptyState
-          title="Noch keine Reisen geplant"
-          detail="Lege dein nächstes Dienstreise- oder Urlaubsfenster an, damit Matching und Events passend gefiltert werden."
-          action={<AccentButton label="Reise planen" variant="secondary" onPress={() => navigation.navigate('TravelPlanner', { mode: 'business' })} />}
-        />
-      )}
-
-      <SectionTitle title="Jetzt sichtbar" aside="Radar" />
-      {visibleProfiles.length ? <View style={styles.radarList}>
-        {visibleProfiles.slice(0, 3).map((profile) => {
-          const travelSummary = getProfileTravelSummary(profile);
-          return (
-            <GlassCard key={profile.id} style={styles.radarCard}>
-              <View style={styles.radarRow}>
-                <View style={styles.radarInfo}>
-                  <Text style={styles.radarName}>{profile.nickname}</Text>
-                  <Text style={styles.radarMeta}>{profile.age} Jahre, {profile.figure}, {profile.distanceKm} km</Text>
-                  {travelSummary ? (
-                    <Text style={styles.radarMeta}>
-                      {travelSummary.label}
-                      {travelSummary.location ? ` in ${travelSummary.location}` : ''}
-                      {travelSummary.period ? ` • ${travelSummary.period}` : ''}
-                    </Text>
-                  ) : null}
-                </View>
-                <Text style={[styles.radarTag, { color: travelModeColors[travelSummary?.mode || profile.travelMode] || affairGoTheme.colors.blue }]}> 
-                  {travelSummary?.label || 'Aktiv'}
-                </Text>
-              </View>
-            </GlassCard>
-          );
-        })}
-      </View> : (
-        <EmptyState
-          title={EMPTY_STATE_COPY.matches.title}
-          detail={EMPTY_STATE_COPY.matches.detail}
-          action={<AccentButton label="Matching Map öffnen" variant="secondary" onPress={() => navigation.navigate('MatchingMap')} disabled={!matchingAccessEnabled} />}
-        />
-      )}
-
-      <InfoBanner title="Profilstatus" detail={accessStatusLabel} tone="success" style={styles.dashboardBanner} />
     </AppBackground>
   );
 };
 
 const styles = StyleSheet.create({
-  profileButton: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    borderWidth: 1,
-    backgroundColor: 'rgba(0,0,0,0.18)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  travelRow: {
-    marginBottom: 18,
-  },
-  travelMenu: {
-    marginBottom: 16,
-  },
-  menuItem: {
-    paddingVertical: 8,
-  },
-  menuItemText: {
-    color: affairGoTheme.colors.text,
-    fontSize: 20,
-    lineHeight: 30,
-  },
-  statCluster: {
+  summaryStrip: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 14,
+  },
+  metricPressable: {
+    flex: 1,
+  },
+  metricPressablePressed: {
+    opacity: 0.92,
+  },
+  profileStatusCard: {
+    minHeight: 210,
     justifyContent: 'space-between',
   },
-  membershipText: {
-    color: affairGoTheme.colors.textMuted,
-    marginTop: 12,
-    lineHeight: 22,
-  },
-  membershipHint: {
-    color: affairGoTheme.colors.success,
-    marginTop: 6,
-    fontWeight: '700',
-  },
-  signalGrid: {
-    marginBottom: 16,
-  },
-  visibilityCard: {
-    marginBottom: 16,
-  },
-  communityCard: {
-    marginBottom: 16,
-  },
-  communityTitle: {
+  profileStatusValue: {
     color: affairGoTheme.colors.text,
-    fontSize: 22,
+    fontSize: 30,
     fontWeight: '700',
+    marginTop: 10,
   },
-  communityCopy: {
+  profileStatusDetail: {
+    color: affairGoTheme.colors.textMuted,
+    lineHeight: 22,
+    marginTop: 12,
+  },
+  progressTrack: {
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: affairGoTheme.colors.backgroundSoft,
+    overflow: 'hidden',
+    marginTop: 14,
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: affairGoTheme.colors.accentSoft,
+  },
+  metricsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -6,
+    marginBottom: 4,
+  },
+  metricColumn: {
+    width: '100%',
+    paddingHorizontal: 6,
+    marginBottom: 12,
+  },
+  metricColumnTablet: {
+    width: '50%',
+  },
+  metricColumnDesktopThird: {
+    width: '33.3333%',
+  },
+  metricCard: {
+    minHeight: 210,
+    justifyContent: 'space-between',
+  },
+  metricHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  metricEyebrow: {
+    color: affairGoTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  metricValue: {
+    color: affairGoTheme.colors.text,
+    fontSize: 34,
+    fontWeight: '800',
+    marginTop: 12,
+  },
+  metricDetail: {
     color: affairGoTheme.colors.textMuted,
     lineHeight: 22,
     marginTop: 8,
   },
-  communityStatusPill: {
-    alignSelf: 'flex-start',
-    marginTop: 12,
+  metricAction: {
+    color: affairGoTheme.colors.accent,
+    fontWeight: '700',
+    marginTop: 16,
   },
-  communityButton: {
-    marginTop: 14,
-  },
-  visibilityHeader: {
-    flexDirection: 'row',
+  profileButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1,
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
+    backgroundColor: affairGoTheme.colors.cardStrong,
   },
-  visibilityCopy: {
-    flex: 1,
-    paddingRight: 12,
+  visibilityCard: {
+    marginBottom: 16,
+  },
+  visibilityStatsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 14,
   },
   visibilityTitle: {
     color: affairGoTheme.colors.text,
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: '700',
+    lineHeight: 26,
+    marginTop: 16,
   },
-  visibilityStatus: {
+  visibilityDetail: {
     color: affairGoTheme.colors.textMuted,
-    marginTop: 4,
-    fontSize: 15,
+    lineHeight: 22,
+    marginTop: 8,
   },
   visibilityButton: {
-    marginTop: 0,
-  },
-  visibilityHint: {
-    color: affairGoTheme.colors.warning,
-    marginTop: 14,
-    lineHeight: 22,
-  },
-  signalCard: {
-    marginBottom: 10,
-  },
-  signalPill: {
-    marginBottom: 10,
-  },
-  signalDetail: {
-    color: affairGoTheme.colors.textMuted,
-    lineHeight: 22,
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  tile: {
-    width: '48%',
-    marginBottom: 16,
-  },
-  tileCard: {
-    minHeight: 180,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  communityBadge: {
-    position: 'absolute',
-    top: 14,
-    right: 14,
-    minWidth: 28,
-    height: 28,
-    borderRadius: 14,
-    paddingHorizontal: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: affairGoTheme.colors.accent,
-  },
-  communityBadgeText: {
-    color: affairGoTheme.colors.background,
-    fontWeight: '800',
-    fontSize: 13,
-  },
-  tileCardDisabled: {
-    opacity: 0.45,
-  },
-  tileLabel: {
-    color: affairGoTheme.colors.text,
-    fontSize: 24,
-    fontWeight: '600',
-    marginTop: 18,
-    textAlign: 'center',
-  },
-  tileLabelDisabled: {
-    color: affairGoTheme.colors.textMuted,
-  },
-  tileHint: {
-    color: affairGoTheme.colors.textMuted,
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: 10,
-    textAlign: 'center',
-  },
-  eventCard: {
-    marginBottom: 14,
-  },
-  eventTitle: {
-    color: affairGoTheme.colors.accent,
-    fontSize: 24,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  eventText: {
-    color: affairGoTheme.colors.text,
-    fontSize: 16,
-    lineHeight: 24,
-  },
-  eventButton: {
-    marginTop: 14,
-  },
-  radarList: {
-    marginBottom: 12,
-  },
-  radarCard: {
-    marginBottom: 12,
-  },
-  radarRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  radarInfo: {
-    flex: 1,
-    paddingRight: 12,
-  },
-  radarName: {
-    color: affairGoTheme.colors.text,
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  radarMeta: {
-    color: affairGoTheme.colors.textMuted,
-    marginTop: 4,
-  },
-  radarTag: {
-    fontWeight: '700',
-  },
-  dashboardBanner: {
-    marginTop: 10,
-    marginBottom: 10,
+    marginTop: 16,
   },
 });
 
 export default Dashboard;
-
-const React = require('react');

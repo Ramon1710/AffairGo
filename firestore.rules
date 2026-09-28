@@ -80,13 +80,50 @@ service cloud.firestore {
     function isCommunityAdmin() {
       return currentUserProfileExists()
         && (
-          currentUserProfile().data.isAdmin == true
-          || currentUserProfile().data.role == 'admin'
+          ('isAdmin' in currentUserProfile().data && currentUserProfile().data.isAdmin == true)
+          || ('role' in currentUserProfile().data && (
+            currentUserProfile().data.role == 'admin'
+            || currentUserProfile().data.role == 'moderator'
+          ))
         );
+    }
+
+    function userDismissedTarget(sourceUid, targetUid) {
+      return exists(/databases/$(database)/documents/users/$(sourceUid))
+        && 'dismissedProfileIds' in get(/databases/$(database)/documents/users/$(sourceUid)).data
+        && targetUid in get(/databases/$(database)/documents/users/$(sourceUid)).data.dismissedProfileIds;
+    }
+
+    function isMutuallyBlockedWith(targetUid) {
+      return currentUserProfileExists()
+        && exists(/databases/$(database)/documents/users/$(targetUid))
+        && (
+          userDismissedTarget(request.auth.uid, targetUid)
+          || userDismissedTarget(targetUid, request.auth.uid)
+        );
+    }
+
+    function canReadDates() {
+      return currentCommunityRulesAccepted();
+    }
+
+    function isVisibleDate() {
+      return 'creatorId' in resource.data
+        && resource.data.creatorId is string
+        && resource.data.status == 'active'
+        && resource.data.scheduledAt is timestamp
+        && resource.data.scheduledAt > request.time
+        && !isMutuallyBlockedWith(resource.data.creatorId);
     }
 
     function roomIsActive(roomId) {
       return get(/databases/$(database)/documents/communityRooms/$(roomId)).data.active == true;
+    }
+
+    function hasReadableCommunityMessageExpiry() {
+      return resource.data.keys().hasAll(['expiresAt'])
+        && resource.data.expiresAt is timestamp
+        && resource.data.expiresAt > request.time;
     }
 
     function isOwner(uid) {
@@ -156,7 +193,11 @@ service cloud.firestore {
     }
 
     match /communityRooms/{roomId}/messages/{messageId} {
-      allow read: if currentCommunityRulesAccepted() && (roomIsActive(roomId) || isCommunityAdmin());
+      allow list: if currentCommunityRulesAccepted()
+        && (roomIsActive(roomId) || isCommunityAdmin());
+      allow get: if currentCommunityRulesAccepted()
+        && (roomIsActive(roomId) || isCommunityAdmin())
+        && hasReadableCommunityMessageExpiry();
       allow create, update, delete: if false;
     }
 
@@ -186,6 +227,19 @@ service cloud.firestore {
     }
 
     match /communityPresence/{uid} {
+      allow read, create, update, delete: if false;
+    }
+
+    match /dates/{dateId} {
+      allow get: if isSignedIn() && (
+        isCommunityAdmin()
+        || ('creatorId' in resource.data && resource.data.creatorId == request.auth.uid)
+        || (canReadDates() && isVisibleDate())
+      );
+      allow list, create, update, delete: if false;
+    }
+
+    match /dates/{dateId}/interests/{interestUserId} {
       allow read, create, update, delete: if false;
     }
 
@@ -228,6 +282,7 @@ service cloud.firestore {
         && collection != 'communityBlocks'
         && collection != 'communityConfig'
         && collection != 'communityPresence'
+        && collection != 'dates'
         && collection != 'communityReports'
         && collection != 'communityRuleAcceptances'
         && collection != 'communityRuleVersions'
@@ -246,6 +301,7 @@ service cloud.firestore {
         && collection != 'communityBlocks'
         && collection != 'communityConfig'
         && collection != 'communityPresence'
+        && collection != 'dates'
         && collection != 'communityReports'
         && collection != 'communityRuleAcceptances'
         && collection != 'communityRuleVersions'

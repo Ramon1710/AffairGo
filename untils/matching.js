@@ -114,6 +114,78 @@ const isWithinCurrentUserRadius = (sourceProfile = {}, targetProfile = {}) => {
   return targetDistance <= currentUserRadius;
 };
 
+const isBlockedProfilePair = (sourceProfile = {}, targetProfile = {}) => {
+  const sourceId = typeof sourceProfile.id === 'string' ? sourceProfile.id.trim() : '';
+  const targetId = typeof targetProfile.id === 'string' ? targetProfile.id.trim() : '';
+  const sourceDismissedIds = new Set(normalizeMatchingIdList(sourceProfile.dismissedProfileIds));
+  const targetDismissedIds = new Set(normalizeMatchingIdList(targetProfile.dismissedProfileIds));
+
+  return Boolean(sourceId && targetId && (sourceDismissedIds.has(targetId) || targetDismissedIds.has(sourceId)));
+};
+
+const isAllowedMatchedProfile = (sourceProfile = {}, targetProfile = {}) => {
+  const sourceId = typeof sourceProfile.id === 'string' ? sourceProfile.id.trim() : '';
+  const targetId = typeof targetProfile.id === 'string' ? targetProfile.id.trim() : '';
+
+  if (!sourceId || !targetId || sourceId === targetId) {
+    return false;
+  }
+
+  if (sourceProfile.isAdmin || sourceProfile.role === 'admin' || targetProfile.isAdmin || targetProfile.role === 'admin') {
+    return false;
+  }
+
+  if (sourceProfile.accountDeletionRequestedAt || targetProfile.accountDeletionRequestedAt) {
+    return false;
+  }
+
+  if (sourceProfile.moderationState === 'restricted' || targetProfile.moderationState === 'restricted') {
+    return false;
+  }
+
+  return !isBlockedProfilePair(sourceProfile, targetProfile);
+};
+
+const buildMatchedProfiles = (sourceProfile = {}, chatList = [], users = [], options = {}) => {
+  const staleAfterMs = Number.isFinite(Number(options.locationStaleAfterMs))
+    ? Number(options.locationStaleAfterMs)
+    : DEFAULT_PRESENCE_STALE_AFTER_MS;
+  const userMap = new Map((Array.isArray(users) ? users : []).map((user) => [user.id, user]));
+  const seenUserIds = new Set();
+
+  return (Array.isArray(chatList) ? chatList : [])
+    .filter((chat) => chat?.match && typeof chat?.userId === 'string' && chat.userId.trim())
+    .map((chat) => userMap.get(chat.userId) || null)
+    .filter(Boolean)
+    .filter((profile) => {
+      if (seenUserIds.has(profile.id)) {
+        return false;
+      }
+
+      seenUserIds.add(profile.id);
+      return true;
+    })
+    .map((profile) => ({
+      ...profile,
+      online: Boolean(profile.online) && isPresenceFresh(getPresenceTimestamp(profile), staleAfterMs),
+    }))
+    .filter((profile) => isAllowedMatchedProfile(sourceProfile, profile))
+    .sort((left, right) => {
+      if (left.online !== right.online) {
+        return left.online ? -1 : 1;
+      }
+
+      const leftDistance = normalizeFiniteNumber(left.distanceKm) ?? Number.MAX_SAFE_INTEGER;
+      const rightDistance = normalizeFiniteNumber(right.distanceKm) ?? Number.MAX_SAFE_INTEGER;
+
+      if (leftDistance !== rightDistance) {
+        return leftDistance - rightDistance;
+      }
+
+      return String(left.nickname || '').localeCompare(String(right.nickname || ''), 'de-DE');
+    });
+};
+
 const getMatchEligibility = (sourceProfile = {}, targetProfile = {}, options = {}) => {
   const minimumSharedPreferences = Number.isFinite(Number(options.minimumSharedPreferences))
     ? Number(options.minimumSharedPreferences)
@@ -381,10 +453,11 @@ const isMutualSearchMatch = (currentUser, targetUser, helpers) => (
 );
 
 export {
+  buildMatchedProfiles,
     DEFAULT_PRESENCE_STALE_AFTER_MS,
     getCompatibility,
     getMatchEligibility, getSharedPreferenceCount, getSharedPreferences, hasPreferenceTabooConflict, hasRequiredPreferenceMatch, hasStoredProfilePhoto, isMutualAgeMatch, isMutualGenderMatch,
-    isMutualSearchMatch, isPresenceFresh, isWithinExtendedSearchRadius, parseHeightToCentimeters,
+  isAllowedMatchedProfile, isBlockedProfilePair, isMutualSearchMatch, isPresenceFresh, isWithinExtendedSearchRadius, parseHeightToCentimeters,
     parseSizeToNumber
 };
 

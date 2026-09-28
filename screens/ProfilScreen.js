@@ -383,11 +383,11 @@ const ProfilScreen = () => {
       <ScreenHeader
         title={isOwnProfile ? 'Dein Profil' : profile.nickname}
         subtitle={isOwnProfile ? 'Persönliche Daten' : `${viewedProfileMatch?.commonPreferenceCount || 0} gemeinsame Vorlieben`}
-        leftAction={
+        leftAction={!isOwnProfile ? (
           <Pressable onPress={() => navigation.goBack()}>
             <Ionicons name="arrow-back" size={28} color={affairGoTheme.colors.accentSoft} />
           </Pressable>
-        }
+        ) : null}
       />
 
       <GlassCard strong style={styles.heroCard}>

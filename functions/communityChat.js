@@ -17,8 +17,10 @@ const {
   validateCommunityRulesVersion,
 } = require('./communityRules');
 const {
+  COMMUNITY_PRESENCE_STATUSES,
   buildCommunityPresenceRecord,
   buildCommunityPresenceSummary,
+  getCommunityPresenceStatus,
   shouldThrottleCommunityPresenceWrite,
 } = require('./communityPresence');
 
@@ -92,6 +94,7 @@ const COMMUNITY_MODERATION_LOG_ACTIONS = Object.freeze({
 });
 
 const COMMUNITY_MESSAGE_MAX_LENGTH = 1000;
+const COMMUNITY_MESSAGE_TTL_MS = 60 * 60 * 1000;
 const COMMUNITY_MENTION_MAX_COUNT = 8;
 const COMMUNITY_REPORT_COMMENT_MAX_LENGTH = 500;
 const COMMUNITY_BLOCK_REASON_MAX_LENGTH = 160;
@@ -206,6 +209,9 @@ const createDefaultReactionCounts = () => ({
 });
 
 const normalizeOptionalString = (value) => (typeof value === 'string' ? value.trim() : '');
+const normalizeStringIdList = (value) => (Array.isArray(value)
+  ? value.filter((entry) => typeof entry === 'string').map((entry) => entry.trim()).filter(Boolean)
+  : []);
 
 const normalizeOptionalBoolean = (value) => value === true;
 
@@ -939,7 +945,9 @@ const buildCommunityReportRecord = ({
   reportedNickname,
   roomId,
   messageId = null,
+  messageCreatedAt = null,
   messagePreview = '',
+  messageSnapshot = null,
   reason,
   comment,
   priority,
@@ -952,7 +960,9 @@ const buildCommunityReportRecord = ({
   reportedNickname,
   roomId,
   messageId,
+  messageCreatedAt,
   messagePreview,
+  messageSnapshot,
   reason,
   comment,
   priority,
@@ -1218,20 +1228,49 @@ const getCommunityRoomLastActivityMillis = (room = {}) => {
   return lastMessageAtMs || updatedAtMs || createdAtMs || 0;
 };
 
-const buildCommunityMessageRecord = ({ messageId, roomId, uid, nickname, text, replyToMessageId = '', mentions = [], fieldValue }) => ({
-  id: messageId,
+const buildCommunityMessageRecord = ({
+  messageId,
+  clientMessageId = '',
   roomId,
-  userId: uid,
+  uid,
   nickname,
   text,
-  createdAt: fieldValue.serverTimestamp(),
-  updatedAt: fieldValue.serverTimestamp(),
-  deletedAt: null,
-  moderationStatus: COMMUNITY_MESSAGE_MODERATION_STATUSES.VISIBLE,
-  replyToMessageId: replyToMessageId || null,
-  mentions,
-  reactionCounts: createDefaultReactionCounts(),
-  edited: false,
+  replyToMessageId = '',
+  mentions = [],
+  fieldValue,
+  timestamp,
+}) => {
+  const createdAt = timestamp.now();
+  const createdAtMs = parseTimestampToMillis(createdAt) || Date.now();
+
+  return {
+    id: messageId,
+    clientMessageId: clientMessageId || null,
+    roomId,
+    userId: uid,
+    nickname,
+    text,
+    createdAt,
+    expiresAt: timestamp.fromMillis(createdAtMs + COMMUNITY_MESSAGE_TTL_MS),
+    updatedAt: fieldValue.serverTimestamp(),
+    deletedAt: null,
+    moderationStatus: COMMUNITY_MESSAGE_MODERATION_STATUSES.VISIBLE,
+    replyToMessageId: replyToMessageId || null,
+    mentions,
+    reactionCounts: createDefaultReactionCounts(),
+    edited: false,
+  };
+};
+
+const buildCommunityReportMessageSnapshot = ({ messageId, message = {} }) => ({
+  messageId,
+  roomId: normalizeOptionalString(message.roomId),
+  authorUserId: normalizeOptionalString(message.userId),
+  nickname: normalizeOptionalString(message.nickname) || 'Night-Whisper Mitglied',
+  text: normalizeCommunityText(message.text || '').slice(0, COMMUNITY_MESSAGE_MAX_LENGTH),
+  createdAt: message.createdAt || null,
+  replyToMessageId: normalizeOptionalString(message.replyToMessageId) || null,
+  moderationStatus: normalizeOptionalString(message.moderationStatus) || COMMUNITY_MESSAGE_MODERATION_STATUSES.VISIBLE,
 });
 
 const buildCommunityRateLimitRecord = ({ uid, recentMessageTimestamps, fieldValue }) => ({
@@ -1268,6 +1307,27 @@ const buildMentionPlans = ({ firestore, senderUserId, mentionedUserIds }) => men
   })),
 }));
 
+const isCommunityParticipantBlocked = ({ viewerProfile = {}, participantProfile = {}, communityBlocksByKey = new Set() }) => {
+  const viewerUserId = normalizeOptionalString(viewerProfile.id || viewerProfile.uid);
+  const participantUserId = normalizeOptionalString(participantProfile.id || participantProfile.uid);
+
+  if (!viewerUserId || !participantUserId || viewerUserId === participantUserId) {
+    return false;
+  }
+
+  if (communityBlocksByKey.has(`${viewerUserId}__${participantUserId}`) || communityBlocksByKey.has(`${participantUserId}__${viewerUserId}`)) {
+    return true;
+  }
+
+  const viewerDismissedIds = new Set(normalizeStringIdList(viewerProfile.dismissedProfileIds));
+  const participantDismissedIds = new Set(normalizeStringIdList(participantProfile.dismissedProfileIds));
+
+  return viewerDismissedIds.has(participantUserId) || participantDismissedIds.has(viewerUserId);
+};
+
+const canDisplayCommunityParticipantProfile = (profile = {}) => !hasPendingDeletion(profile)
+  && !isModerationRestricted(profile);
+
 const buildMentionSnapshotsByBlockState = ({ mentionPlans, mentionResults }) => {
   const nextSnapshots = [];
   let resultIndex = 0;
@@ -1288,7 +1348,7 @@ const buildMentionSnapshotsByBlockState = ({ mentionPlans, mentionResults }) => 
   return nextSnapshots;
 };
 
-const createSendCommunityMessageHandler = ({ firestore, fieldValue, logger = console, now = () => Date.now() }) => {
+const createSendCommunityMessageHandler = ({ firestore, fieldValue, timestamp, logger = console, now = () => Date.now() }) => {
   return async (request) => {
     const uid = request.auth?.uid;
 
@@ -1298,17 +1358,19 @@ const createSendCommunityMessageHandler = ({ firestore, fieldValue, logger = con
 
     const roomId = sanitizeCommunityRoomId(request.data?.roomId);
     const normalizedText = validateCommunityMessage(request.data?.text);
+    const clientMessageId = sanitizeOptionalDocumentId(request.data?.clientMessageId, 'clientMessageId');
     const replyToMessageId = sanitizeOptionalDocumentId(request.data?.replyToMessageId, 'replyToMessageId');
     const requestedMentionUserIds = normalizeCommunityMessageMentions(request.data?.mentions);
     const roomRef = firestore.collection('communityRooms').doc(roomId);
-    const messageRef = roomRef.collection('messages').doc();
+    const messageRef = clientMessageId ? roomRef.collection('messages').doc(clientMessageId) : roomRef.collection('messages').doc();
     const rateLimitRef = firestore.collection('communityRateLimits').doc(uid);
     const safetyStateRef = firestore.collection('communitySafetyStates').doc(uid);
     const userRef = firestore.collection('users').doc(uid);
     const nowMs = now();
+    let sendResult = null;
 
     try {
-      await firestore.runTransaction(async (transaction) => {
+      sendResult = await firestore.runTransaction(async (transaction) => {
         const replyRef = replyToMessageId ? roomRef.collection('messages').doc(replyToMessageId) : null;
         const acceptanceRef = getCommunityRulesAcceptanceRef(firestore, uid);
         const mentionPlans = buildMentionPlans({
@@ -1316,13 +1378,14 @@ const createSendCommunityMessageHandler = ({ firestore, fieldValue, logger = con
           senderUserId: uid,
           mentionedUserIds: requestedMentionUserIds,
         });
-        const [userSnapshot, roomSnapshot, rateLimitSnapshot, safetyStateSnapshot, replySnapshot, acceptanceSnapshot, ...mentionResults] = await Promise.all([
+        const [userSnapshot, roomSnapshot, rateLimitSnapshot, safetyStateSnapshot, replySnapshot, acceptanceSnapshot, existingMessageSnapshot, ...mentionResults] = await Promise.all([
           transaction.get(userRef),
           transaction.get(roomRef),
           transaction.get(rateLimitRef),
           transaction.get(safetyStateRef),
           replyRef ? transaction.get(replyRef) : Promise.resolve(null),
           transaction.get(acceptanceRef),
+          clientMessageId ? transaction.get(messageRef) : Promise.resolve(null),
           ...mentionPlans.flatMap((plan) => [
             transaction.get(plan.userRef),
             transaction.get(plan.blockedBySenderRef),
@@ -1341,6 +1404,41 @@ const createSendCommunityMessageHandler = ({ firestore, fieldValue, logger = con
           authToken: request.auth?.token || {},
           action: COMMUNITY_ACCESS_ACTIONS.WRITE,
         });
+
+        if (existingMessageSnapshot?.exists) {
+          const existingMessage = existingMessageSnapshot.data() || {};
+
+          if (normalizeOptionalString(existingMessage.userId) !== uid) {
+            throw new HttpsError('already-exists', 'Diese Nachrichtenkennung ist bereits belegt.', getCommunityErrorDetails('client_message_id_conflict', {
+              roomId,
+              clientMessageId,
+            }));
+          }
+
+          if (
+            normalizeOptionalString(existingMessage.text) !== normalizedText
+            || normalizeOptionalString(existingMessage.roomId) !== roomId
+            || normalizeOptionalString(existingMessage.replyToMessageId) !== replyToMessageId
+          ) {
+            throw new HttpsError('already-exists', 'Diese Nachricht wurde bereits mit anderem Inhalt übertragen.', getCommunityErrorDetails('client_message_payload_conflict', {
+              roomId,
+              clientMessageId,
+            }));
+          }
+
+          return {
+            ok: true,
+            roomId,
+            messageId: existingMessageSnapshot.id,
+            clientMessageId: normalizeOptionalString(existingMessage.clientMessageId) || clientMessageId || null,
+            replyToMessageId: normalizeOptionalString(existingMessage.replyToMessageId) || null,
+            moderationStatus: normalizeOptionalString(existingMessage.moderationStatus) || COMMUNITY_MESSAGE_MODERATION_STATUSES.VISIBLE,
+            createdAt: existingMessage.createdAt || null,
+            expiresAt: existingMessage.expiresAt || null,
+            idempotentReplay: true,
+          };
+        }
+
         assertCommunityChatWriteAllowed({
           safetyState: safetyStateSnapshot.exists ? safetyStateSnapshot.data() : {},
           nowMs,
@@ -1393,6 +1491,7 @@ const createSendCommunityMessageHandler = ({ firestore, fieldValue, logger = con
         const nickname = normalizeOptionalString(profile.nickname) || 'Night-Whisper Mitglied';
         const nextMessage = buildCommunityMessageRecord({
           messageId: messageRef.id,
+          clientMessageId,
           roomId,
           uid,
           nickname,
@@ -1400,6 +1499,7 @@ const createSendCommunityMessageHandler = ({ firestore, fieldValue, logger = con
           replyToMessageId: validatedReplyToMessageId,
           mentions,
           fieldValue,
+          timestamp,
         });
 
         transaction.set(messageRef, nextMessage);
@@ -1413,6 +1513,18 @@ const createSendCommunityMessageHandler = ({ firestore, fieldValue, logger = con
           recentMessageTimestamps,
           fieldValue,
         }), { merge: true });
+
+        return {
+          ok: true,
+          roomId,
+          messageId: messageRef.id,
+          clientMessageId: clientMessageId || null,
+          replyToMessageId: validatedReplyToMessageId || null,
+          moderationStatus: COMMUNITY_MESSAGE_MODERATION_STATUSES.VISIBLE,
+          createdAt: nextMessage.createdAt,
+          expiresAt: nextMessage.expiresAt,
+          idempotentReplay: false,
+        };
       });
     } catch (error) {
       if (!(error instanceof HttpsError)) {
@@ -1438,13 +1550,7 @@ const createSendCommunityMessageHandler = ({ firestore, fieldValue, logger = con
       throw error;
     }
 
-    return {
-      ok: true,
-      roomId,
-      messageId: messageRef.id,
-      replyToMessageId: replyToMessageId || null,
-      moderationStatus: COMMUNITY_MESSAGE_MODERATION_STATUSES.VISIBLE,
-    };
+    return sendResult;
   };
 };
 
@@ -1782,6 +1888,8 @@ const createReportCommunityContentHandler = ({ firestore, fieldValue, now = () =
       let reportedNickname = '';
       let resolvedMessageId = null;
       let messagePreview = '';
+      let messageCreatedAt = null;
+      let messageSnapshotPayload = null;
 
       if (messageSnapshot) {
         if (!messageSnapshot.exists) {
@@ -1798,6 +1906,11 @@ const createReportCommunityContentHandler = ({ firestore, fieldValue, now = () =
         reportedNickname = normalizeOptionalString(message.nickname) || 'Night-Whisper Mitglied';
         resolvedMessageId = messageSnapshot.id;
         messagePreview = normalizeCommunityText(message.text || '').slice(0, 280);
+        messageCreatedAt = message.createdAt || null;
+        messageSnapshotPayload = buildCommunityReportMessageSnapshot({
+          messageId: messageSnapshot.id,
+          message,
+        });
 
         if (!reportedUserId) {
           throw new HttpsError('failed-precondition', 'Die Community-Nachricht ist ungültig.', getCommunityErrorDetails('invalid_report_message_owner', { roomId, messageId }));
@@ -1820,7 +1933,9 @@ const createReportCommunityContentHandler = ({ firestore, fieldValue, now = () =
         reportedNickname,
         roomId,
         messageId: resolvedMessageId,
+        messageCreatedAt,
         messagePreview,
+        messageSnapshot: messageSnapshotPayload,
         reason,
         comment,
         priority,
@@ -2354,7 +2469,8 @@ const createGetCommunityPresenceSummaryHandler = ({ firestore, now = () => Date.
       throw new HttpsError('unauthenticated', 'Authentifizierung erforderlich.');
     }
 
-    await assertCommunityAccess({
+    const requestedRoomId = sanitizeOptionalDocumentId(request.data?.roomId, 'roomId');
+    const viewerProfile = await assertCommunityAccess({
       firestore,
       uid,
       authToken: request.auth?.token || {},
@@ -2367,6 +2483,61 @@ const createGetCommunityPresenceSummaryHandler = ({ firestore, now = () => Date.
     ]);
     const activeRoomIds = new Set(activeRoomsSnapshot.docs.map((docSnapshot) => docSnapshot.id));
 
+    let participants = [];
+
+    if (requestedRoomId) {
+      const activeParticipants = presenceSnapshot.docs
+        .map((docSnapshot) => ({ id: docSnapshot.id, ...docSnapshot.data() }))
+        .filter((entry) => entry?.showActivityStatus !== false)
+        .filter((entry) => normalizeOptionalString(entry.currentRoomId) === requestedRoomId)
+        .map((entry) => ({
+          ...entry,
+          onlineStatus: getCommunityPresenceStatus({
+            lastActiveAt: entry.lastActiveAt,
+            nowMs: now(),
+          }),
+        }))
+        .filter((entry) => entry.onlineStatus === COMMUNITY_PRESENCE_STATUSES.ACTIVE);
+
+      const participantUserIds = Array.from(new Set(activeParticipants.map((entry) => normalizeOptionalString(entry.userId)).filter(Boolean)));
+      const [participantSnapshots, communityBlockSnapshots] = await Promise.all([
+        Promise.all(participantUserIds.map((participantUserId) => firestore.collection('users').doc(participantUserId).get())),
+        Promise.all(participantUserIds.flatMap((participantUserId) => [
+          firestore.collection('communityBlocks').doc(`${uid}__${participantUserId}`).get(),
+          firestore.collection('communityBlocks').doc(`${participantUserId}__${uid}`).get(),
+        ])),
+      ]);
+      const participantProfileByUserId = new Map(participantSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => [snapshot.id, {
+        id: snapshot.id,
+        ...snapshot.data(),
+      }]));
+      const communityBlocksByKey = new Set(communityBlockSnapshots.filter((snapshot) => snapshot.exists).map((snapshot) => snapshot.id));
+
+      participants = activeParticipants.reduce((result, entry) => {
+        const participantUserId = normalizeOptionalString(entry.userId);
+        const participantProfile = participantProfileByUserId.get(participantUserId);
+
+        if (!participantProfile || !canDisplayCommunityParticipantProfile(participantProfile)) {
+          return result;
+        }
+
+        if (isCommunityParticipantBlocked({ viewerProfile, participantProfile, communityBlocksByKey })) {
+          return result;
+        }
+
+        return [...result, {
+          userId: participantUserId,
+          nickname: normalizeOptionalString(participantProfile.nickname) || 'Night-Whisper Mitglied',
+          profileImageUri: normalizeOptionalString(participantProfile.profileImageUri),
+          profilePhotoUrl: normalizeOptionalString(participantProfile.profilePhotoUrl),
+          currentRoomId: requestedRoomId,
+          onlineStatus: entry.onlineStatus,
+          isModerator: participantProfile.isAdmin === true || normalizeOptionalString(participantProfile.role).toLowerCase() === 'admin',
+          role: normalizeOptionalString(participantProfile.role),
+        }];
+      }, []);
+    }
+
     return {
       ok: true,
       summary: buildCommunityPresenceSummary({
@@ -2374,6 +2545,7 @@ const createGetCommunityPresenceSummaryHandler = ({ firestore, now = () => Date.
         activeRoomIds,
         nowMs: now(),
       }),
+      participants,
     };
   };
 };

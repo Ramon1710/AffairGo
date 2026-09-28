@@ -11,6 +11,7 @@ const COMMUNITY_ROOM_DISPLAY_ORDER = Object.freeze([
 ]);
 const COMMUNITY_MESSAGE_MAX_LENGTH = 1000;
 const COMMUNITY_MESSAGE_COUNTER_THRESHOLD = 800;
+const COMMUNITY_MESSAGE_TTL_MS = 60 * 60 * 1000;
 const COMMUNITY_FALLBACK_NICKNAME = 'Night-Whisper Mitglied';
 const COMMUNITY_REMOVED_MESSAGE_LABEL = 'Diese Nachricht wurde entfernt.';
 const COMMUNITY_RATE_LIMIT_ERROR_MESSAGE = 'Du schreibst gerade sehr schnell. Bitte warte einen Moment.';
@@ -538,14 +539,73 @@ const formatCommunityTime = (value) => {
   });
 };
 
+const normalizeServerMillis = (value) => {
+  if (!Number.isFinite(Number(value))) {
+    return 0;
+  }
+
+  const numericValue = Number(value);
+  return numericValue < 1e12 ? numericValue * 1000 : numericValue;
+};
+
+const resolveFirebaseAuthTimeMs = (authUser = null, idTokenResult = null) => {
+  const authTimeClaim = idTokenResult?.claims?.auth_time ?? idTokenResult?.authTime ?? null;
+
+  if (Number.isFinite(Number(authTimeClaim))) {
+    return normalizeServerMillis(authTimeClaim);
+  }
+
+  if (typeof authTimeClaim === 'string' && authTimeClaim.trim()) {
+    const numericAuthTime = Number(authTimeClaim);
+
+    if (Number.isFinite(numericAuthTime)) {
+      return normalizeServerMillis(numericAuthTime);
+    }
+
+    const parsedAuthTime = new Date(authTimeClaim).getTime();
+    if (Number.isFinite(parsedAuthTime)) {
+      return parsedAuthTime;
+    }
+  }
+
+  const lastSignInTimeMs = resolveTimestampMillis(authUser?.metadata?.lastSignInTime);
+  return lastSignInTimeMs || 0;
+};
+
+const getCommunityVisibilityStartMs = ({ loginTimeMs = 0, nowMs = Date.now(), maxAgeMs = COMMUNITY_MESSAGE_TTL_MS } = {}) => {
+  const normalizedNowMs = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
+  const normalizedLoginTimeMs = Math.max(0, Number(loginTimeMs) || 0);
+  const normalizedMaxAgeMs = Number.isFinite(Number(maxAgeMs)) ? Number(maxAgeMs) : COMMUNITY_MESSAGE_TTL_MS;
+
+  return Math.max(normalizedLoginTimeMs, normalizedNowMs - normalizedMaxAgeMs);
+};
+
+const isCommunityMessageVisible = ({ message = {}, visibilityStartMs = 0, nowMs = Date.now() } = {}) => {
+  const createdAtMs = Number(message?.createdAtMs) || resolveTimestampMillis(message?.createdAt) || 0;
+  const normalizedNowMs = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
+  const expiresAtMs = Number(message?.expiresAtMs) || resolveTimestampMillis(message?.expiresAt) || 0;
+
+  if (!createdAtMs || !expiresAtMs) {
+    return false;
+  }
+
+  return createdAtMs >= Math.max(0, Number(visibilityStartMs) || 0)
+    && expiresAtMs > normalizedNowMs;
+};
+
+const filterCommunityMessagesByVisibility = (messages = [], visibilityStartMs = 0, nowMs = Date.now()) => (Array.isArray(messages) ? messages : [])
+  .filter((message) => isCommunityMessageVisible({ message, visibilityStartMs, nowMs }));
+
 const normalizeCommunityMessage = (message = {}, fallbackId = '') => {
   const timestampMs = resolveTimestampMillis(message.createdAt);
+  const expiresAtMs = resolveTimestampMillis(message.expiresAt);
   const removed = Boolean(message.deletedAt) || String(message.moderationStatus || 'VISIBLE') !== 'VISIBLE';
 
   return {
     id: String(message.id || fallbackId || ''),
     roomId: String(message.roomId || COMMUNITY_ROOM_ID),
     userId: String(message.userId || ''),
+    clientMessageId: String(message.clientMessageId || ''),
     nickname: String(message.nickname || COMMUNITY_FALLBACK_NICKNAME),
     text: removed ? COMMUNITY_REMOVED_MESSAGE_LABEL : String(message.text || ''),
     replyToMessageId: String(message.replyToMessageId || ''),
@@ -558,9 +618,99 @@ const normalizeCommunityMessage = (message = {}, fallbackId = '') => {
     reactionCounts: normalizeReactionCounts(message.reactionCounts),
     createdAt: message.createdAt || null,
     createdAtMs: timestampMs,
+    expiresAt: message.expiresAt || null,
+    expiresAtMs,
     timeLabel: formatCommunityTime(message.createdAt),
     removed,
   };
+};
+
+const normalizeCommunityPresenceParticipant = (value = {}) => ({
+  userId: String(value.userId || value.id || ''),
+  nickname: String(value.nickname || COMMUNITY_FALLBACK_NICKNAME),
+  profileImageUri: String(value.profileImageUri || ''),
+  profilePhotoUrl: String(value.profilePhotoUrl || ''),
+  onlineStatus: String(value.onlineStatus || 'OFFLINE').toUpperCase(),
+  currentRoomId: String(value.currentRoomId || ''),
+  isModerator: value.isModerator === true || value.isAdmin === true || String(value.role || '').trim().toLowerCase() === 'admin',
+});
+
+const getCommunityParticipantStatusLabel = (status = 'OFFLINE') => {
+  const normalizedStatus = String(status || 'OFFLINE').toUpperCase();
+
+  if (normalizedStatus === 'ACTIVE') {
+    return 'Online';
+  }
+
+  if (normalizedStatus === 'RECENT') {
+    return 'Vor kurzem aktiv';
+  }
+
+  return 'Offline';
+};
+
+const sortCommunityParticipants = (participants = []) => [...(Array.isArray(participants) ? participants : [])]
+  .map((entry) => normalizeCommunityPresenceParticipant(entry))
+  .sort((left, right) => {
+    const leftModeratorRank = left.isModerator ? 0 : 1;
+    const rightModeratorRank = right.isModerator ? 0 : 1;
+
+    if (leftModeratorRank !== rightModeratorRank) {
+      return leftModeratorRank - rightModeratorRank;
+    }
+
+    const statusRank = {
+      ACTIVE: 0,
+      RECENT: 1,
+      OFFLINE: 2,
+    };
+    const leftStatusRank = statusRank[left.onlineStatus] ?? 99;
+    const rightStatusRank = statusRank[right.onlineStatus] ?? 99;
+
+    if (leftStatusRank !== rightStatusRank) {
+      return leftStatusRank - rightStatusRank;
+    }
+
+    return String(left.nickname || '').localeCompare(String(right.nickname || ''), 'de-DE');
+  });
+
+const mergePendingCommunityMessages = ({ messages = [], pendingMessages = [] } = {}) => {
+  const normalizedMessages = Array.isArray(messages) ? messages : [];
+  const normalizedPendingMessages = Array.isArray(pendingMessages) ? pendingMessages : [];
+  const serverIds = new Set(normalizedMessages.map((message) => String(message?.id || '')).filter(Boolean));
+  const serverClientMessageIds = new Set(normalizedMessages.map((message) => String(message?.clientMessageId || '')).filter(Boolean));
+  const mergedMessages = [...normalizedMessages];
+
+  normalizedPendingMessages.forEach((pendingMessage) => {
+    if (!pendingMessage) {
+      return;
+    }
+
+    const pendingClientMessageId = String(pendingMessage.clientMessageId || '');
+    const pendingServerMessage = pendingMessage.deliveryState === 'confirmed' && pendingMessage.serverMessage
+      ? normalizeCommunityMessage(pendingMessage.serverMessage, pendingMessage.serverMessage?.id || pendingMessage.id)
+      : null;
+    const pendingId = String(pendingServerMessage?.id || pendingMessage.id || '');
+    const alreadyMerged = (pendingClientMessageId && serverClientMessageIds.has(pendingClientMessageId))
+      || (pendingId && serverIds.has(pendingId));
+
+    if (alreadyMerged) {
+      return;
+    }
+
+    mergedMessages.push(pendingServerMessage || pendingMessage);
+  });
+
+  return mergedMessages.sort((left, right) => {
+    const leftTime = Number(left?.createdAtMs) || 0;
+    const rightTime = Number(right?.createdAtMs) || 0;
+
+    if (leftTime !== rightTime) {
+      return leftTime - rightTime;
+    }
+
+    return String(left?.id || '').localeCompare(String(right?.id || ''), 'de-DE');
+  });
 };
 
 const normalizeCommunityRulesEnvelope = (value = {}) => {
@@ -876,6 +1026,7 @@ module.exports = {
   COMMUNITY_FALLBACK_NICKNAME,
   COMMUNITY_MESSAGE_COUNTER_THRESHOLD,
   COMMUNITY_MESSAGE_MAX_LENGTH,
+  COMMUNITY_MESSAGE_TTL_MS,
   COMMUNITY_REACTION_EMOJIS,
   COMMUNITY_REACTION_TYPES,
   COMMUNITY_REPORT_COMMENT_MAX_LENGTH,
@@ -895,6 +1046,7 @@ module.exports = {
   buildCommunityRoomSections,
   buildCommunityMentionsPayload,
   clampCommunityDraft,
+  filterCommunityMessagesByVisibility,
   findCommunityUnreadDividerIndex,
   formatCommunityTime,
   formatCommunityDateTime,
@@ -902,7 +1054,9 @@ module.exports = {
   getCommunityActiveCountLabel,
   getCommunityAccessState,
   getCommunityOverviewState,
+  getCommunityParticipantStatusLabel,
   getPreparedCommunityText,
+  getCommunityVisibilityStartMs,
   getCommunityChatBanMessage,
   getCommunityAccessRequirements,
   getCommunityNeedsRulesAcceptance,
@@ -919,15 +1073,20 @@ module.exports = {
   isCommunityRulesAcceptanceConfirmed,
   mapCommunityErrorMessage,
   mergeCommunityRulesEnvelope,
+  mergePendingCommunityMessages,
   normalizeCommunityDraft,
   normalizeCommunityMessage,
+  normalizeCommunityPresenceParticipant,
   normalizeCommunityPresenceSummary,
   normalizeCommunityRulesEnvelope,
   normalizeCommunityRoom,
   normalizeCommunityRoomRead,
   normalizeReactionCounts,
   parseCommunityRulesEditor,
+  resolveFirebaseAuthTimeMs,
   resolveTimestampMillis,
+  sortCommunityParticipants,
   sortCommunityRooms,
   stringifyCommunityRulesSections,
+  isCommunityMessageVisible,
 };

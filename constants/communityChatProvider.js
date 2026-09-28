@@ -14,6 +14,7 @@ const callCommunityFunction = async (name, payload) => {
 export const sendCommunityMessage = async (roomId, text, options = {}) => callCommunityFunction('sendCommunityMessage', {
   roomId,
   text,
+  clientMessageId: options.clientMessageId || null,
   replyToMessageId: options.replyToMessageId || null,
   mentions: Array.isArray(options.mentions) ? options.mentions : [],
 });
@@ -32,7 +33,9 @@ export const publishCommunityRules = async ({ version, title, sections }) => cal
   sections,
 });
 
-export const getCommunityPresenceSummary = async () => callCommunityFunction('getCommunityPresenceSummary', {});
+export const getCommunityPresenceSummary = async ({ roomId = null } = {}) => callCommunityFunction('getCommunityPresenceSummary', {
+  roomId: roomId || null,
+});
 
 export const touchCommunityPresence = async ({ roomId = null, force = false } = {}) => {
   const normalizedRoomId = typeof roomId === 'string' && roomId.trim() ? roomId.trim() : null;

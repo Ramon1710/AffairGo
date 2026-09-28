@@ -1,11 +1,21 @@
 import { useEffect } from 'react';
 import { ImageBackground, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { affairGoTheme } from '../constants/affairGoTheme';
+import { useCurrentRoute } from '../naviagtion/SimpleNavigation';
+import { MAIN_NAV_DESKTOP_BAR_HEIGHT, MAIN_NAV_MOBILE_BAR_HEIGHT, getMainNavRouteName } from '../untils/mainNavigation';
 import { Ionicons } from './SimpleIcons';
 
 export const backgroundSource = require('../assets/login-bg.png');
 
-export const AppBackground = ({ children, scroll = true, contentContainerStyle, style }) => {
+export const AppBackground = ({ children, scroll = true, contentContainerStyle, style, scrollViewRef }) => {
+  const insets = useSafeAreaInsets();
+  const route = useCurrentRoute();
+  const hasMainNavigation = Boolean(getMainNavRouteName(route?.name));
+  const bottomNavigationSpace = hasMainNavigation
+    ? (Platform.OS === 'web' ? MAIN_NAV_DESKTOP_BAR_HEIGHT : MAIN_NAV_MOBILE_BAR_HEIGHT) + Math.max(insets.bottom, 12) + 18
+    : Math.max(insets.bottom, 16) + 20;
+
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof document === 'undefined') {
       return undefined;
@@ -56,11 +66,18 @@ export const AppBackground = ({ children, scroll = true, contentContainerStyle, 
   }, []);
 
   const content = scroll ? (
-    <ScrollView contentContainerStyle={[styles.scrollContent, contentContainerStyle]} style={[styles.scrollView, style]}>
-      {children}
+    <ScrollView
+      ref={scrollViewRef}
+      keyboardShouldPersistTaps="handled"
+      contentContainerStyle={[styles.scrollContent, { paddingTop: Math.max(insets.top + 12, Platform.OS === 'web' ? 28 : 24), paddingBottom: bottomNavigationSpace }, contentContainerStyle]}
+      style={[styles.scrollView, style]}
+    >
+      <View style={styles.contentShell}>{children}</View>
     </ScrollView>
   ) : (
-    <View style={[styles.fixedContent, style, contentContainerStyle]}>{children}</View>
+    <View style={[styles.fixedContent, style, { paddingTop: Math.max(insets.top + 12, Platform.OS === 'web' ? 28 : 24), paddingBottom: bottomNavigationSpace }, contentContainerStyle]}>
+      <View style={styles.contentShell}>{children}</View>
+    </View>
   );
 
   return (
@@ -202,8 +219,6 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: '100%',
     paddingHorizontal: 18,
-    paddingTop: Platform.OS === 'web' ? 28 : 48,
-    paddingBottom: 36,
     backgroundColor: 'transparent',
   },
   fixedContent: {
@@ -211,10 +226,13 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: '100%',
     paddingHorizontal: 18,
-    paddingTop: Platform.OS === 'web' ? 28 : 48,
-    paddingBottom: 24,
     backgroundColor: 'transparent',
     overflow: 'hidden',
+  },
+  contentShell: {
+    width: '100%',
+    maxWidth: affairGoTheme.layout.contentWidth,
+    alignSelf: 'center',
   },
   card: {
     backgroundColor: affairGoTheme.colors.card,
@@ -231,11 +249,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 24,
+    marginBottom: 18,
     width: '100%',
   },
   headerAction: {
-    width: 48,
+    width: 44,
+    minHeight: 40,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
@@ -247,12 +266,13 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     color: affairGoTheme.colors.accentSoft,
-    fontSize: 16,
-    marginBottom: 4,
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 3,
   },
   title: {
     color: affairGoTheme.colors.text,
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '700',
     textAlign: 'center',
   },
@@ -321,7 +341,7 @@ const styles = StyleSheet.create({
     borderRadius: affairGoTheme.radius.md,
     borderWidth: 1,
     borderColor: affairGoTheme.colors.line,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: affairGoTheme.colors.cardStrong,
     paddingHorizontal: 14,
     color: affairGoTheme.colors.text,
     fontSize: 16,
@@ -337,15 +357,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   chip: {
+    minHeight: 42,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: affairGoTheme.radius.pill,
     borderWidth: 1,
     borderColor: affairGoTheme.colors.line,
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: affairGoTheme.colors.cardMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   chipActive: {
-    backgroundColor: 'rgba(255, 67, 67, 0.2)',
+    backgroundColor: 'rgba(118, 87, 255, 0.18)',
     borderColor: affairGoTheme.colors.accent,
   },
   chipLabel: {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { AccentButton, AppBackground, EmptyState, FormField, GlassCard, InfoBanner, ScreenHeader, StatusPill, ToggleChip } from '../components/AffairGoUI';
+import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AccentButton, AppBackground, EmptyState, FormField, GlassCard, ScreenHeader, StatusPill, ToggleChip } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
@@ -520,22 +520,11 @@ const ChatScreen = () => {
       <ScreenHeader
         title={isDetailOpen ? (selectedUser?.nickname || selectedContact?.nickname || 'Chat') : 'Chats'}
         subtitle={isDetailOpen ? 'Direktnachrichten, Spiele und Icebreaker' : 'Deine Kontaktübersicht'}
-        leftAction={
+        leftAction={isDetailOpen ? (
           <Pressable onPress={isDetailOpen ? closeConversation : () => navigation.goBack()}>
             <Ionicons name="arrow-back" size={28} color={affairGoTheme.colors.text} />
           </Pressable>
-        }
-      />
-
-      <InfoBanner
-        title="Screenshot-Schutz"
-        detail={
-          Platform.OS === 'web'
-            ? 'Private Unterhaltungen werden zusätzlich geschützt, damit Inhalte nicht unbemerkt gesichert werden.'
-            : 'Dieser Bereich ist für nativen Screenshot-Schutz vorbereitet, damit Chat-Inhalte nicht unbemerkt gespeichert werden.'
-        }
-        tone="warning"
-        style={styles.securityCard}
+        ) : null}
       />
 
       {isDetailOpen ? renderChatDetail() : renderContactList()}
@@ -610,9 +599,6 @@ const ChatScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  securityCard: {
-    marginBottom: 12,
-  },
   listCard: {
     width: '100%',
   },
@@ -655,6 +641,7 @@ const styles = StyleSheet.create({
   },
   contactCopy: {
     flex: 1,
+    minWidth: 0,
   },
   contactHeaderRow: {
     flexDirection: 'row',
@@ -667,6 +654,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 18,
     flex: 1,
+    minWidth: 0,
   },
   contactPreview: {
     color: affairGoTheme.colors.textMuted,
@@ -723,11 +711,15 @@ const styles = StyleSheet.create({
   },
   messageMine: {
     alignSelf: 'flex-end',
-    backgroundColor: 'rgba(255,67,67,0.25)',
+    backgroundColor: 'rgba(118, 87, 255, 0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(118, 87, 255, 0.34)',
   },
   messageTheirs: {
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: affairGoTheme.colors.cardStrong,
+    borderWidth: 1,
+    borderColor: affairGoTheme.colors.line,
   },
   messageText: {
     color: affairGoTheme.colors.text,
@@ -753,6 +745,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 12,
     marginBottom: 10,
+    backgroundColor: affairGoTheme.colors.cardStrong,
   },
   suggestionText: {
     color: affairGoTheme.colors.text,
@@ -761,10 +754,11 @@ const styles = StyleSheet.create({
   gamesWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    marginHorizontal: -4,
   },
   gameItem: {
-    width: '48%',
-    marginRight: '2%',
+    width: '50%',
+    paddingHorizontal: 4,
     marginBottom: 10,
   },
   gameResult: {

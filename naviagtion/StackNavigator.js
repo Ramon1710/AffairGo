@@ -1,9 +1,11 @@
 import { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import MainBottomNavigation from '../components/MainBottomNavigation';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
 import { auth } from '../firebase';
 import { useCurrentRoute, useNavigation } from './SimpleNavigation';
+import { getMainNavRouteName } from '../untils/mainNavigation';
 
 import ChatScreen from '../screens/ChatScreen';
 import CommunityScreen from '../screens/CommunityScreen';
@@ -84,8 +86,14 @@ const StackNavigator = () => {
   }
 
   const ActiveScreen = screens[route.name] || LandingScreen;
+  const showMainNavigation = Boolean(isAuthenticated && getMainNavRouteName(route.name));
 
-  return <ActiveScreen />;
+  return (
+    <View style={styles.appFrame}>
+      <ActiveScreen />
+      {showMainNavigation ? <MainBottomNavigation /> : null}
+    </View>
+  );
 };
 
 const styles = StyleSheet.create({
@@ -95,6 +103,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: affairGoTheme.colors.background,
     paddingHorizontal: 24,
+  },
+  appFrame: {
+    flex: 1,
+    backgroundColor: affairGoTheme.colors.background,
   },
   loadingText: {
     marginTop: 14,

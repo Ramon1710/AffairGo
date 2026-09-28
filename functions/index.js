@@ -3,6 +3,14 @@ const { getApps } = require('firebase-admin/app');
 const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const {
+  createCancelDateHandler,
+  createCreateDateHandler,
+  createListDatesHandler,
+  createModerateDateHandler,
+  createToggleDateInterestHandler,
+  createUpdateDateHandler,
+} = require('./dates');
+const {
   createAcceptCommunityRulesHandler,
   createBlockCommunityUserHandler,
   createEventCommunityRoomHandler,
@@ -30,6 +38,7 @@ const FIREBASE_REGION = 'europe-west1';
 const sendCommunityMessageHandler = createSendCommunityMessageHandler({
   firestore: getFirestore(),
   fieldValue: FieldValue,
+  timestamp: Timestamp,
 });
 const seedCommunityRoomsHandler = createSeedCommunityRoomsHandler({
   firestore: getFirestore(),
@@ -91,6 +100,31 @@ const createEventCommunityRoomHandlerInstance = createEventCommunityRoomHandler(
   fieldValue: FieldValue,
 });
 const syncEventCommunityRoomsHandler = createSyncEventCommunityRoomsHandler({
+  firestore: getFirestore(),
+  fieldValue: FieldValue,
+});
+const createDateHandler = createCreateDateHandler({
+  firestore: getFirestore(),
+  fieldValue: FieldValue,
+  timestamp: Timestamp,
+});
+const listDatesHandler = createListDatesHandler({
+  firestore: getFirestore(),
+});
+const updateDateHandler = createUpdateDateHandler({
+  firestore: getFirestore(),
+  fieldValue: FieldValue,
+  timestamp: Timestamp,
+});
+const cancelDateHandler = createCancelDateHandler({
+  firestore: getFirestore(),
+  fieldValue: FieldValue,
+});
+const toggleDateInterestHandler = createToggleDateInterestHandler({
+  firestore: getFirestore(),
+  fieldValue: FieldValue,
+});
+const moderateDateHandler = createModerateDateHandler({
   firestore: getFirestore(),
   fieldValue: FieldValue,
 });
@@ -582,3 +616,27 @@ exports.createEventCommunityRoom = onCall({
 exports.syncEventCommunityRooms = onCall({
   region: FIREBASE_REGION,
 }, syncEventCommunityRoomsHandler);
+
+exports.createDate = onCall({
+  region: FIREBASE_REGION,
+}, createDateHandler);
+
+exports.listDates = onCall({
+  region: FIREBASE_REGION,
+}, listDatesHandler);
+
+exports.updateDate = onCall({
+  region: FIREBASE_REGION,
+}, updateDateHandler);
+
+exports.cancelDate = onCall({
+  region: FIREBASE_REGION,
+}, cancelDateHandler);
+
+exports.toggleDateInterest = onCall({
+  region: FIREBASE_REGION,
+}, toggleDateInterestHandler);
+
+exports.moderateDate = onCall({
+  region: FIREBASE_REGION,
+}, moderateDateHandler);

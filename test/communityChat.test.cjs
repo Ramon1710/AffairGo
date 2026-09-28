@@ -13,13 +13,17 @@ const {
   buildCommunityRoomSections,
   buildCommunityMentionsPayload,
   clampCommunityDraft,
+  COMMUNITY_MESSAGE_TTL_MS,
+  filterCommunityMessagesByVisibility,
   findCommunityUnreadDividerIndex,
   formatCommunityEventDateLabel,
   getCommunityChatBanMessage,
   getCommunityOverviewState,
+  getCommunityParticipantStatusLabel,
   getCommunityRoomUnreadCount,
   getCommunityRoomTypeLabel,
   getPreparedCommunityText,
+  getCommunityVisibilityStartMs,
   getCommunityMentionMatch,
   getCommunityReactionSummary,
   getCommunityRoomUnreadLabel,
@@ -33,11 +37,15 @@ const {
   isCommunityRulesAcceptanceConfirmed,
   mapCommunityErrorMessage,
   mergeCommunityRulesEnvelope,
+  mergePendingCommunityMessages,
   normalizeCommunityMessage,
+  normalizeCommunityPresenceParticipant,
   normalizeCommunityRulesEnvelope,
   normalizeCommunityRoom,
   normalizeCommunityRoomRead,
   parseCommunityRulesEditor,
+  resolveFirebaseAuthTimeMs,
+  sortCommunityParticipants,
   sortCommunityRooms,
   stringifyCommunityRulesSections,
 } = require('../untils/communityChat');
@@ -82,6 +90,172 @@ test('nicht sichtbare Nachrichten werden als entfernt dargestellt', () => {
   assert.equal(normalized.nickname, 'Night-Whisper Mitglied');
   assert.equal(normalized.removed, true);
   assert.equal(normalized.text, 'Diese Nachricht wurde entfernt.');
+});
+
+test('echter Loginzeitpunkt wird bevorzugt aus auth_time abgeleitet und Reload veraendert ihn nicht', () => {
+  const authUser = {
+    metadata: {
+      lastSignInTime: '2026-09-28T09:45:00.000Z',
+    },
+  };
+  const idTokenResult = {
+    claims: {
+      auth_time: 1_790_588_400,
+    },
+  };
+
+  assert.equal(resolveFirebaseAuthTimeMs(authUser, idTokenResult), 1_790_588_400_000);
+  assert.equal(resolveFirebaseAuthTimeMs(authUser, idTokenResult), 1_790_588_400_000);
+});
+
+test('Sichtbarkeitsbeginn nimmt das spaetere Datum aus Login und jetzt minus einer Stunde', () => {
+  const nowMs = Date.parse('2026-09-28T12:00:00.000Z');
+  const oneHourAgo = nowMs - COMMUNITY_MESSAGE_TTL_MS;
+
+  assert.equal(
+    getCommunityVisibilityStartMs({ loginTimeMs: Date.parse('2026-09-28T11:45:00.000Z'), nowMs }),
+    Date.parse('2026-09-28T11:45:00.000Z'),
+  );
+  assert.equal(
+    getCommunityVisibilityStartMs({ loginTimeMs: Date.parse('2026-09-28T09:00:00.000Z'), nowMs }),
+    oneHourAgo,
+  );
+});
+
+test('Nachrichten vor Login oder aelter als eine Stunde werden clientseitig ausgeblendet', () => {
+  const nowMs = Date.parse('2026-09-28T12:00:00.000Z');
+  const visibilityStartMs = getCommunityVisibilityStartMs({
+    loginTimeMs: Date.parse('2026-09-28T11:30:00.000Z'),
+    nowMs,
+  });
+  const messages = [
+    normalizeCommunityMessage({ id: 'too-old', createdAt: '2026-09-28T10:30:00.000Z', expiresAt: '2026-09-28T11:30:00.000Z' }, 'too-old'),
+    normalizeCommunityMessage({ id: 'before-login', createdAt: '2026-09-28T11:20:00.000Z', expiresAt: '2026-09-28T12:20:00.000Z' }, 'before-login'),
+    normalizeCommunityMessage({ id: 'visible', createdAt: '2026-09-28T11:40:00.000Z', expiresAt: '2026-09-28T12:40:00.000Z' }, 'visible'),
+  ];
+
+  assert.deepEqual(
+    filterCommunityMessagesByVisibility(messages, visibilityStartMs, nowMs).map((message) => message.id),
+    ['visible'],
+  );
+});
+
+test('Nachrichten ohne expiresAt bleiben clientseitig nicht sichtbar', () => {
+  const nowMs = Date.parse('2026-09-28T12:00:00.000Z');
+  const visibilityStartMs = getCommunityVisibilityStartMs({
+    loginTimeMs: Date.parse('2026-09-28T11:30:00.000Z'),
+    nowMs,
+  });
+  const messages = [
+    normalizeCommunityMessage({ id: 'legacy-without-expiry', createdAt: '2026-09-28T11:40:00.000Z' }, 'legacy-without-expiry'),
+    normalizeCommunityMessage({ id: 'visible', createdAt: '2026-09-28T11:45:00.000Z', expiresAt: '2026-09-28T12:45:00.000Z' }, 'visible'),
+  ];
+
+  assert.deepEqual(
+    filterCommunityMessagesByVisibility(messages, visibilityStartMs, nowMs).map((message) => message.id),
+    ['visible'],
+  );
+});
+
+test('neuer Login blendet Nachrichten der vorherigen Anmeldung aus', () => {
+  const nowMs = Date.parse('2026-09-28T12:00:00.000Z');
+  const firstLoginMs = Date.parse('2026-09-28T10:30:00.000Z');
+  const secondLoginMs = Date.parse('2026-09-28T11:45:00.000Z');
+  const messages = [
+    normalizeCommunityMessage({ id: 'before-second-login', createdAt: '2026-09-28T11:35:00.000Z', expiresAt: '2026-09-28T12:35:00.000Z' }, 'before-second-login'),
+    normalizeCommunityMessage({ id: 'after-second-login', createdAt: '2026-09-28T11:50:00.000Z', expiresAt: '2026-09-28T12:50:00.000Z' }, 'after-second-login'),
+  ];
+
+  const firstSessionVisible = filterCommunityMessagesByVisibility(
+    messages,
+    getCommunityVisibilityStartMs({ loginTimeMs: firstLoginMs, nowMs }),
+    nowMs,
+  ).map((message) => message.id);
+
+  const secondSessionVisible = filterCommunityMessagesByVisibility(
+    messages,
+    getCommunityVisibilityStartMs({ loginTimeMs: secondLoginMs, nowMs }),
+    nowMs,
+  ).map((message) => message.id);
+
+  assert.deepEqual(firstSessionVisible, ['before-second-login', 'after-second-login']);
+  assert.deepEqual(secondSessionVisible, ['after-second-login']);
+});
+
+test('Reload ohne neue Anmeldung behält denselben Sitzungsbeginn', () => {
+  const authTimeSeconds = 1_790_595_900;
+  const initialAuthUser = {
+    metadata: {
+      lastSignInTime: '2026-09-28T11:45:00.000Z',
+    },
+  };
+  const reloadedAuthUser = {
+    metadata: {
+      lastSignInTime: '2026-09-28T11:59:00.000Z',
+    },
+  };
+  const idTokenResult = {
+    claims: {
+      auth_time: authTimeSeconds,
+    },
+  };
+
+  const initialLoginTimeMs = resolveFirebaseAuthTimeMs(initialAuthUser, idTokenResult);
+  const reloadedLoginTimeMs = resolveFirebaseAuthTimeMs(reloadedAuthUser, idTokenResult);
+
+  assert.equal(initialLoginTimeMs, authTimeSeconds * 1000);
+  assert.equal(reloadedLoginTimeMs, authTimeSeconds * 1000);
+  assert.equal(initialLoginTimeMs, reloadedLoginTimeMs);
+});
+
+test('bestaetigte lokale Nachricht wird ohne Listener-Duplikat mit dem Servereintrag zusammengefuehrt', () => {
+  const serverMessage = normalizeCommunityMessage({
+    id: 'msg-1',
+    clientMessageId: 'client-1',
+    text: 'Hallo',
+    createdAt: '2026-09-28T12:00:05.000Z',
+    expiresAt: '2026-09-28T13:00:05.000Z',
+  }, 'msg-1');
+  const pendingMessage = {
+    id: 'local:client-1',
+    clientMessageId: 'client-1',
+    text: 'Hallo',
+    createdAt: '2026-09-28T12:00:04.000Z',
+    createdAtMs: Date.parse('2026-09-28T12:00:04.000Z'),
+    deliveryState: 'pending',
+  };
+
+  assert.deepEqual(
+    mergePendingCommunityMessages({ messages: [serverMessage], pendingMessages: [pendingMessage] }).map((message) => message.id),
+    ['msg-1'],
+  );
+});
+
+test('fehlgeschlagene lokale Nachricht bleibt mit Status sichtbar', () => {
+  const merged = mergePendingCommunityMessages({
+    messages: [],
+    pendingMessages: [{
+      id: 'local:client-2',
+      clientMessageId: 'client-2',
+      text: 'Noch da',
+      createdAtMs: Date.parse('2026-09-28T12:00:04.000Z'),
+      deliveryState: 'failed',
+    }],
+  });
+
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].id, 'local:client-2');
+});
+
+test('Teilnehmer werden nach Moderation, Aktivitaet und Nickname sortiert', () => {
+  const participants = sortCommunityParticipants([
+    normalizeCommunityPresenceParticipant({ userId: '2', nickname: 'Berta', onlineStatus: 'ACTIVE' }),
+    normalizeCommunityPresenceParticipant({ userId: '1', nickname: 'Admin', onlineStatus: 'RECENT', isAdmin: true }),
+    normalizeCommunityPresenceParticipant({ userId: '3', nickname: 'Anton', onlineStatus: 'ACTIVE' }),
+  ]);
+
+  assert.deepEqual(participants.map((participant) => participant.userId), ['1', '3', '2']);
+  assert.equal(getCommunityParticipantStatusLabel('ACTIVE'), 'Online');
 });
 
 test('Mention-Suche erkennt das letzte @-Fragment', () => {
@@ -608,7 +782,7 @@ test('Community-Access-State erkennt erlaubten Leerzustand ohne Räume', () => {
 test('Community-Screen enthält Regeln-Link, Modal-Fehleranzeige und Voll-Reload-Retry', () => {
   const source = fs.readFileSync('/workspaces/AffairGo/screens/CommunityScreen.js', 'utf8');
 
-  assert.match(source, /Community-Regeln ansehen/u);
+  assert.match(source, /Regeln ·/u);
   assert.match(source, /const openRulesModal = \(\) =>/u);
   assert.match(source, /const handleRetryCommunity = async \(\) =>/u);
   assert.match(source, /await refreshRulesStatus\(\{ userId: currentUser\.id \}\)/u);
@@ -740,6 +914,40 @@ test('CommunityRoomScreen: Zustimmung wird gegen Doppelklick abgesichert und ser
   assert.match(source, /preserveAcceptedState: false/u);
   assert.match(source, /isCommunityRulesAcceptanceConfirmed\(confirmedEnvelope, requestedVersion\)/u);
   assert.match(source, /setRulesError\(COMMUNITY_RULES_UNCONFIRMED_MESSAGE\)/u);
+});
+
+test('CommunityRoomScreen: die beiden grossen Info-Kaesten sind entfernt und der Header bleibt kompakt', () => {
+  const source = fs.readFileSync('/workspaces/AffairGo/screens/CommunityRoomScreen.js', 'utf8');
+
+  assert.equal(source.includes('Community und private Nachrichten'), false);
+  assert.equal(source.includes('styles.introCard'), false);
+  assert.match(source, /<ScreenHeader/u);
+  assert.match(source, /title=\{room\?\.name \|\| 'Community'\}/u);
+});
+
+test('CommunityRoomScreen: Desktop nutzt Teilnehmerleiste, Mobil ein Drei-Punkte-Menue', () => {
+  const source = fs.readFileSync('/workspaces/AffairGo/screens/CommunityRoomScreen.js', 'utf8');
+
+  assert.match(source, /const isDesktopLayout = Platform\.OS === 'web' && windowWidth >= 1024/u);
+  assert.match(source, /participantSidebar/u);
+  assert.match(source, /participantsMenuVisible/u);
+  assert.match(source, /setParticipantsModalVisible\(true\)/u);
+});
+
+test('CommunityRoomScreen: Nachrichtenquery und Optimismus folgen dem Login-Zeitfenster', () => {
+  const source = fs.readFileSync('/workspaces/AffairGo/screens/CommunityRoomScreen.js', 'utf8');
+
+  assert.match(source, /const expiresAfterTimestamp = Timestamp\.fromMillis\(queryNowMs \+ COMMUNITY_QUERY_TIME_SAFETY_MS\)/u);
+  assert.match(source, /const expiresBeforeTimestamp = Timestamp\.fromMillis\(queryNowMs \+ COMMUNITY_MESSAGE_TTL_MS \+ COMMUNITY_QUERY_TIME_SAFETY_MS\)/u);
+  assert.match(source, /where\('expiresAt', '>', expiresAfterTimestamp\)/u);
+  assert.match(source, /where\('expiresAt', '<=', expiresBeforeTimestamp\)/u);
+  assert.match(source, /where\('createdAt', '>=', Timestamp\.fromMillis\(visibilityStartMs\)\)/u);
+  assert.match(source, /orderBy\('expiresAt', 'asc'\)/u);
+  assert.match(source, /resolveFirebaseAuthTimeMs/u);
+  assert.match(source, /mergePendingCommunityMessages/u);
+  assert.match(source, /deliveryState: 'failed'/u);
+  assert.match(source, /handleRetryPendingMessage/u);
+  assert.match(source, /clientMessageId/u);
 });
 
 // Simuliert exakt den in handleAcceptRules verwendeten Ablauf mit den echten,
@@ -938,9 +1146,10 @@ test('Starträume: ein Klick öffnet den bestehenden CommunityRoomScreen mit der
   assert.match(source, /navigation\.navigate\('CommunityRoom', \{ roomId \}\)/u);
   assert.match(source, /onPress=\{\(\) => openRoom\(room\.id\)\}/u);
   // Raumkarte zeigt Name, Typ-Kennzeichnung, Beschreibung und Aktivitaets-/Ungelesen-Anzeige.
-  assert.match(source, /<Text style=\{styles\.roomTitle\}>\{room\.name\}<\/Text>/u);
+  assert.match(source, /<Text style=\{styles\.roomTitle\} numberOfLines=\{2\}>\{room\.name\}<\/Text>/u);
   assert.match(source, /getCommunityRoomTypeLabel\(room\.type\)/u);
-  assert.match(source, /<Text style=\{styles\.roomDescription\}>\{room\.description\}<\/Text>/u);
+  assert.match(source, /<Text style=\{styles\.roomDescription\} numberOfLines=\{3\}>\{room\.description\}<\/Text>/u);
+  assert.match(source, /room\.activeMemberCount/u);
   assert.match(source, /getCommunityRoomUnreadLabel\(room, readEntry\)/u);
 });
 

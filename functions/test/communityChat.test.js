@@ -28,6 +28,7 @@ const {
   createToggleCommunityReactionHandler,
   createUnblockCommunityUserHandler,
   createUpsertCommunityRoomHandler,
+  parseTimestampToMillis,
 } = require('../communityChat');
 const {
   COMMUNITY_PRESENCE_STATUSES,
@@ -289,6 +290,15 @@ const createTimestampStub = (nowProvider = () => Date.now()) => ({
       },
     };
   },
+  fromMillis: (millis) => ({
+    __type: 'timestamp',
+    seconds: Math.floor(millis / 1000),
+    nanoseconds: (millis % 1000) * 1e6,
+    toDate: () => new Date(millis),
+    isEqual(other) {
+      return other?.__type === 'timestamp' && other.seconds === this.seconds && other.nanoseconds === this.nanoseconds;
+    },
+  }),
 });
 
 const createLoggerStub = () => {
@@ -397,6 +407,7 @@ const createHandlerHarness = ({
   const handler = createSendCommunityMessageHandler({
     firestore,
     fieldValue: createFieldValueStub(),
+    timestamp: createTimestampStub(() => clock.nowMs),
     logger,
     now: () => clock.nowMs,
   });
@@ -554,6 +565,36 @@ test('Test 6: aktiver Raum speichert Nachricht', async () => {
   assert.equal(messageEntry.data.userId, 'user-1');
   assert.equal(messageEntry.data.nickname, 'Alice');
   assert.equal(messageEntry.data.text, 'Night Whisper');
+  assert.equal(parseTimestampToMillis(messageEntry.data.expiresAt) - parseTimestampToMillis(messageEntry.data.createdAt), 60 * 60 * 1000);
+});
+
+test('Senden: clientMessageId macht den Callable-Aufruf idempotent', async () => {
+  const harness = createHandlerHarness({ nowMs: 5_000 });
+
+  const first = await harness.handler(createRequest({
+    data: {
+      roomId: DEFAULT_COMMUNITY_ROOM_ID,
+      text: 'Nur einmal',
+      clientMessageId: 'client-msg-1',
+    },
+  }));
+  harness.clock.nowMs = 5_500;
+  const second = await harness.handler(createRequest({
+    data: {
+      roomId: DEFAULT_COMMUNITY_ROOM_ID,
+      text: 'Nur einmal',
+      clientMessageId: 'client-msg-1',
+    },
+  }));
+
+  const roomMessages = Array.from(harness.firestore.store.entries())
+    .filter(([path]) => path.startsWith(`communityRooms/${DEFAULT_COMMUNITY_ROOM_ID}/messages/`));
+
+  assert.equal(first.messageId, 'client-msg-1');
+  assert.equal(second.messageId, 'client-msg-1');
+  assert.equal(second.idempotentReplay, true);
+  assert.equal(roomMessages.length, 1);
+  assert.equal(harness.firestore.store.get(`communityRooms/${DEFAULT_COMMUNITY_ROOM_ID}`).data.messageCount, 1);
 });
 
 test('Test 7: leere Nachricht wird abgelehnt', async () => {
@@ -1005,6 +1046,10 @@ test('Reporting: normale Meldung erhält NORMAL', async () => {
 
   assert.equal(reportEntry.data.priority, COMMUNITY_REPORT_PRIORITIES.NORMAL);
   assert.equal(reportEntry.data.reporterUserId, 'user-1');
+  assert.equal(reportEntry.data.messageId, 'report-message-1');
+  assert.equal(reportEntry.data.messageCreatedAt, '2026-01-01T00:00:00.000Z');
+  assert.equal(reportEntry.data.messageSnapshot.authorUserId, 'user-2');
+  assert.equal(reportEntry.data.messageSnapshot.text, 'Spam');
 });
 
 test('Reporting: Minderjährigkeit vermutet erhält CRITICAL', async () => {
@@ -1978,6 +2023,51 @@ test('Presence: versteckter Status geht nicht in Aggregat ein', async () => {
 
   assert.equal(result.summary.activeMemberCount, 1);
   assert.equal(result.summary.roomActiveCounts['whisper-lounge'], 1);
+});
+
+test('Presence: Teilnehmerliste liefert nur aktive Nutzer im Raum und filtert blockierte Profile', async () => {
+  const harness = createHandlerHarness({
+    docs: {
+      ...createBaseDocs({ userProfileOverrides: { dismissedProfileIds: ['user-3'] } }),
+      'users/user-2': createVerifiedUserProfile({ uid: 'user-2', id: 'user-2', nickname: 'Bob', role: 'admin' }),
+      'users/user-3': createVerifiedUserProfile({ uid: 'user-3', id: 'user-3', nickname: 'Carla' }),
+      'communityRuleAcceptances/user-2': createCommunityRulesAcceptance({ userId: 'user-2' }),
+      'communityRuleAcceptances/user-3': createCommunityRulesAcceptance({ userId: 'user-3' }),
+      'communityPresence/user-1': {
+        userId: 'user-1',
+        currentRoomId: 'whisper-lounge',
+        showActivityStatus: true,
+        lastActiveAt: '2026-08-23T11:58:00.000Z',
+        updatedAt: '2026-08-23T11:58:00.000Z',
+      },
+      'communityPresence/user-2': {
+        userId: 'user-2',
+        currentRoomId: 'whisper-lounge',
+        showActivityStatus: true,
+        lastActiveAt: '2026-08-23T11:59:00.000Z',
+        updatedAt: '2026-08-23T11:59:00.000Z',
+      },
+      'communityPresence/user-3': {
+        userId: 'user-3',
+        currentRoomId: 'whisper-lounge',
+        showActivityStatus: true,
+        lastActiveAt: '2026-08-23T11:58:30.000Z',
+        updatedAt: '2026-08-23T11:58:30.000Z',
+      },
+      'communityBlocks/user-1__user-3': {
+        blockerUserId: 'user-1',
+        blockedUserId: 'user-3',
+        blockedNickname: 'Carla',
+        createdAt: '2026-08-23T11:00:00.000Z',
+      },
+    },
+    nowMs: Date.parse('2026-08-23T12:00:00.000Z'),
+  });
+
+  const result = await harness.getPresenceSummaryHandler(createRequest({ data: { roomId: 'whisper-lounge' } }));
+
+  assert.deepEqual(result.participants.map((participant) => participant.userId), ['user-1', 'user-2']);
+  assert.equal(result.participants[1].isModerator, true);
 });
 
 test('Presence-Status: ACTIVE, RECENT und OFFLINE werden korrekt abgeleitet', () => {

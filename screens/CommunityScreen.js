@@ -1,6 +1,6 @@
 import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { AccentButton, AppBackground, EmptyState, GlassCard, InfoBanner, ScreenHeader, StatusPill } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
@@ -39,6 +39,7 @@ const isDevEnvironment = typeof __DEV__ !== 'undefined' && __DEV__ === true;
 
 const CommunityScreen = () => {
   const navigation = useNavigation();
+  const { width } = useWindowDimensions();
   const { currentUser, refreshCurrentUserVerificationStatus, resendCurrentUserVerificationEmail } = useAffairGo();
   const rulesEnvelopeRef = useRef(null);
   const rulesLoadRequestIdRef = useRef(0);
@@ -65,6 +66,8 @@ const CommunityScreen = () => {
   const acceptedRulesVersion = String(rulesEnvelope?.acceptedVersion || '').trim();
   const needsRulesAcceptance = getCommunityNeedsRulesAcceptance(rulesEnvelope);
   const showRulesModal = Boolean(rulesEnvelope) && rulesModalVisible;
+  const isTablet = width >= 760;
+  const isDesktop = width >= 1180;
 
   useEffect(() => {
     rulesEnvelopeRef.current = rulesEnvelope;
@@ -645,19 +648,43 @@ const CommunityScreen = () => {
     const readEntry = readMap[room.id] || null;
     const unread = hasUnreadCommunityRoom(room, readEntry);
     const roomUnreadCount = getCommunityRoomUnreadCount(room, readEntry);
+    const onlineCount = Number(room.activeMemberCount || 0);
     const roomSummary = [
       getCommunityRoomActivityLabel(room.activeMemberCount, presenceSummary.publicCountThreshold),
       roomUnreadCount !== null && roomUnreadCount > 0 ? getCommunityRoomUnreadLabel(room, readEntry) : null,
     ].filter(Boolean).join(' · ');
 
     return (
-      <Pressable key={room.id} onPress={() => openRoom(room.id)} style={styles.roomPressable}>
+      <Pressable
+        key={room.id}
+        onPress={() => openRoom(room.id)}
+        style={({ pressed }) => [
+          styles.roomPressable,
+          isTablet ? styles.roomPressableTablet : null,
+          isDesktop && prominent ? styles.roomPressableFeatured : null,
+          pressed ? styles.roomPressablePressed : null,
+        ]}
+      >
         <GlassCard strong={prominent} style={[styles.roomCard, prominent ? styles.roomCardProminent : null]}>
-          <Text style={styles.roomTitle}>{room.name}</Text>
-          <Text style={styles.roomMeta}>{room.region ? `${getCommunityRoomTypeLabel(room.type)} • ${room.region}` : getCommunityRoomTypeLabel(room.type)}</Text>
-          <Text style={styles.roomDescription}>{room.description}</Text>
-          <Text style={styles.roomActivity}>{roomSummary || 'Noch keine Aktivität'}</Text>
-          <StatusPill label={getCommunityRoomUnreadLabel(room, readEntry)} tone={unread ? 'info' : 'default'} style={styles.roomPill} />
+          <View style={styles.roomTopRow}>
+            <StatusPill label={getCommunityRoomTypeLabel(room.type)} tone={prominent ? 'info' : 'default'} style={styles.roomTopPill} />
+            {roomUnreadCount ? <StatusPill label={getCommunityRoomUnreadLabel(room, readEntry)} tone="info" style={styles.roomTopPill} /> : null}
+          </View>
+          <Text style={styles.roomTitle} numberOfLines={2}>{room.name}</Text>
+          <Text style={styles.roomMeta} numberOfLines={1}>{room.region ? `${getCommunityRoomTypeLabel(room.type)} • ${room.region}` : getCommunityRoomTypeLabel(room.type)}</Text>
+          <Text style={styles.roomDescription} numberOfLines={3}>{room.description}</Text>
+          <View style={styles.roomStatsRow}>
+            <View style={styles.roomStatItem}>
+              <Text style={styles.roomStatValue}>{onlineCount}</Text>
+              <Text style={styles.roomStatLabel}>online</Text>
+            </View>
+            <View style={styles.roomStatItem}>
+              <Text style={styles.roomStatValue}>{roomUnreadCount || 0}</Text>
+              <Text style={styles.roomStatLabel}>neu</Text>
+            </View>
+          </View>
+          <Text style={styles.roomActivity} numberOfLines={2}>{roomSummary || 'Noch keine Aktivität'}</Text>
+          {!roomUnreadCount ? <StatusPill label={getCommunityRoomUnreadLabel(room, readEntry)} tone={unread ? 'info' : 'default'} style={styles.roomPill} /> : null}
         </GlassCard>
       </Pressable>
     );
@@ -667,19 +694,38 @@ const CommunityScreen = () => {
     const readEntry = readMap[room.id] || null;
     const unread = hasUnreadCommunityRoom(room, readEntry);
     const roomUnreadCount = getCommunityRoomUnreadCount(room, readEntry);
+    const onlineCount = Number(room.activeMemberCount || 0);
     const roomSummary = [
       getCommunityRoomActivityLabel(room.activeMemberCount, presenceSummary.publicCountThreshold),
       roomUnreadCount !== null && roomUnreadCount > 0 ? getCommunityRoomUnreadLabel(room, readEntry) : null,
     ].filter(Boolean).join(' · ');
 
     return (
-      <Pressable key={room.id} onPress={() => openRoom(room.id)} style={styles.roomPressable}>
+      <Pressable
+        key={room.id}
+        onPress={() => openRoom(room.id)}
+        style={({ pressed }) => [styles.roomPressable, isTablet ? styles.roomPressableTablet : null, pressed ? styles.roomPressablePressed : null]}
+      >
         <GlassCard style={styles.roomCard}>
-          <Text style={styles.roomTitle}>{room.eventTitle || room.name}</Text>
-          <Text style={styles.roomMeta}>{formatCommunityEventDateLabel(room)}{room.eventCity ? ` • ${room.eventCity}` : ''}</Text>
-          <Text style={styles.roomDescription}>Event-Chat öffnen</Text>
-          <Text style={styles.roomActivity}>{roomSummary || 'Noch keine Aktivität'}</Text>
-          <StatusPill label={getCommunityRoomUnreadLabel(room, readEntry)} tone={unread ? 'info' : 'default'} style={styles.roomPill} />
+          <View style={styles.roomTopRow}>
+            <StatusPill label="Event" tone="info" style={styles.roomTopPill} />
+            {roomUnreadCount ? <StatusPill label={getCommunityRoomUnreadLabel(room, readEntry)} tone="info" style={styles.roomTopPill} /> : null}
+          </View>
+          <Text style={styles.roomTitle} numberOfLines={2}>{room.eventTitle || room.name}</Text>
+          <Text style={styles.roomMeta} numberOfLines={1}>{formatCommunityEventDateLabel(room)}{room.eventCity ? ` • ${room.eventCity}` : ''}</Text>
+          <Text style={styles.roomDescription} numberOfLines={3}>Event-Chat öffnen</Text>
+          <View style={styles.roomStatsRow}>
+            <View style={styles.roomStatItem}>
+              <Text style={styles.roomStatValue}>{onlineCount}</Text>
+              <Text style={styles.roomStatLabel}>online</Text>
+            </View>
+            <View style={styles.roomStatItem}>
+              <Text style={styles.roomStatValue}>{roomUnreadCount || 0}</Text>
+              <Text style={styles.roomStatLabel}>neu</Text>
+            </View>
+          </View>
+          <Text style={styles.roomActivity} numberOfLines={2}>{roomSummary || 'Noch keine Aktivität'}</Text>
+          {!roomUnreadCount ? <StatusPill label={getCommunityRoomUnreadLabel(room, readEntry)} tone={unread ? 'info' : 'default'} style={styles.roomPill} /> : null}
         </GlassCard>
       </Pressable>
     );
@@ -690,11 +736,6 @@ const CommunityScreen = () => {
       <ScreenHeader
         title="Community"
         subtitle="Night-Whisper"
-        leftAction={
-          <Pressable onPress={() => navigation.goBack()}>
-            <Ionicons name="arrow-back" size={28} color={affairGoTheme.colors.text} />
-          </Pressable>
-        }
         rightAction={currentUser?.isAdmin ? (
           <Pressable onPress={() => navigation.navigate('CommunityModeration')}>
             <Ionicons name="shield-checkmark-outline" size={24} color={affairGoTheme.colors.accentSoft} />
@@ -702,24 +743,15 @@ const CommunityScreen = () => {
         ) : null}
       />
 
-      <GlassCard strong style={styles.introCard}>
-        <Text style={styles.introTitle}>Raumübersicht</Text>
-        <Text style={styles.introCopy}>Wähle einen globalen oder regionalen Community-Raum. Matching und private Nachrichten bleiben separat.</Text>
-        <Text style={styles.activityHeadline}>{activeMembersLabel}</Text>
-        {unreadRoomsCount > 0 ? <Text style={styles.activitySubline}>In {unreadRoomsCount} Räumen gibt es neue Nachrichten.</Text> : null}
+      <View style={styles.summaryStrip}>
+        <StatusPill label={activeMembersLabel} tone="success" />
+        <StatusPill label={unreadRoomsCount > 0 ? `${unreadRoomsCount} Räume neu` : 'Keine neuen Räume'} tone={unreadRoomsCount > 0 ? 'info' : 'default'} />
         {rulesEnvelope ? (
           <Pressable onPress={openRulesModal} style={styles.rulesLink}>
-            <Text style={styles.rulesLinkText}>Community-Regeln ansehen · {rulesVersionLabel}</Text>
+            <Text style={styles.rulesLinkText}>Regeln · {rulesVersionLabel}</Text>
           </Pressable>
         ) : null}
-      </GlassCard>
-
-      <InfoBanner
-        title="Community-Räume"
-        detail="Regionale Räume basieren auf freigeschalteten Kategorien, nicht auf GPS. Inaktive Räume werden hier nicht angezeigt."
-        tone="warning"
-        style={styles.infoBanner}
-      />
+      </View>
 
       {!accessRequirements.preRulesRequirementsMet ? (
         <GlassCard strong style={styles.accessCard}>
@@ -814,17 +846,19 @@ const CommunityScreen = () => {
             </GlassCard>
           ) : null}
 
-          {highlightRoom ? renderRoomCard(highlightRoom, true) : null}
+          {highlightRoom ? <View style={styles.roomGrid}>{renderRoomCard(highlightRoom, true)}</View> : null}
 
           {sections.map((section) => (
             <Fragment key={section.key}>
               <Text style={styles.sectionTitle}>{section.title}</Text>
-              {section.rooms.filter((room) => room.id !== COMMUNITY_ROOM_ID).map((room) => renderRoomCard(room))}
+              <View style={styles.roomGrid}>
+                {section.rooms.filter((room) => room.id !== COMMUNITY_ROOM_ID).map((room) => renderRoomCard(room))}
+              </View>
             </Fragment>
           ))}
 
           <Text style={styles.sectionTitle}>Events</Text>
-          {eventRooms.length ? eventRooms.map((room) => renderEventRoomCard(room)) : (
+          {eventRooms.length ? <View style={styles.roomGrid}>{eventRooms.map((room) => renderEventRoomCard(room))}</View> : (
             <GlassCard style={styles.emptyEventCard}>
               <Text style={styles.emptyEventTitle}>Aktuell sind keine Event-Chats geöffnet.</Text>
               <Text style={styles.emptyEventCopy}>Sobald ein passendes Night-Whisper Event freigeschaltet wird, erscheint es hier.</Text>
@@ -899,8 +933,12 @@ const CommunityScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  introCard: {
+  summaryStrip: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
     marginBottom: 12,
+    alignItems: 'center',
   },
   accessCard: {
     marginBottom: 12,
@@ -953,36 +991,14 @@ const styles = StyleSheet.create({
   accessAction: {
     marginTop: 12,
   },
-  introTitle: {
-    color: affairGoTheme.colors.text,
-    fontSize: 22,
-    fontWeight: '700',
-  },
-  introCopy: {
-    color: affairGoTheme.colors.text,
-    lineHeight: 22,
-    marginTop: 10,
-  },
-  activityHeadline: {
-    color: affairGoTheme.colors.accentSoft,
-    fontSize: 15,
-    fontWeight: '700',
-    marginTop: 12,
-  },
-  activitySubline: {
-    color: affairGoTheme.colors.textMuted,
-    marginTop: 6,
-  },
   rulesLink: {
     alignSelf: 'flex-start',
-    marginTop: 12,
+    minHeight: 40,
+    justifyContent: 'center',
   },
   rulesLinkText: {
     color: affairGoTheme.colors.accentSoft,
-    fontWeight: '600',
-  },
-  infoBanner: {
-    marginBottom: 12,
+    fontWeight: '700',
   },
   errorText: {
     color: affairGoTheme.colors.warning,
@@ -1032,29 +1048,82 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     marginTop: 2,
   },
+  roomGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -6,
+  },
   roomPressable: {
+    width: '100%',
+    paddingHorizontal: 6,
     marginBottom: 10,
   },
+  roomPressableTablet: {
+    width: '50%',
+  },
+  roomPressableFeatured: {
+    width: '100%',
+  },
+  roomPressablePressed: {
+    opacity: 0.94,
+  },
   roomCard: {
-    padding: 18,
+    padding: 16,
+    minHeight: 220,
+    justifyContent: 'space-between',
   },
   roomCardProminent: {
-    borderColor: 'rgba(255,122,100,0.45)',
-    backgroundColor: 'rgba(255,67,67,0.16)',
+    borderColor: affairGoTheme.colors.accent,
+    backgroundColor: affairGoTheme.colors.cardStrong,
+  },
+  roomTopRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  roomTopPill: {
+    marginBottom: 0,
   },
   roomTitle: {
     color: affairGoTheme.colors.text,
-    fontSize: 20,
+    fontSize: 19,
     fontWeight: '700',
   },
   roomMeta: {
     color: affairGoTheme.colors.textMuted,
-    marginTop: 4,
+    marginTop: 6,
   },
   roomDescription: {
-    color: affairGoTheme.colors.text,
-    lineHeight: 22,
+    color: affairGoTheme.colors.textMuted,
+    lineHeight: 21,
     marginTop: 10,
+  },
+  roomStatsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+  },
+  roomStatItem: {
+    minWidth: 78,
+    backgroundColor: affairGoTheme.colors.cardStrong,
+    borderRadius: affairGoTheme.radius.md,
+    borderWidth: 1,
+    borderColor: affairGoTheme.colors.line,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  roomStatValue: {
+    color: affairGoTheme.colors.text,
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  roomStatLabel: {
+    color: affairGoTheme.colors.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    marginTop: 4,
   },
   roomActivity: {
     color: affairGoTheme.colors.textMuted,

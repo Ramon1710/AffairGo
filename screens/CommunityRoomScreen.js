@@ -11,9 +11,10 @@ import {
     StyleSheet,
     Text,
     TextInput,
+    useWindowDimensions,
     View,
 } from 'react-native';
-import { AccentButton, AppBackground, EmptyState, GlassCard, InfoBanner, ScreenHeader, StatusPill } from '../components/AffairGoUI';
+import { AccentButton, AppBackground, EmptyState, GlassCard, ScreenHeader, StatusPill } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import {
@@ -26,7 +27,7 @@ import {
     syncEventCommunityRooms,
     toggleCommunityReaction,
     touchCommunityPresence,
-    unblockCommunityUser,
+    unblockCommunityUser
 } from '../constants/communityChatProvider';
 import { useAffairGo } from '../context/AffairGoContext';
 import { auth, db } from '../firebase';
@@ -36,6 +37,7 @@ const {
   COMMUNITY_FALLBACK_NICKNAME,
   COMMUNITY_MESSAGE_COUNTER_THRESHOLD,
   COMMUNITY_MESSAGE_MAX_LENGTH,
+  COMMUNITY_MESSAGE_TTL_MS,
   COMMUNITY_REPORT_COMMENT_MAX_LENGTH,
   COMMUNITY_REPORT_REASON_OPTIONS,
   COMMUNITY_ROOM_ROUTE_FALLBACK,
@@ -43,25 +45,33 @@ const {
   buildCommunityMentionsPayload,
   clampCommunityDraft,
   findCommunityUnreadDividerIndex,
+  filterCommunityMessagesByVisibility,
   formatCommunityEventDateLabel,
   formatCommunityDateTime,
   formatCommunityRulesVersionLabel,
+  getCommunityParticipantStatusLabel,
   getCommunityAccessRequirements,
   getPreparedCommunityText,
   getCommunityMentionMatch,
   getCommunityReactionSummary,
   getCommunityRoomTypeLabel,
+  getCommunityVisibilityStartMs,
   insertCommunityMention,
+  mergePendingCommunityMessages,
   isCommunityRulesAcceptanceConfirmed,
   mapCommunityErrorMessage,
   mergeCommunityRulesEnvelope,
   normalizeCommunityMessage,
+  normalizeCommunityPresenceParticipant,
   normalizeCommunityRulesEnvelope,
   normalizeCommunityRoom,
   normalizeCommunityRoomRead,
+  resolveFirebaseAuthTimeMs,
+  sortCommunityParticipants,
 } = require('../untils/communityChat');
 
 const BOTTOM_THRESHOLD_PX = 72;
+const COMMUNITY_QUERY_TIME_SAFETY_MS = 5 * 1000;
 const PROFILE_FALLBACK = COMMUNITY_FALLBACK_NICKNAME || 'Night-Whisper Mitglied';
 const isDevEnvironment = typeof __DEV__ !== 'undefined' && __DEV__ === true;
 
@@ -69,6 +79,8 @@ const CommunityRoomScreen = () => {
   const navigation = useNavigation();
   const route = useCurrentRoute();
   const roomId = String(route?.params?.roomId || COMMUNITY_ROOM_ROUTE_FALLBACK);
+  const { width: windowWidth } = useWindowDimensions();
+  const isDesktopLayout = Platform.OS === 'web' && windowWidth >= 1024;
   const { currentUser, users, chats, getProfileTravelSummary, refreshCurrentUserVerificationStatus, resendCurrentUserVerificationEmail } = useAffairGo();
   const listRef = useRef(null);
   const isNearBottomRef = useRef(true);
@@ -84,23 +96,29 @@ const CommunityRoomScreen = () => {
   const rulesEnvelopeRef = useRef(null);
   const rulesLoadRequestIdRef = useRef(0);
   const isAcceptingRulesRef = useRef(false);
+  const pendingDraftKeysRef = useRef(new Set());
+  const sendMetricsRef = useRef(new Map());
   const [room, setRoom] = useState(null);
   const [roomLoaded, setRoomLoaded] = useState(false);
   const [messagesLoaded, setMessagesLoaded] = useState(false);
   const [messages, setMessages] = useState([]);
+  const [pendingMessages, setPendingMessages] = useState([]);
   const [readState, setReadState] = useState(null);
   const [visitReadState, setVisitReadState] = useState(null);
   const [myReactionKeys, setMyReactionKeys] = useState({});
   const [blockedEntries, setBlockedEntries] = useState([]);
+  const [roomParticipants, setRoomParticipants] = useState([]);
   const [draft, setDraft] = useState('');
   const [sendError, setSendError] = useState('');
   const [loadError, setLoadError] = useState('');
-  const [isSending, setIsSending] = useState(false);
   const [replyTargetId, setReplyTargetId] = useState('');
   const [profileUserId, setProfileUserId] = useState('');
   const [busyReactionKey, setBusyReactionKey] = useState('');
   const [busySafetyActionKey, setBusySafetyActionKey] = useState('');
   const [actionMessageId, setActionMessageId] = useState('');
+  const [participantsMenuVisible, setParticipantsMenuVisible] = useState(false);
+  const [participantsModalVisible, setParticipantsModalVisible] = useState(false);
+  const [blockedUsersModalVisible, setBlockedUsersModalVisible] = useState(false);
   const [blockConfirmUser, setBlockConfirmUser] = useState(null);
   const [reportTarget, setReportTarget] = useState(null);
   const [reportReason, setReportReason] = useState(COMMUNITY_REPORT_REASON_OPTIONS[0].value);
@@ -114,6 +132,9 @@ const CommunityRoomScreen = () => {
   const [accessActionError, setAccessActionError] = useState('');
   const [isRefreshingEmailVerification, setIsRefreshingEmailVerification] = useState(false);
   const [isResendingVerificationEmail, setIsResendingVerificationEmail] = useState(false);
+  const [loginTimeMs, setLoginTimeMs] = useState(0);
+  const [isLoginTimeResolved, setIsLoginTimeResolved] = useState(false);
+  const [visibilityNowMs, setVisibilityNowMs] = useState(Date.now());
 
   const accessRequirements = useMemo(() => getCommunityAccessRequirements(currentUser, auth.currentUser, rulesEnvelope), [currentUser, rulesEnvelope]);
   const currentRulesVersion = String(rulesEnvelope?.version || '').trim();
@@ -122,16 +143,33 @@ const CommunityRoomScreen = () => {
 
   const preparedDraft = useMemo(() => getPreparedCommunityText(draft), [draft]);
   const characterCount = draft.length;
-  const canSend = Boolean(preparedDraft) && characterCount <= COMMUNITY_MESSAGE_MAX_LENGTH && !isSending && Boolean(room?.active);
+  const canSend = Boolean(preparedDraft) && characterCount <= COMMUNITY_MESSAGE_MAX_LENGTH && Boolean(room?.active);
   const roomMissing = roomLoaded && !room;
   const roomInactive = roomLoaded && room?.active === false;
-  const messageMap = useMemo(() => Object.fromEntries(messages.map((message) => [message.id, message])), [messages]);
   const blockedUserIds = useMemo(() => new Set(blockedEntries.map((entry) => entry.blockedUserId).filter(Boolean)), [blockedEntries]);
-  const visibleMessages = useMemo(() => messages.filter((message) => !blockedUserIds.has(message.userId)), [blockedUserIds, messages]);
+  const visibilityStartMs = useMemo(() => getCommunityVisibilityStartMs({ loginTimeMs, nowMs: visibilityNowMs }), [loginTimeMs, visibilityNowMs]);
+  const mergedMessages = useMemo(() => mergePendingCommunityMessages({ messages, pendingMessages }), [messages, pendingMessages]);
+  const visibleMessages = useMemo(() => filterCommunityMessagesByVisibility(
+    mergedMessages.filter((message) => !blockedUserIds.has(message.userId)),
+    visibilityStartMs,
+    visibilityNowMs,
+  ), [blockedUserIds, mergedMessages, visibilityNowMs, visibilityStartMs]);
+  const messageMap = useMemo(() => Object.fromEntries(mergedMessages.map((message) => [message.id, message])), [mergedMessages]);
+  const sortedRoomParticipants = useMemo(() => sortCommunityParticipants(roomParticipants), [roomParticipants]);
   const participantDirectory = useMemo(() => {
     const nextEntries = new Map();
 
-    messages.forEach((message) => {
+    sortedRoomParticipants.forEach((participant) => {
+      const profile = users.find((entry) => entry.id === participant.userId) || null;
+
+      nextEntries.set(participant.userId, {
+        userId: participant.userId,
+        nickname: participant.nickname || profile?.nickname || PROFILE_FALLBACK,
+        profile: profile ? { ...profile, ...participant, id: profile.id || participant.userId } : { ...participant, id: participant.userId },
+      });
+    });
+
+    mergedMessages.forEach((message) => {
       if (!message.userId || blockedUserIds.has(message.userId)) {
         return;
       }
@@ -153,7 +191,7 @@ const CommunityRoomScreen = () => {
     }
 
     return Array.from(nextEntries.values());
-  }, [blockedUserIds, currentUser, messages, users]);
+  }, [blockedUserIds, currentUser, mergedMessages, sortedRoomParticipants, users]);
   const mentionMatch = useMemo(() => getCommunityMentionMatch(draft), [draft]);
   const mentionSuggestions = useMemo(() => {
     if (!mentionMatch) {
@@ -369,6 +407,52 @@ const CommunityRoomScreen = () => {
     };
   }, [accessRequirements.preRulesRequirementsMet, currentUser?.id]);
 
+  useEffect(() => {
+    let active = true;
+
+    if (!currentUser?.id || !auth.currentUser) {
+      setLoginTimeMs(0);
+      setIsLoginTimeResolved(!accessRequirements.canReadMessages);
+      return () => {
+        active = false;
+      };
+    }
+
+    setIsLoginTimeResolved(false);
+
+    auth.currentUser.getIdTokenResult().then((idTokenResult) => {
+      if (!active) {
+        return;
+      }
+
+      setLoginTimeMs(resolveFirebaseAuthTimeMs(auth.currentUser, idTokenResult));
+      setIsLoginTimeResolved(true);
+    }).catch(() => {
+      if (!active) {
+        return;
+      }
+
+      setLoginTimeMs(resolveFirebaseAuthTimeMs(auth.currentUser, null));
+      setIsLoginTimeResolved(true);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [accessRequirements.canReadMessages, currentUser?.id]);
+
+  useEffect(() => {
+    setVisibilityNowMs(Date.now());
+
+    const timerId = setInterval(() => {
+      setVisibilityNowMs(Date.now());
+    }, 60 * 1000);
+
+    return () => {
+      clearInterval(timerId);
+    };
+  }, []);
+
   const handleAcceptRules = async () => {
     // Ref-Lock verhindert einen zweiten Request bei Doppelklick, unabhängig vom State-Batching.
     if (!rulesEnvelope?.version || isAcceptingRulesRef.current) {
@@ -513,13 +597,20 @@ const CommunityRoomScreen = () => {
     setPendingNewCount(0);
     previousVisibleCountRef.current = 0;
 
-    if (!accessRequirements.canReadMessages || !room?.id || room.active !== true) {
+    if (!accessRequirements.canReadMessages || !room?.id || room.active !== true || !isLoginTimeResolved) {
       setMessagesLoaded(true);
       return undefined;
     }
 
+    const queryNowMs = Date.now();
+    const expiresAfterTimestamp = Timestamp.fromMillis(queryNowMs + COMMUNITY_QUERY_TIME_SAFETY_MS);
+    const expiresBeforeTimestamp = Timestamp.fromMillis(queryNowMs + COMMUNITY_MESSAGE_TTL_MS + COMMUNITY_QUERY_TIME_SAFETY_MS);
     const messagesQuery = query(
       collection(db, 'communityRooms', room.id, 'messages'),
+      where('expiresAt', '>', expiresAfterTimestamp),
+      where('expiresAt', '<=', expiresBeforeTimestamp),
+      where('createdAt', '>=', Timestamp.fromMillis(visibilityStartMs)),
+      orderBy('expiresAt', 'asc'),
       orderBy('createdAt', 'desc'),
       limit(50),
     );
@@ -529,7 +620,34 @@ const CommunityRoomScreen = () => {
         .map((messageDoc) => normalizeCommunityMessage({ id: messageDoc.id, ...messageDoc.data() }, messageDoc.id))
         .reverse();
 
+      const seenClientMessageIds = new Set(nextMessages.map((message) => String(message.clientMessageId || '')).filter(Boolean));
+
+      if (isDevEnvironment && seenClientMessageIds.size) {
+        seenClientMessageIds.forEach((clientMessageId) => {
+          const metrics = sendMetricsRef.current.get(clientMessageId);
+
+          if (!metrics || metrics.listenerLoggedAt) {
+            return;
+          }
+
+          metrics.listenerLoggedAt = Date.now();
+          console.log('[CommunitySendPerf]', {
+            phase: 'listener_feedback',
+            roomId,
+            clientMessageId,
+            durationMs: metrics.listenerLoggedAt - metrics.clickStartedAt,
+          });
+        });
+      }
+
       setMessages(nextMessages);
+      setPendingMessages((currentPendingMessages) => currentPendingMessages.filter((pendingMessage) => {
+        if (pendingMessage.deliveryState === 'failed') {
+          return true;
+        }
+
+        return !seenClientMessageIds.has(String(pendingMessage.clientMessageId || ''));
+      }));
       setMessagesLoaded(true);
       setLoadError('');
     }, (error) => {
@@ -543,7 +661,7 @@ const CommunityRoomScreen = () => {
     return () => {
       unsubscribe();
     };
-  }, [accessRequirements.canReadMessages, room?.active, room?.id]);
+  }, [accessRequirements.canReadMessages, isLoginTimeResolved, room?.active, room?.id, roomId, visibilityStartMs]);
 
   useEffect(() => {
     readStateListenerRef.current?.();
@@ -636,7 +754,8 @@ const CommunityRoomScreen = () => {
   }, [accessRequirements.canReadMessages, currentUser?.id, room?.id]);
 
   useEffect(() => {
-    const latestMessageId = visibleMessages[visibleMessages.length - 1]?.id || messages[messages.length - 1]?.id || '';
+    const latestPersistedVisibleMessage = [...visibleMessages].reverse().find((message) => !String(message.id || '').startsWith('local:') && message.deliveryState !== 'failed') || null;
+    const latestMessageId = latestPersistedVisibleMessage?.id || messages[messages.length - 1]?.id || '';
 
     if (!latestMessageId) {
       lastMessageIdRef.current = '';
@@ -680,6 +799,43 @@ const CommunityRoomScreen = () => {
       clearInterval(timerId);
     };
   }, [accessRequirements.canReadMessages, room?.id, rulesAcceptedCurrent]);
+
+  useEffect(() => {
+    let active = true;
+
+    const refreshParticipants = async () => {
+      if (!room?.id || !accessRequirements.canReadMessages) {
+        if (active) {
+          setRoomParticipants([]);
+        }
+        return;
+      }
+
+      try {
+        const result = await getCommunityPresenceSummary({ roomId: room.id });
+
+        if (!active) {
+          return;
+        }
+
+        setRoomParticipants(Array.isArray(result?.participants)
+          ? result.participants.map((participant) => normalizeCommunityPresenceParticipant(participant))
+          : []);
+      } catch {
+        if (active) {
+          setRoomParticipants([]);
+        }
+      }
+    };
+
+    refreshParticipants();
+    const timerId = setInterval(refreshParticipants, 60 * 1000);
+
+    return () => {
+      active = false;
+      clearInterval(timerId);
+    };
+  }, [accessRequirements.canReadMessages, room?.id]);
 
   useEffect(() => {
     const previousVisibleCount = previousVisibleCountRef.current;
@@ -737,28 +893,163 @@ const CommunityRoomScreen = () => {
     }
   };
 
+  const createClientMessageId = () => `${currentUser?.id || 'guest'}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
+  const createPendingMessage = ({ clientMessageId, text, replyToMessageId, mentions }) => ({
+    id: `local:${clientMessageId}`,
+    clientMessageId,
+    roomId: room.id,
+    userId: currentUser.id,
+    nickname: currentUser.nickname || PROFILE_FALLBACK,
+    text,
+    replyToMessageId: replyToMessageId || '',
+    mentions,
+    reactionCounts: {},
+    createdAt: new Date().toISOString(),
+    createdAtMs: Date.now(),
+    expiresAt: new Date(Date.now() + (60 * 60 * 1000)).toISOString(),
+    expiresAtMs: Date.now() + (60 * 60 * 1000),
+    timeLabel: 'Jetzt',
+    removed: false,
+    deliveryState: 'pending',
+    deliveryLabel: 'Wird gesendet ...',
+  });
+
+  const finalizePendingMessage = (clientMessageId, updater) => {
+    setPendingMessages((currentPendingMessages) => currentPendingMessages.map((pendingMessage) => (
+      pendingMessage.clientMessageId === clientMessageId
+        ? updater(pendingMessage)
+        : pendingMessage
+    )));
+  };
+
+  const sendPendingMessage = async (pendingMessage) => {
+    const callableStartedAt = Date.now();
+
+    try {
+      const result = await sendCommunityMessage(room.id, pendingMessage.text, {
+        clientMessageId: pendingMessage.clientMessageId,
+        replyToMessageId: pendingMessage.replyToMessageId || null,
+        mentions: pendingMessage.mentions,
+      });
+      const callableFinishedAt = Date.now();
+      const serverMessage = normalizeCommunityMessage({
+        id: result.messageId,
+        clientMessageId: result.clientMessageId || pendingMessage.clientMessageId,
+        roomId: room.id,
+        userId: currentUser.id,
+        nickname: currentUser.nickname || PROFILE_FALLBACK,
+        text: pendingMessage.text,
+        replyToMessageId: result.replyToMessageId || pendingMessage.replyToMessageId || null,
+        mentions: pendingMessage.mentions,
+        moderationStatus: result.moderationStatus,
+        createdAt: result.createdAt,
+        expiresAt: result.expiresAt,
+      }, result.messageId);
+
+      finalizePendingMessage(pendingMessage.clientMessageId, (currentPendingMessage) => ({
+        ...currentPendingMessage,
+        id: result.messageId,
+        createdAt: serverMessage.createdAt,
+        createdAtMs: serverMessage.createdAtMs,
+        expiresAt: serverMessage.expiresAt,
+        expiresAtMs: serverMessage.expiresAtMs,
+        timeLabel: serverMessage.timeLabel,
+        deliveryState: 'confirmed',
+        deliveryLabel: '',
+        serverMessage,
+      }));
+      touchCommunityPresence({ roomId: room.id }).catch(() => {});
+
+      if (isDevEnvironment) {
+        const metrics = sendMetricsRef.current.get(pendingMessage.clientMessageId) || { clickStartedAt: callableStartedAt };
+        metrics.serverConfirmedAt = callableFinishedAt;
+        sendMetricsRef.current.set(pendingMessage.clientMessageId, metrics);
+        console.log('[CommunitySendPerf]', {
+          phase: 'callable_complete',
+          roomId,
+          clientMessageId: pendingMessage.clientMessageId,
+          durationMs: callableFinishedAt - callableStartedAt,
+        });
+        console.log('[CommunitySendPerf]', {
+          phase: 'server_confirmed',
+          roomId,
+          clientMessageId: pendingMessage.clientMessageId,
+          durationMs: callableFinishedAt - metrics.clickStartedAt,
+        });
+      }
+    } catch (error) {
+      finalizePendingMessage(pendingMessage.clientMessageId, (currentPendingMessage) => ({
+        ...currentPendingMessage,
+        deliveryState: 'failed',
+        deliveryLabel: 'Nicht gesendet',
+        errorMessage: mapCommunityErrorMessage(error, 'send'),
+      }));
+    } finally {
+      pendingDraftKeysRef.current.delete(pendingMessage.draftKey);
+    }
+  };
+
   const handleSend = async () => {
     const text = preparedDraft;
+    const draftKey = `${room?.id || ''}:${text}:${replyTargetId || ''}`;
 
-    if (!text || !room?.active || isSending) {
+    if (!text || !room?.active || pendingDraftKeysRef.current.has(draftKey)) {
       return;
     }
 
-    try {
-      setIsSending(true);
-      setSendError('');
-      await sendCommunityMessage(room.id, text, {
+    const clientMessageId = createClientMessageId();
+    const mentions = buildCommunityMentionsPayload({ text, participants: participantDirectory });
+    const clickStartedAt = Date.now();
+    const nextPendingMessage = {
+      ...createPendingMessage({
+        clientMessageId,
+        text,
         replyToMessageId: replyTargetId || null,
-        mentions: buildCommunityMentionsPayload({ text, participants: participantDirectory }),
+        mentions,
+      }),
+      draftKey,
+    };
+
+    pendingDraftKeysRef.current.add(draftKey);
+    sendMetricsRef.current.set(clientMessageId, { clickStartedAt });
+    setSendError('');
+    setPendingMessages((currentPendingMessages) => [...currentPendingMessages, nextPendingMessage]);
+    setDraft('');
+    setReplyTargetId('');
+
+    if (isDevEnvironment) {
+      console.log('[CommunitySendPerf]', {
+        phase: 'click_to_local',
+        roomId,
+        clientMessageId,
+        durationMs: Date.now() - clickStartedAt,
       });
-      touchCommunityPresence({ roomId: room.id }).catch(() => {});
-      setDraft('');
-      setReplyTargetId('');
-    } catch (error) {
-      setSendError(mapCommunityErrorMessage(error, 'send'));
-    } finally {
-      setIsSending(false);
     }
+
+    sendPendingMessage(nextPendingMessage);
+  };
+
+  const handleRetryPendingMessage = (clientMessageId) => {
+    const pendingMessage = pendingMessages.find((entry) => entry.clientMessageId === clientMessageId);
+
+    if (!pendingMessage || pendingDraftKeysRef.current.has(pendingMessage.draftKey)) {
+      return;
+    }
+
+    pendingDraftKeysRef.current.add(pendingMessage.draftKey);
+    finalizePendingMessage(clientMessageId, (currentPendingMessage) => ({
+      ...currentPendingMessage,
+      deliveryState: 'pending',
+      deliveryLabel: 'Wird gesendet ...',
+      errorMessage: '',
+    }));
+    sendMetricsRef.current.set(clientMessageId, { clickStartedAt: Date.now() });
+    sendPendingMessage({ ...pendingMessage, deliveryState: 'pending', errorMessage: '' });
+  };
+
+  const handleRemovePendingMessage = (clientMessageId) => {
+    setPendingMessages((currentPendingMessages) => currentPendingMessages.filter((entry) => entry.clientMessageId !== clientMessageId));
   };
 
   const handleDraftChange = (value) => {
@@ -780,7 +1071,7 @@ const CommunityRoomScreen = () => {
     }
 
     if (nextNearBottom) {
-      const latestVisibleMessageId = visibleMessages[visibleMessages.length - 1]?.id || '';
+      const latestVisibleMessageId = ([...visibleMessages].reverse().find((message) => !String(message.id || '').startsWith('local:') && message.deliveryState !== 'failed') || null)?.id || '';
 
       if (latestVisibleMessageId) {
         markCommunityRoomRead({ roomId, lastReadMessageId: latestVisibleMessageId }).catch(() => {});
@@ -901,6 +1192,13 @@ const CommunityRoomScreen = () => {
     const isOwnMessage = item.userId === currentUser.id;
     const replyPreview = item.replyToMessageId ? messageMap[item.replyToMessageId] || null : null;
     const reactions = getCommunityReactionSummary(item.reactionCounts);
+    const isPending = item.deliveryState === 'pending';
+    const isFailed = item.deliveryState === 'failed';
+    const statusLabel = isPending
+      ? 'Wird gesendet ...'
+      : isFailed
+        ? 'Nicht gesendet'
+        : item.timeLabel;
 
     return (
       <>
@@ -912,6 +1210,7 @@ const CommunityRoomScreen = () => {
         <View style={[styles.messageRow, isOwnMessage ? styles.messageRowMine : styles.messageRowTheirs]}>
           <View style={[
             styles.messageBubble,
+            isDesktopLayout ? styles.messageBubbleDesktop : null,
             isOwnMessage ? styles.messageBubbleMine : styles.messageBubbleTheirs,
             item.removed ? styles.messageBubbleRemoved : null,
           ]}>
@@ -927,38 +1226,54 @@ const CommunityRoomScreen = () => {
               </Pressable>
             ) : null}
             <Text style={[styles.messageText, item.removed ? styles.messageTextRemoved : null]}>{item.text}</Text>
-            <Text style={styles.messageTime}>{item.timeLabel}</Text>
+            <Text style={[styles.messageTime, isFailed ? styles.messageTimeFailed : null]}>{statusLabel}</Text>
+            {isFailed && item.errorMessage ? <Text style={styles.inlineErrorText}>{item.errorMessage}</Text> : null}
           </View>
           {!item.removed ? (
             <View style={[styles.messageMetaRow, isOwnMessage ? styles.messageMetaRowMine : null]}>
-              <Pressable style={styles.replyAction} onPress={() => handleStartReply(item.id)}>
-                <Ionicons name="return-up-back-outline" size={14} color={affairGoTheme.colors.textMuted} />
-                <Text style={styles.replyActionText}>Antworten</Text>
-              </Pressable>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.reactionList}>
-                {reactions.map((reaction) => {
-                  const reactionKey = `${item.id}:${reaction.reactionType}`;
-                  const active = Boolean(currentUserReactionMap[reactionKey]);
+              {isFailed ? (
+                <>
+                  <Pressable style={styles.replyAction} onPress={() => handleRetryPendingMessage(item.clientMessageId)}>
+                    <Ionicons name="refresh-outline" size={14} color={affairGoTheme.colors.textMuted} />
+                    <Text style={styles.replyActionText}>Erneut versuchen</Text>
+                  </Pressable>
+                  <Pressable style={styles.replyAction} onPress={() => handleRemovePendingMessage(item.clientMessageId)}>
+                    <Ionicons name="trash-outline" size={14} color={affairGoTheme.colors.textMuted} />
+                    <Text style={styles.replyActionText}>Entfernen</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Pressable style={styles.replyAction} onPress={() => handleStartReply(item.id)} disabled={isPending}>
+                    <Ionicons name="return-up-back-outline" size={14} color={affairGoTheme.colors.textMuted} />
+                    <Text style={styles.replyActionText}>Antworten</Text>
+                  </Pressable>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.reactionList}>
+                    {reactions.map((reaction) => {
+                      const reactionKey = `${item.id}:${reaction.reactionType}`;
+                      const active = Boolean(currentUserReactionMap[reactionKey]);
 
-                  return (
-                    <Pressable
-                      key={reaction.reactionType}
-                      onPress={() => handleToggleReaction(item.id, reaction.reactionType)}
-                      disabled={busyReactionKey === reactionKey}
-                      style={[styles.reactionChip, active ? styles.reactionChipActive : null]}
-                    >
-                      <Text style={styles.reactionChipText}>{reaction.emoji}</Text>
-                      {reaction.count ? <Text style={styles.reactionChipCount}>{reaction.count}</Text> : null}
+                      return (
+                        <Pressable
+                          key={reaction.reactionType}
+                          onPress={() => handleToggleReaction(item.id, reaction.reactionType)}
+                          disabled={isPending || busyReactionKey === reactionKey}
+                          style={[styles.reactionChip, active ? styles.reactionChipActive : null]}
+                        >
+                          <Text style={styles.reactionChipText}>{reaction.emoji}</Text>
+                          {reaction.count ? <Text style={styles.reactionChipCount}>{reaction.count}</Text> : null}
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                  {!isOwnMessage ? (
+                    <Pressable style={styles.moreAction} onPress={() => setActionMessageId(item.id)}>
+                      <Ionicons name="ellipsis-horizontal" size={16} color={affairGoTheme.colors.textMuted} />
+                      <Text style={styles.replyActionText}>Mehr</Text>
                     </Pressable>
-                  );
-                })}
-              </ScrollView>
-              {!isOwnMessage ? (
-                <Pressable style={styles.moreAction} onPress={() => setActionMessageId(item.id)}>
-                  <Ionicons name="ellipsis-horizontal" size={16} color={affairGoTheme.colors.textMuted} />
-                  <Text style={styles.replyActionText}>Mehr</Text>
-                </Pressable>
-              ) : null}
+                  ) : null}
+                </>
+              )}
             </View>
           ) : null}
         </View>
@@ -1079,7 +1394,7 @@ const CommunityRoomScreen = () => {
       return (
         <GlassCard strong style={styles.stateCard}>
           <ActivityIndicator size="small" color={affairGoTheme.colors.accent} />
-          <Text style={styles.stateTitle}>Nachrichten werden geladen …</Text>
+          <Text style={styles.stateTitle}>{isLoginTimeResolved ? 'Nachrichten werden geladen …' : 'Anmeldestatus wird geprüft …'}</Text>
         </GlassCard>
       );
     }
@@ -1100,8 +1415,8 @@ const CommunityRoomScreen = () => {
           />
         ) : (
           <EmptyState
-            title={messages.length && blockedEntries.length ? 'Aktuell sind nur ausgeblendete Nachrichten vorhanden.' : 'Noch ist es hier ruhig.'}
-            detail={messages.length && blockedEntries.length ? 'Du blendest derzeit Nachrichten blockierter Community-Nutzer aus.' : 'Schreib die erste Nachricht in diesem Raum.'}
+            title={messages.length && blockedEntries.length ? 'Aktuell sind nur ausgeblendete Nachrichten vorhanden.' : 'Seit deiner Anmeldung wurden in diesem Raum noch keine Nachrichten geschrieben.'}
+            detail={messages.length && blockedEntries.length ? 'Du blendest derzeit Nachrichten blockierter Community-Nutzer aus.' : 'Neue öffentliche Nachrichten erscheinen hier sofort, solange sie innerhalb des sichtbaren Zeitfensters liegen.'}
           />
         )}
 
@@ -1114,109 +1429,205 @@ const CommunityRoomScreen = () => {
     );
   };
 
+  const headerSubtitle = room?.type === 'EVENT'
+    ? `${formatCommunityEventDateLabel(room)}${room?.eventCity ? ` • ${room.eventCity}` : ''}`
+    : room?.type === 'REGION'
+      ? room?.region || getCommunityRoomTypeLabel(room.type)
+      : '';
+  const participantCountLabel = sortedRoomParticipants.length ? `${sortedRoomParticipants.length}` : '';
+
+  const renderParticipantsContent = () => (
+    <>
+      <View style={styles.participantPanelHeader}>
+        <View>
+          <Text style={styles.participantPanelTitle}>Teilnehmer</Text>
+          <Text style={styles.participantPanelSubtitle}>{sortedRoomParticipants.length ? `${sortedRoomParticipants.length} aktuell aktiv` : 'Momentan ist niemand aktiv im Raum.'}</Text>
+        </View>
+        {!isDesktopLayout ? (
+          <Pressable onPress={() => setParticipantsModalVisible(false)} hitSlop={6}>
+            <Ionicons name="close" size={20} color={affairGoTheme.colors.textMuted} />
+          </Pressable>
+        ) : null}
+      </View>
+
+      <ScrollView style={styles.participantScroll} contentContainerStyle={styles.participantScrollContent}>
+        {sortedRoomParticipants.map((participant) => (
+          <Pressable key={participant.userId} style={styles.participantRow} onPress={() => handleOpenProfile(participant.userId)}>
+            <View style={styles.participantAvatar}>
+              <Text style={styles.participantAvatarLabel}>{String(participant.nickname || PROFILE_FALLBACK).slice(0, 1).toUpperCase()}</Text>
+            </View>
+            <View style={styles.participantCopy}>
+              <Text style={styles.participantName}>{participant.nickname || PROFILE_FALLBACK}</Text>
+              <Text style={styles.participantMeta}>{getCommunityParticipantStatusLabel(participant.onlineStatus)}</Text>
+            </View>
+            {participant.isModerator ? <StatusPill label="Mod" tone="info" style={styles.participantModeratorPill} /> : null}
+          </Pressable>
+        ))}
+        {!sortedRoomParticipants.length ? <Text style={styles.participantEmptyText}>Sobald Mitglieder in diesem Raum aktiv sind, erscheinen sie hier.</Text> : null}
+      </ScrollView>
+    </>
+  );
+
+  const renderBlockedUsersContent = () => (
+    <>
+      <View style={styles.participantPanelHeader}>
+        <View>
+          <Text style={styles.participantPanelTitle}>Blockierte Community-Nutzer</Text>
+          <Text style={styles.participantPanelSubtitle}>{blockedEntries.length ? 'Diese Profile sind in diesem Raum für dich ausgeblendet.' : 'Keine blockierten Community-Profile.'}</Text>
+        </View>
+        <Pressable onPress={() => setBlockedUsersModalVisible(false)} hitSlop={6}>
+          <Ionicons name="close" size={20} color={affairGoTheme.colors.textMuted} />
+        </Pressable>
+      </View>
+      <ScrollView style={styles.participantScroll} contentContainerStyle={styles.participantScrollContent}>
+        {blockedEntries.map((entry) => (
+          <View key={entry.id} style={styles.blockedRow}>
+            <View style={styles.blockedCopy}>
+              <Text style={styles.blockedName}>{entry.blockedNickname || PROFILE_FALLBACK}</Text>
+              <Text style={styles.blockedMeta}>{formatCommunityDateTime(entry.createdAt) || 'Blockiert'}</Text>
+            </View>
+            <AccentButton
+              label={busySafetyActionKey === `unblock:${entry.blockedUserId}` ? '...' : 'Entblocken'}
+              variant="ghost"
+              onPress={() => handleUnblock(entry.blockedUserId)}
+              disabled={Boolean(busySafetyActionKey)}
+            />
+          </View>
+        ))}
+        {!blockedEntries.length ? <Text style={styles.participantEmptyText}>Aktuell gibt es hier nichts zu verwalten.</Text> : null}
+      </ScrollView>
+    </>
+  );
+
   return (
     <AppBackground scroll={false} contentContainerStyle={styles.screenContent}>
       <ScreenHeader
         title={room?.name || 'Community'}
-        subtitle={room?.type === 'EVENT'
-          ? `${formatCommunityEventDateLabel(room)}${room?.eventCity ? ` • ${room.eventCity}` : ''}`
-          : room?.type ? getCommunityRoomTypeLabel(room.type) : 'Community'}
+        subtitle={headerSubtitle}
         leftAction={
           <Pressable onPress={() => navigation.goBack()}>
             <Ionicons name="arrow-back" size={28} color={affairGoTheme.colors.text} />
           </Pressable>
         }
-        rightAction={room?.type === 'EVENT' && room?.eventId ? (
-          <Pressable onPress={() => navigation.navigate('Event', { eventId: room.eventId })}>
-            <Ionicons name="calendar-outline" size={24} color={affairGoTheme.colors.accentSoft} />
+        rightAction={!isDesktopLayout ? (
+          <Pressable onPress={() => setParticipantsMenuVisible(true)} style={styles.headerMenuButton}>
+            <Ionicons name="ellipsis-vertical" size={20} color={affairGoTheme.colors.text} />
+            {participantCountLabel ? <Text style={styles.headerMenuCount}>{participantCountLabel}</Text> : null}
           </Pressable>
         ) : null}
       />
-
-      <GlassCard strong style={styles.introCard}>
-        <Text style={styles.introTitle}>{room?.name || 'Community-Raum'}</Text>
-        <Text style={styles.introCopy}>{room?.description || 'Öffentlicher Raum für die Night-Whisper Community.'}</Text>
-        <Text style={styles.introMeta}>
-          {room?.type === 'EVENT'
-            ? `${formatCommunityEventDateLabel(room)}${room?.eventTimeLabel ? ` • ${room.eventTimeLabel}` : ''}${room?.eventCity ? ` • ${room.eventCity}` : ''}`
-            : room?.region ? `${getCommunityRoomTypeLabel(room.type)} • ${room.region}` : getCommunityRoomTypeLabel(room?.type || 'GLOBAL')}
-        </Text>
-        {room?.type === 'EVENT' && room?.eventId ? <AccentButton label="Event ansehen" variant="secondary" onPress={() => navigation.navigate('Event', { eventId: room.eventId })} style={styles.eventButton} /> : null}
-      </GlassCard>
-
-      <InfoBanner
-        title="Community und private Nachrichten"
-        detail="Private Nachrichten bleiben weiterhin an die Night-Whisper-Matchingregeln gebunden. Dieser Raum ist nur ein öffentlicher Community-Bereich."
-        tone="warning"
-        style={styles.infoBanner}
-      />
-
-      {blockedEntries.length ? (
-        <GlassCard style={styles.blockedCard}>
-          <Text style={styles.blockedTitle}>Blockierte Community-Nutzer</Text>
-          {blockedEntries.map((entry) => (
-            <View key={entry.id} style={styles.blockedRow}>
-              <View style={styles.blockedCopy}>
-                <Text style={styles.blockedName}>{entry.blockedNickname || PROFILE_FALLBACK}</Text>
-                <Text style={styles.blockedMeta}>{formatCommunityDateTime(entry.createdAt) || 'Blockiert'}</Text>
-              </View>
-              <AccentButton
-                label={busySafetyActionKey === `unblock:${entry.blockedUserId}` ? '...' : 'Entblocken'}
-                variant="ghost"
-                onPress={() => handleUnblock(entry.blockedUserId)}
-                disabled={Boolean(busySafetyActionKey)}
-              />
-            </View>
-          ))}
-        </GlassCard>
-      ) : null}
 
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 18 : 0}
       >
-        <View style={styles.flex}>{renderContent()}</View>
+        <View style={[styles.roomShell, isDesktopLayout ? styles.roomShellDesktop : null]}>
+          {isDesktopLayout ? (
+            <GlassCard strong style={styles.participantSidebar}>
+              {renderParticipantsContent()}
+            </GlassCard>
+          ) : null}
 
-        <GlassCard strong style={styles.composerCard}>
-          <Text style={styles.composerLabel}>Nachricht an {room?.name || 'diesen Raum'}</Text>
-          {replyTarget ? (
-            <View style={styles.replyComposerCard}>
-              <View style={styles.replyComposerCopy}>
-                <Text style={styles.replyComposerTitle}>Antwort an {replyTarget.nickname || PROFILE_FALLBACK}</Text>
-                <Text style={styles.replyComposerText} numberOfLines={2}>{replyTarget.text}</Text>
+          <View style={styles.roomMainColumn}>
+            <View style={styles.flex}>{renderContent()}</View>
+
+            <GlassCard strong style={styles.composerCard}>
+              <View style={styles.composerHeaderRow}>
+                <Text style={styles.composerLabel}>Nachricht an {room?.name || 'diesen Raum'}</Text>
+                {room?.type === 'EVENT' && room?.eventId ? (
+                  <Pressable onPress={() => navigation.navigate('Event', { eventId: room.eventId })} style={styles.eventShortcut}>
+                    <Ionicons name="calendar-outline" size={16} color={affairGoTheme.colors.accentSoft} />
+                    <Text style={styles.eventShortcutText}>Event</Text>
+                  </Pressable>
+                ) : null}
               </View>
-              <Pressable onPress={() => setReplyTargetId('')} hitSlop={6}>
-                <Ionicons name="close" size={18} color={affairGoTheme.colors.textMuted} />
-              </Pressable>
-            </View>
-          ) : null}
-          <TextInput
-            value={draft}
-            onChangeText={handleDraftChange}
-            placeholder="Schreibe eine öffentliche Nachricht"
-            placeholderTextColor={affairGoTheme.colors.textMuted}
-            multiline
-            maxLength={COMMUNITY_MESSAGE_MAX_LENGTH}
-            editable={!isSending && Boolean(room?.active)}
-            style={styles.composerInput}
-            textAlignVertical="top"
-          />
-          {mentionSuggestions.length ? (
-            <View style={styles.mentionMenu}>
-              {mentionSuggestions.map((entry) => (
-                <Pressable key={entry.userId} style={styles.mentionMenuItem} onPress={() => handleSelectMention(entry.nickname)}>
-                  <Text style={styles.mentionMenuName}>{entry.nickname}</Text>
-                  <Text style={styles.mentionMenuMeta}>{entry.profile?.city || 'Community-Mitglied'}</Text>
+              {replyTarget ? (
+                <View style={styles.replyComposerCard}>
+                  <View style={styles.replyComposerCopy}>
+                    <Text style={styles.replyComposerTitle}>Antwort an {replyTarget.nickname || PROFILE_FALLBACK}</Text>
+                    <Text style={styles.replyComposerText} numberOfLines={2}>{replyTarget.text}</Text>
+                  </View>
+                  <Pressable onPress={() => setReplyTargetId('')} hitSlop={6}>
+                    <Ionicons name="close" size={18} color={affairGoTheme.colors.textMuted} />
+                  </Pressable>
+                </View>
+              ) : null}
+              <TextInput
+                value={draft}
+                onChangeText={handleDraftChange}
+                placeholder="Schreibe eine öffentliche Nachricht"
+                placeholderTextColor={affairGoTheme.colors.textMuted}
+                multiline
+                maxLength={COMMUNITY_MESSAGE_MAX_LENGTH}
+                editable={Boolean(room?.active)}
+                style={styles.composerInput}
+                textAlignVertical="top"
+              />
+              {mentionSuggestions.length ? (
+                <View style={styles.mentionMenu}>
+                  {mentionSuggestions.map((entry) => (
+                    <Pressable key={entry.userId} style={styles.mentionMenuItem} onPress={() => handleSelectMention(entry.nickname)}>
+                      <Text style={styles.mentionMenuName}>{entry.nickname}</Text>
+                      <Text style={styles.mentionMenuMeta}>{entry.profile?.city || 'Community-Mitglied'}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
+              {blockedEntries.length ? (
+                <Pressable onPress={() => setBlockedUsersModalVisible(true)} style={styles.blockedUsersLink}>
+                  <Text style={styles.blockedUsersLinkText}>Blockierte Nutzer verwalten</Text>
                 </Pressable>
-              ))}
-            </View>
-          ) : null}
-          {characterCount >= COMMUNITY_MESSAGE_COUNTER_THRESHOLD ? <Text style={styles.counterText}>{characterCount} / {COMMUNITY_MESSAGE_MAX_LENGTH}</Text> : null}
-          {sendError ? <Text style={styles.errorText}>{sendError}</Text> : null}
-          <AccentButton label={isSending ? 'Wird gesendet...' : 'Senden'} onPress={handleSend} disabled={!canSend} style={styles.sendButton} />
-        </GlassCard>
+              ) : null}
+              {characterCount >= COMMUNITY_MESSAGE_COUNTER_THRESHOLD ? <Text style={styles.counterText}>{characterCount} / {COMMUNITY_MESSAGE_MAX_LENGTH}</Text> : null}
+              {sendError ? <Text style={styles.errorText}>{sendError}</Text> : null}
+              <AccentButton label="Senden" onPress={handleSend} disabled={!canSend} style={styles.sendButton} />
+            </GlassCard>
+          </View>
+        </View>
       </KeyboardAvoidingView>
+
+      <Modal visible={participantsMenuVisible} animationType="fade" transparent onRequestClose={() => setParticipantsMenuVisible(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setParticipantsMenuVisible(false)}>
+          <Pressable style={styles.menuCard} onPress={() => {}}>
+            <Pressable style={styles.menuRow} onPress={() => { setParticipantsMenuVisible(false); setParticipantsModalVisible(true); }}>
+              <Text style={styles.menuRowLabel}>Teilnehmer</Text>
+              {participantCountLabel ? <Text style={styles.menuRowMeta}>{participantCountLabel}</Text> : null}
+            </Pressable>
+            {blockedEntries.length ? (
+              <Pressable style={styles.menuRow} onPress={() => { setParticipantsMenuVisible(false); setBlockedUsersModalVisible(true); }}>
+                <Text style={styles.menuRowLabel}>Blockierte Nutzer</Text>
+                <Text style={styles.menuRowMeta}>{blockedEntries.length}</Text>
+              </Pressable>
+            ) : null}
+            {room?.type === 'EVENT' && room?.eventId ? (
+              <Pressable style={styles.menuRow} onPress={() => { setParticipantsMenuVisible(false); navigation.navigate('Event', { eventId: room.eventId }); }}>
+                <Text style={styles.menuRowLabel}>Event ansehen</Text>
+              </Pressable>
+            ) : null}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={participantsModalVisible} animationType="slide" transparent onRequestClose={() => setParticipantsModalVisible(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setParticipantsModalVisible(false)}>
+          <SafeAreaView style={styles.sheetSafeArea}>
+            <Pressable style={styles.sheetCard} onPress={() => {}}>
+              {renderParticipantsContent()}
+            </Pressable>
+          </SafeAreaView>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={blockedUsersModalVisible} animationType="slide" transparent onRequestClose={() => setBlockedUsersModalVisible(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setBlockedUsersModalVisible(false)}>
+          <SafeAreaView style={styles.sheetSafeArea}>
+            <Pressable style={styles.sheetCard} onPress={() => {}}>
+              {renderBlockedUsersContent()}
+            </Pressable>
+          </SafeAreaView>
+        </Pressable>
+      </Modal>
 
       <Modal visible={Boolean(profileUserId && selectedProfile)} animationType="fade" transparent onRequestClose={() => setProfileUserId('')}>
         <Pressable style={styles.modalBackdrop} onPress={() => setProfileUserId('')}>
@@ -1245,8 +1656,7 @@ const CommunityRoomScreen = () => {
               </GlassCard>
             ) : null}
 
-            <GlassCard style={styles.privateStateCard}>
-              <Text style={styles.privateStateTitle}>Private Nachrichten</Text>
+            <View style={styles.privateStateCard}>
               <Text style={styles.privateStateText}>
                 {selectedProfile?.id === currentUser.id
                   ? 'Das ist dein eigenes Profil innerhalb der Community.'
@@ -1267,7 +1677,7 @@ const CommunityRoomScreen = () => {
                   <AccentButton label="Nutzer melden" variant="ghost" onPress={() => openReportModal({ type: 'user', user: selectedProfile })} disabled={Boolean(busySafetyActionKey)} style={styles.secondaryAction} />
                 </>
               ) : null}
-            </GlassCard>
+            </View>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1332,13 +1742,12 @@ const CommunityRoomScreen = () => {
 const styles = StyleSheet.create({
   screenContent: { flexGrow: 1 },
   flex: { flex: 1, minHeight: 0 },
-  introCard: { marginBottom: 12 },
-  introTitle: { color: affairGoTheme.colors.text, fontSize: 22, fontWeight: '700' },
-  introCopy: { color: affairGoTheme.colors.text, lineHeight: 22, marginTop: 10 },
-  introMeta: { color: affairGoTheme.colors.textMuted, marginTop: 8, lineHeight: 20 },
-  infoBanner: { marginBottom: 10 },
-  eventButton: { marginTop: 12 },
-  blockedCard: { marginBottom: 12 },
+  roomShell: { flex: 1, minHeight: 0 },
+  roomShellDesktop: { flexDirection: 'row', gap: 16, alignItems: 'stretch' },
+  roomMainColumn: { flex: 1, minHeight: 0 },
+  participantSidebar: { width: 280, minHeight: 0, marginBottom: 8 },
+  headerMenuButton: { minWidth: 44, minHeight: 36, borderRadius: affairGoTheme.radius.pill, borderWidth: 1, borderColor: affairGoTheme.colors.line, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10, gap: 2 },
+  headerMenuCount: { color: affairGoTheme.colors.textMuted, fontSize: 11, fontWeight: '700' },
   blockedTitle: { color: affairGoTheme.colors.text, fontWeight: '700', marginBottom: 10 },
   blockedRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, gap: 10 },
   blockedCopy: { flex: 1 },
@@ -1362,8 +1771,9 @@ const styles = StyleSheet.create({
   messageRowMine: { alignItems: 'flex-end' },
   messageRowTheirs: { alignItems: 'flex-start' },
   messageBubble: { maxWidth: '86%', borderRadius: affairGoTheme.radius.md, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12 },
-  messageBubbleMine: { backgroundColor: 'rgba(255,67,67,0.26)', borderColor: 'rgba(255,122,100,0.5)' },
-  messageBubbleTheirs: { backgroundColor: 'rgba(255,255,255,0.08)', borderColor: affairGoTheme.colors.line },
+  messageBubbleDesktop: { maxWidth: 720 },
+  messageBubbleMine: { backgroundColor: 'rgba(118, 87, 255, 0.18)', borderColor: 'rgba(118, 87, 255, 0.34)' },
+  messageBubbleTheirs: { backgroundColor: affairGoTheme.colors.cardStrong, borderColor: affairGoTheme.colors.line },
   messageBubbleRemoved: { backgroundColor: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.12)' },
   messageNickname: { color: affairGoTheme.colors.accentSoft, fontSize: 13, fontWeight: '700', marginBottom: 6 },
   messageNicknameMine: { color: affairGoTheme.colors.accessHighlight },
@@ -1373,6 +1783,8 @@ const styles = StyleSheet.create({
   messageText: { color: affairGoTheme.colors.text, lineHeight: 22 },
   messageTextRemoved: { color: affairGoTheme.colors.textMuted, fontStyle: 'italic' },
   messageTime: { color: affairGoTheme.colors.textMuted, fontSize: 12, marginTop: 8, alignSelf: 'flex-end' },
+  messageTimeFailed: { color: affairGoTheme.colors.warning },
+  inlineErrorText: { color: affairGoTheme.colors.warning, marginTop: 6, fontSize: 12, lineHeight: 18 },
   messageMetaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 10, maxWidth: '86%' },
   messageMetaRowMine: { alignSelf: 'flex-end' },
   replyAction: { flexDirection: 'row', alignItems: 'center', gap: 4 },
@@ -1380,27 +1792,51 @@ const styles = StyleSheet.create({
   moreAction: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   reactionList: { gap: 8 },
   reactionChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6, borderRadius: affairGoTheme.radius.pill, backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: affairGoTheme.colors.line, gap: 6 },
-  reactionChipActive: { backgroundColor: 'rgba(255,67,67,0.2)', borderColor: 'rgba(255,122,100,0.45)' },
+  reactionChipActive: { backgroundColor: 'rgba(118, 87, 255, 0.18)', borderColor: 'rgba(118, 87, 255, 0.34)' },
   reactionChipText: { fontSize: 14 },
   reactionChipCount: { color: affairGoTheme.colors.text, fontSize: 12, fontWeight: '700' },
   jumpButton: { position: 'absolute', right: 8, bottom: 8, borderRadius: affairGoTheme.radius.pill, backgroundColor: affairGoTheme.colors.cardStrong, borderWidth: 1, borderColor: affairGoTheme.colors.lineStrong, paddingHorizontal: 14, paddingVertical: 10 },
   jumpButtonText: { color: affairGoTheme.colors.text, fontWeight: '700' },
   composerCard: { marginBottom: Platform.OS === 'web' ? 0 : 8 },
-  composerLabel: { color: affairGoTheme.colors.text, fontWeight: '700', marginBottom: 10 },
+  composerHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 },
+  composerLabel: { color: affairGoTheme.colors.text, fontWeight: '700', marginBottom: 0, flex: 1 },
+  eventShortcut: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  eventShortcutText: { color: affairGoTheme.colors.accentSoft, fontSize: 12, fontWeight: '700' },
   replyComposerCard: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', borderWidth: 1, borderColor: affairGoTheme.colors.line, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: affairGoTheme.radius.md, padding: 12, marginBottom: 10, gap: 10 },
   replyComposerCopy: { flex: 1 },
   replyComposerTitle: { color: affairGoTheme.colors.accentSoft, fontWeight: '700', marginBottom: 4 },
   replyComposerText: { color: affairGoTheme.colors.textMuted, lineHeight: 18 },
-  composerInput: { minHeight: 108, maxHeight: 180, borderRadius: affairGoTheme.radius.md, borderWidth: 1, borderColor: affairGoTheme.colors.line, backgroundColor: 'rgba(255,255,255,0.06)', color: affairGoTheme.colors.text, paddingHorizontal: 14, paddingVertical: 12 },
+  composerInput: { minHeight: 108, maxHeight: 180, borderRadius: affairGoTheme.radius.md, borderWidth: 1, borderColor: affairGoTheme.colors.line, backgroundColor: affairGoTheme.colors.cardStrong, color: affairGoTheme.colors.text, paddingHorizontal: 14, paddingVertical: 12 },
   mentionMenu: { marginTop: 10, borderWidth: 1, borderColor: affairGoTheme.colors.line, backgroundColor: affairGoTheme.colors.cardStrong, borderRadius: affairGoTheme.radius.md, overflow: 'hidden' },
   mentionMenuItem: { paddingHorizontal: 14, paddingVertical: 12, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' },
   mentionMenuName: { color: affairGoTheme.colors.text, fontWeight: '700' },
   mentionMenuMeta: { color: affairGoTheme.colors.textMuted, marginTop: 4, fontSize: 12 },
+  blockedUsersLink: { marginTop: 10 },
+  blockedUsersLinkText: { color: affairGoTheme.colors.accentSoft, fontSize: 12, fontWeight: '700' },
   counterText: { color: affairGoTheme.colors.textMuted, marginTop: 8, textAlign: 'right', fontSize: 12 },
   errorText: { color: affairGoTheme.colors.warning, marginTop: 10, lineHeight: 20 },
   sendButton: { marginTop: 12 },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(7,10,16,0.82)', justifyContent: 'center', paddingHorizontal: 18 },
+  menuCard: { alignSelf: 'flex-end', width: 220, backgroundColor: affairGoTheme.colors.cardStrong, borderRadius: affairGoTheme.radius.lg, borderWidth: 1, borderColor: affairGoTheme.colors.lineStrong, paddingVertical: 8 },
+  menuRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 },
+  menuRowLabel: { color: affairGoTheme.colors.text, fontWeight: '600' },
+  menuRowMeta: { color: affairGoTheme.colors.textMuted, fontSize: 12, fontWeight: '700' },
+  sheetSafeArea: { width: '100%', marginTop: 'auto' },
+  sheetCard: { maxHeight: '80%', backgroundColor: affairGoTheme.colors.cardStrong, borderTopLeftRadius: affairGoTheme.radius.lg, borderTopRightRadius: affairGoTheme.radius.lg, borderWidth: 1, borderColor: affairGoTheme.colors.lineStrong, padding: 18 },
   modalCard: { backgroundColor: affairGoTheme.colors.cardStrong, borderRadius: affairGoTheme.radius.lg, borderWidth: 1, borderColor: affairGoTheme.colors.lineStrong, padding: 18 },
+  participantPanelHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 12 },
+  participantPanelTitle: { color: affairGoTheme.colors.text, fontSize: 18, fontWeight: '700' },
+  participantPanelSubtitle: { color: affairGoTheme.colors.textMuted, marginTop: 4, lineHeight: 18 },
+  participantScroll: { flexGrow: 0 },
+  participantScrollContent: { paddingBottom: 6 },
+  participantRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' },
+  participantAvatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(255,255,255,0.08)', borderWidth: 1, borderColor: affairGoTheme.colors.line, alignItems: 'center', justifyContent: 'center' },
+  participantAvatarLabel: { color: affairGoTheme.colors.text, fontWeight: '700' },
+  participantCopy: { flex: 1 },
+  participantName: { color: affairGoTheme.colors.text, fontWeight: '600' },
+  participantMeta: { color: affairGoTheme.colors.textMuted, marginTop: 4, fontSize: 12 },
+  participantModeratorPill: { marginBottom: 0 },
+  participantEmptyText: { color: affairGoTheme.colors.textMuted, lineHeight: 20, paddingVertical: 10 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 },
   modalTitle: { color: affairGoTheme.colors.text, fontSize: 22, fontWeight: '700' },
   modalSubtitle: { color: affairGoTheme.colors.textMuted, marginTop: 4 },
@@ -1409,8 +1845,7 @@ const styles = StyleSheet.create({
   profileTravelCard: { marginBottom: 14, padding: 14 },
   profileTravelTitle: { color: affairGoTheme.colors.text, fontWeight: '700', marginBottom: 6 },
   profileTravelText: { color: affairGoTheme.colors.textMuted, lineHeight: 20 },
-  privateStateCard: { padding: 14 },
-  privateStateTitle: { color: affairGoTheme.colors.text, fontWeight: '700', marginBottom: 6 },
+  privateStateCard: { paddingTop: 2 },
   privateStateText: { color: affairGoTheme.colors.textMuted, lineHeight: 20 },
   privateAction: { marginTop: 12 },
   privateStatePill: { alignSelf: 'flex-start', marginTop: 12 },

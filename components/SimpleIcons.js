@@ -3,11 +3,15 @@ import { Text } from 'react-native';
 
 const glyphs = {
   heart: '♥',
+  'heart-outline': '♡',
   'arrow-back': '←',
   'eye-outline': '◉',
   'eye-off-outline': '○',
   menu: '☰',
   person: '◔',
+  'person-outline': '◌',
+  people: '◍',
+  'people-outline': '◎',
   'options-outline': '≡',
   location: '⌖',
   'radio-outline': '◉',
@@ -19,6 +23,7 @@ const glyphs = {
   'map-outline': '⌘',
   'swap-horizontal-outline': '⇄',
   'chatbubbles-outline': '☷',
+  chatbubbles: '☰',
   'shield-checkmark-outline': '✓',
   'navigate-outline': '➤',
   'chatbubble-ellipses-outline': '…',
@@ -26,6 +31,9 @@ const glyphs = {
   'eye-off-outline': '◌',
   'image-outline': '□',
   'calendar-outline': '◷',
+  sparkles: '✦',
+  'sparkles-outline': '✧',
+  map: '⌘',
 };
 
 const resolveGlyph = (name) => glyphs[name] || '•';

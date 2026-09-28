@@ -214,13 +214,17 @@ export const NavigationProvider = ({ initialRouteName = 'Landing', children }) =
   }, [currentRoute]);
 
   const getAuthenticatedBackStack = (currentStack) => {
-    const dashboardIndex = currentStack.findIndex((route) => route.name === 'Dashboard');
-
-    if (dashboardIndex >= 0) {
-      return currentStack.slice(0, dashboardIndex + 1);
+    if (currentStack.length > 1) {
+      return currentStack.slice(0, -1);
     }
 
-    return [{ name: 'Dashboard', params: undefined }];
+    const currentTopRoute = currentStack[currentStack.length - 1]?.name;
+
+    if (currentTopRoute && currentTopRoute !== 'Dashboard') {
+      return [{ name: 'Dashboard', params: undefined }];
+    }
+
+    return currentStack;
   };
 
   useEffect(() => {

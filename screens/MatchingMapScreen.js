@@ -101,11 +101,6 @@ const MatchingMapScreen = () => {
       <ScreenHeader
         title="Matching Map"
         subtitle="OpenStreetMap mit Live-Standorten und Events"
-        leftAction={
-          <Pressable onPress={() => navigation.goBack()}>
-            <Ionicons name="arrow-back" size={28} color={affairGoTheme.colors.text} />
-          </Pressable>
-        }
         rightAction={
           <Pressable onPress={() => navigation.navigate('Profil')}>
             <Ionicons name="options-outline" size={28} color={affairGoTheme.colors.text} />
@@ -131,7 +126,7 @@ const MatchingMapScreen = () => {
       ) : null}
 
       {radiusUpdateError ? (
-        <InfoBanner tone="warning" title="Radius noch nicht gespeichert" message={radiusUpdateError} />
+        <InfoBanner tone="warning" title="Radius noch nicht gespeichert" detail={radiusUpdateError} />
       ) : null}
 
       <View style={styles.filters}>
