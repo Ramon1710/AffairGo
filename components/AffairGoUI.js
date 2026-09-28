@@ -92,10 +92,11 @@ export const GlassCard = ({ children, style, strong = false }) => (
   <View style={[styles.card, strong && styles.cardStrong, style]}>{children}</View>
 );
 
-export const ScreenHeader = ({ title, subtitle, leftAction, rightAction }) => (
+export const ScreenHeader = ({ title, subtitle, leftAction, rightAction, brand }) => (
   <View style={styles.header}>
     <View style={styles.headerAction}>{leftAction}</View>
     <View style={styles.headerCopy}>
+      {brand ? <View style={styles.headerBrand}>{brand}</View> : null}
       {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
       <Text style={styles.title}>{title}</Text>
     </View>
@@ -263,6 +264,10 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     minWidth: 0,
+  },
+  headerBrand: {
+    marginBottom: 8,
+    maxWidth: '100%',
   },
   subtitle: {
     color: affairGoTheme.colors.accentSoft,

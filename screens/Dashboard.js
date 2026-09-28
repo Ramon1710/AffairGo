@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
-import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { AccentButton, AppBackground, EmptyState, GlassCard, InlineStat, ScreenHeader, StatusPill } from '../components/AffairGoUI';
+import NightWhisperLogo from '../components/NightWhisperLogo';
 import { Ionicons } from '../components/SimpleIcons';
 import { accessColors, affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
@@ -95,8 +96,9 @@ const Dashboard = () => {
   return (
     <AppBackground>
       <ScreenHeader
+        brand={<NightWhisperLogo height={Platform.OS === 'web' ? 42 : 34} />}
         title="Aktuelles"
-        subtitle={currentUser.nickname || 'Night Whisper'}
+        subtitle={currentUser.nickname || 'Mitglied'}
         rightAction={
           <Pressable
             style={[styles.profileButton, { borderColor: accessColors[currentUser.membership] || affairGoTheme.colors.accent }]}

@@ -5,7 +5,7 @@
     "scheme": "nightwhisper",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./App-ICON.png",
+    "icon": "./assets/branding/night-whisper-symbol-square.png",
     "platforms": ["ios", "android", "web"],
     "splash": {
       "image": "./assets/splash.png",
@@ -26,8 +26,8 @@
     "android": {
       "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "CAMERA"],
       "adaptiveIcon": {
-        "foregroundImage": "./App-ICON.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/branding/night-whisper-symbol-square.png",
+        "backgroundColor": "#080B1E"
       }
     },
     "plugins": [
@@ -39,7 +39,7 @@
       ]
     ],
     "web": {
-      "favicon": "./App-ICON.png"
+      "favicon": "./assets/branding/night-whisper-symbol-square.png"
     },
     "extra": {
       "websiteUrl": "https://night-whisper.com",

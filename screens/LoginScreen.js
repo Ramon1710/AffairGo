@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader } from '../components/AffairGoUI';
+import NightWhisperLogo from '../components/NightWhisperLogo';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
@@ -129,6 +130,7 @@ const LoginScreen = () => {
   return (
     <AppBackground contentContainerStyle={styles.content}>
       <ScreenHeader
+        brand={<NightWhisperLogo height={Platform.OS === 'web' ? 40 : 34} />}
         title="Log In To Night-Whisper"
         subtitle="night-whisper.com"
         leftAction={
@@ -144,7 +146,7 @@ const LoginScreen = () => {
       />
 
       <View style={styles.logoWrap}>
-        <Ionicons name="heart" size={88} color={affairGoTheme.colors.accent} />
+        <NightWhisperLogo height={Platform.OS === 'web' ? 56 : 46} />
       </View>
 
       <GlassCard strong style={styles.card}>

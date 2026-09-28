@@ -1,12 +1,11 @@
-import { Image, Platform, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Platform, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { AccentButton, AppBackground, BulletRow, GlassCard, InfoBanner, InlineStat, SectionTitle, StatusPill } from '../components/AffairGoUI';
+import NightWhisperLogo from '../components/NightWhisperLogo';
 import { Ionicons } from '../components/SimpleIcons';
 import { accessColors, affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
 import { WEBSITE_SECTIONS } from '../data/mockData';
 import { useNavigation } from '../naviagtion/SimpleNavigation';
-
-const brandLogo = require('../assets/branding/night-whisper-logo.png');
 
 const LandingScreen = () => {
   const { width } = useWindowDimensions();
@@ -18,10 +17,10 @@ const LandingScreen = () => {
     <AppBackground contentContainerStyle={styles.content}>
       <View style={[styles.hero, Platform.OS === 'web' && !isCompactWeb && styles.heroWeb]}>
         <View style={styles.heroCopy}>
-          <Image source={brandLogo} style={styles.logo} resizeMode="contain" />
+          <NightWhisperLogo height={Platform.OS === 'web' ? (isCompactWeb ? 40 : 58) : 42} style={styles.logo} />
           <View style={styles.badge}>
             <Ionicons name="heart" size={18} color={affairGoTheme.colors.accent} />
-            <Text style={styles.badgeText}>Night-Whisper</Text>
+            <Text style={styles.badgeText}>Night Whisper</Text>
           </View>
           <Text style={styles.domainText}>night-whisper.com</Text>
           <Text style={styles.heroTitle}>Night-Whisper verbindet diskret, stilvoll und direkt in deiner Stadt.</Text>
@@ -120,10 +119,7 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   logo: {
-    width: Platform.OS === 'web' ? 420 : 260,
-    height: Platform.OS === 'web' ? 120 : 76,
     marginBottom: 20,
-    alignSelf: 'flex-start',
   },
   badge: {
     alignSelf: 'flex-start',

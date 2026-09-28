@@ -1,8 +1,9 @@
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AccentButton, AppBackground, FormField, GlassCard, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
+import NightWhisperLogo from '../components/NightWhisperLogo';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
@@ -295,6 +296,7 @@ const RegisterScreen = () => {
   return (
     <AppBackground>
       <ScreenHeader
+        brand={<NightWhisperLogo height={Platform.OS === 'web' ? 40 : 34} />}
         title="Sign Up To Night-Whisper"
         subtitle="Geburtsdatum, Profilbild und Profildaten"
         leftAction={
@@ -303,6 +305,10 @@ const RegisterScreen = () => {
           </Pressable>
         }
       />
+
+      <View style={styles.logoWrap}>
+        <NightWhisperLogo height={Platform.OS === 'web' ? 56 : 46} />
+      </View>
 
       <GlassCard strong style={styles.card}>
         <Pressable style={styles.uploadTile} onPress={selectProfileImage}>
@@ -404,6 +410,10 @@ const RegisterScreen = () => {
 };
 
 const styles = StyleSheet.create({
+  logoWrap: {
+    alignItems: 'center',
+    marginBottom: 18,
+  },
   card: {
     marginBottom: 22,
   },
