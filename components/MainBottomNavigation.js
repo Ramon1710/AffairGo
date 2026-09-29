@@ -6,6 +6,7 @@ import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
 import { db } from '../firebase';
 import { useCurrentRoute, useNavigation } from '../naviagtion/SimpleNavigation';
+import NightWhisperLogo from './NightWhisperLogo';
 import { Ionicons } from './SimpleIcons';
 
 const {
@@ -18,6 +19,7 @@ const {
   MAIN_NAV_DESKTOP_BAR_HEIGHT,
   MAIN_NAV_MOBILE_BAR_HEIGHT,
   getMainNavRouteName,
+  isDesktopMainNavigation,
 } = require('../untils/mainNavigation');
 
 const clampBadgeValue = (count = 0) => {
@@ -40,7 +42,7 @@ const MainBottomNavigation = () => {
   const [communityReads, setCommunityReads] = useState([]);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const activeRouteName = getMainNavRouteName(route.name);
-  const isDesktop = Platform.OS === 'web' && width >= 960;
+  const isDesktop = isDesktopMainNavigation(width, Platform.OS);
   const isCompactMobile = !isDesktop && width <= 390;
   const chatUnreadCount = useMemo(
     () => chats.reduce((sum, chat) => sum + Math.max(0, Number(chat?.unreadCount) || 0), 0),
@@ -130,15 +132,15 @@ const MainBottomNavigation = () => {
   }
 
   return (
-    <View pointerEvents="box-none" style={styles.overlay}>
+    <View pointerEvents="box-none" style={[styles.overlay, isDesktop ? styles.overlayDesktop : null]}>
       <View
         style={[
           styles.wrapper,
           isDesktop ? styles.wrapperDesktop : null,
           isCompactMobile ? styles.wrapperCompact : null,
-          {
-            paddingBottom: Math.max(insets.bottom, isDesktop ? 10 : 12),
-          },
+          isDesktop
+            ? { paddingTop: Math.max(insets.top, 10), paddingBottom: 0 }
+            : { paddingBottom: Math.max(insets.bottom, 12) },
         ]}
       >
         <View
@@ -149,38 +151,69 @@ const MainBottomNavigation = () => {
             { minHeight: isDesktop ? MAIN_NAV_DESKTOP_BAR_HEIGHT : MAIN_NAV_MOBILE_BAR_HEIGHT },
           ]}
         >
-          {MAIN_NAV_ITEMS.map((item) => {
-            const isActive = activeRouteName === item.routeName;
-            const badgeValue = badgeMap[item.routeName] || '';
-            const iconName = isActive ? item.activeIcon : item.icon;
+          {isDesktop ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => navigation.navigate('Dashboard')}
+              style={styles.desktopLogoWrap}
+              testID="main-nav-logo"
+            >
+              <NightWhisperLogo height={38} />
+            </Pressable>
+          ) : null}
 
-            return (
-              <Pressable
-                key={item.key}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: isActive }}
-                onPress={() => handleTabPress(item)}
-                style={[styles.item, isCompactMobile ? styles.itemCompact : null, isActive ? styles.itemActive : null]}
-                testID={item.testLabel}
-              >
-                {badgeValue ? (
-                  <View style={[styles.badge, isCompactMobile ? styles.badgeCompact : null]}>
-                    <Text style={styles.badgeText}>{badgeValue}</Text>
-                  </View>
-                ) : null}
-                <Text
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.82}
-                  numberOfLines={2}
-                  maxFontSizeMultiplier={1.1}
-                  style={[styles.label, isCompactMobile ? styles.labelCompact : null, isActive ? styles.labelActive : null]}
+          <View style={[styles.itemsRow, isDesktop ? styles.itemsRowDesktop : null]}>
+            {MAIN_NAV_ITEMS.map((item) => {
+              const isActive = activeRouteName === item.routeName;
+              const badgeValue = badgeMap[item.routeName] || '';
+              const iconName = isActive ? item.activeIcon : item.icon;
+              const desktopLabel = String(item.label || '').replace(/\n/g, ' ');
+
+              return (
+                <Pressable
+                  key={item.key}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: isActive }}
+                  onPress={() => handleTabPress(item)}
+                  style={[
+                    styles.item,
+                    isCompactMobile ? styles.itemCompact : null,
+                    isDesktop ? styles.itemDesktop : null,
+                    isActive ? styles.itemActive : null,
+                    isActive && isDesktop ? styles.itemActiveDesktop : null,
+                  ]}
+                  testID={item.testLabel}
                 >
-                  {item.label}
-                </Text>
-                <Ionicons name={iconName} size={22} color={isActive ? affairGoTheme.colors.accent : affairGoTheme.colors.textMuted} />
-              </Pressable>
-            );
-          })}
+                  {badgeValue ? (
+                    <View style={[styles.badge, isCompactMobile ? styles.badgeCompact : null, isDesktop ? styles.badgeDesktop : null]}>
+                      <Text style={styles.badgeText}>{badgeValue}</Text>
+                    </View>
+                  ) : null}
+                  {isDesktop ? (
+                    <>
+                      <Ionicons name={iconName} size={19} color={isActive ? affairGoTheme.colors.accent : affairGoTheme.colors.textMuted} />
+                      <Text numberOfLines={1} style={[styles.label, styles.labelDesktop, isActive ? styles.labelActive : null]}>
+                        {desktopLabel}
+                      </Text>
+                    </>
+                  ) : (
+                    <>
+                      <Text
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.82}
+                        numberOfLines={2}
+                        maxFontSizeMultiplier={1.1}
+                        style={[styles.label, isCompactMobile ? styles.labelCompact : null, isActive ? styles.labelActive : null]}
+                      >
+                        {item.label}
+                      </Text>
+                      <Ionicons name={iconName} size={22} color={isActive ? affairGoTheme.colors.accent : affairGoTheme.colors.textMuted} />
+                    </>
+                  )}
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
       </View>
     </View>
@@ -192,6 +225,9 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'flex-end',
   },
+  overlayDesktop: {
+    justifyContent: 'flex-start',
+  },
   wrapper: {
     width: '100%',
     alignItems: 'center',
@@ -199,6 +235,9 @@ const styles = StyleSheet.create({
   },
   wrapperDesktop: {
     paddingHorizontal: 24,
+    backgroundColor: affairGoTheme.colors.background,
+    borderBottomWidth: 1,
+    borderBottomColor: affairGoTheme.colors.line,
   },
   wrapperCompact: {
     paddingHorizontal: 8,
@@ -222,11 +261,39 @@ const styles = StyleSheet.create({
     elevation: 12,
   },
   barDesktop: {
-    maxWidth: 720,
-    paddingHorizontal: 10,
+    width: '100%',
+    maxWidth: affairGoTheme.layout.contentWidth,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 0,
+    borderWidth: 0,
+    backgroundColor: 'transparent',
+    paddingHorizontal: 0,
+    paddingTop: 8,
+    paddingBottom: 8,
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
   },
   barCompact: {
     paddingHorizontal: 2,
+  },
+  desktopLogoWrap: {
+    marginRight: 16,
+    flexShrink: 0,
+    alignSelf: 'center',
+  },
+  itemsRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    justifyContent: 'space-between',
+    flex: 1,
+  },
+  itemsRowDesktop: {
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    flexWrap: 'nowrap',
   },
   item: {
     position: 'relative',
@@ -244,10 +311,25 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     gap: 4,
   },
+  itemDesktop: {
+    flex: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 46,
+    marginLeft: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8,
+  },
   itemActive: {
     backgroundColor: 'rgba(118, 87, 255, 0.18)',
     borderWidth: 1,
     borderColor: 'rgba(118, 87, 255, 0.22)',
+  },
+  itemActiveDesktop: {
+    backgroundColor: 'rgba(118, 87, 255, 0.16)',
+    borderColor: 'rgba(179, 157, 255, 0.32)',
   },
   label: {
     color: affairGoTheme.colors.textMuted,
@@ -261,6 +343,12 @@ const styles = StyleSheet.create({
     fontSize: 9,
     lineHeight: 11,
     minHeight: 22,
+  },
+  labelDesktop: {
+    fontSize: 13,
+    lineHeight: 16,
+    minHeight: 0,
+    textAlign: 'left',
   },
   labelActive: {
     color: affairGoTheme.colors.accent,
@@ -280,6 +368,10 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(247, 245, 255, 0.18)',
   },
   badgeCompact: {
+    right: 4,
+  },
+  badgeDesktop: {
+    top: 4,
     right: 4,
   },
   badgeText: {

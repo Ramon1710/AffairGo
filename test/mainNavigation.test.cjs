@@ -3,7 +3,9 @@ const assert = require('node:assert/strict');
 
 const {
   MAIN_NAV_ITEMS,
+  MAIN_NAV_DESKTOP_BREAKPOINT,
   getMainNavRouteName,
+  isDesktopMainNavigation,
   isMainNavRootRoute,
 } = require('../untils/mainNavigation');
 
@@ -35,4 +37,12 @@ test('nur die sechs Root-Routen gelten als direkte Haupttabs', () => {
   assert.equal(isMainNavRootRoute('Profil'), true);
   assert.equal(isMainNavRootRoute('CommunityRoom'), false);
   assert.equal(isMainNavRootRoute('Event'), false);
+});
+
+test('der Desktop-Breakpoint der Hauptnavigation bleibt zentral bei 960 Pixeln auf Web', () => {
+  assert.equal(MAIN_NAV_DESKTOP_BREAKPOINT, 960);
+  assert.equal(isDesktopMainNavigation(959, 'web'), false);
+  assert.equal(isDesktopMainNavigation(960, 'web'), true);
+  assert.equal(isDesktopMainNavigation(1280, 'web'), true);
+  assert.equal(isDesktopMainNavigation(1280, 'ios'), false);
 });

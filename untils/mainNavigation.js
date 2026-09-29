@@ -51,6 +51,7 @@ const MAIN_NAV_ITEMS = Object.freeze([
 
 const MAIN_NAV_MOBILE_BAR_HEIGHT = 86;
 const MAIN_NAV_DESKTOP_BAR_HEIGHT = 78;
+const MAIN_NAV_DESKTOP_BREAKPOINT = 960;
 
 const MAIN_NAV_ROUTE_GROUPS = Object.freeze({
   Dashboard: 'Dashboard',
@@ -72,12 +73,16 @@ const isMainNavRoute = (routeName = '') => Boolean(getMainNavRouteName(routeName
 
 const isMainNavRootRoute = (routeName = '') => MAIN_NAV_ITEMS.some((item) => item.routeName === routeName);
 
+const isDesktopMainNavigation = (width = 0, platform = '') => platform === 'web' && Number(width) >= MAIN_NAV_DESKTOP_BREAKPOINT;
+
 module.exports = {
   MAIN_NAV_ITEMS,
   MAIN_NAV_MOBILE_BAR_HEIGHT,
   MAIN_NAV_DESKTOP_BAR_HEIGHT,
+  MAIN_NAV_DESKTOP_BREAKPOINT,
   MAIN_NAV_ROUTE_GROUPS,
   getMainNavRouteName,
+  isDesktopMainNavigation,
   isMainNavRoute,
   isMainNavRootRoute,
 };

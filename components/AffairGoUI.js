@@ -1,20 +1,31 @@
 import { useEffect } from 'react';
-import { ImageBackground, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ImageBackground, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import { useCurrentRoute } from '../naviagtion/SimpleNavigation';
-import { MAIN_NAV_DESKTOP_BAR_HEIGHT, MAIN_NAV_MOBILE_BAR_HEIGHT, getMainNavRouteName } from '../untils/mainNavigation';
+import {
+    MAIN_NAV_DESKTOP_BAR_HEIGHT,
+    MAIN_NAV_MOBILE_BAR_HEIGHT,
+    getMainNavRouteName,
+    isDesktopMainNavigation,
+} from '../untils/mainNavigation';
 import { Ionicons } from './SimpleIcons';
 
 export const backgroundSource = require('../assets/login-bg.png');
 
 export const AppBackground = ({ children, scroll = true, contentContainerStyle, style, scrollViewRef }) => {
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
   const route = useCurrentRoute();
   const hasMainNavigation = Boolean(getMainNavRouteName(route?.name));
-  const bottomNavigationSpace = hasMainNavigation
-    ? (Platform.OS === 'web' ? MAIN_NAV_DESKTOP_BAR_HEIGHT : MAIN_NAV_MOBILE_BAR_HEIGHT) + Math.max(insets.bottom, 12) + 18
+  const desktopMainNavigation = hasMainNavigation && isDesktopMainNavigation(width, Platform.OS);
+  const bottomNavigationSpace = hasMainNavigation && !desktopMainNavigation
+    ? MAIN_NAV_MOBILE_BAR_HEIGHT + Math.max(insets.bottom, 12) + 18
     : Math.max(insets.bottom, 16) + 20;
+  const topNavigationSpace = desktopMainNavigation
+    ? MAIN_NAV_DESKTOP_BAR_HEIGHT + Math.max(insets.top, 12) + 18
+    : 0;
+  const contentTopPadding = Math.max(insets.top + 12, Platform.OS === 'web' ? 28 : 24) + topNavigationSpace;
 
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof document === 'undefined') {
@@ -69,13 +80,13 @@ export const AppBackground = ({ children, scroll = true, contentContainerStyle, 
     <ScrollView
       ref={scrollViewRef}
       keyboardShouldPersistTaps="handled"
-      contentContainerStyle={[styles.scrollContent, { paddingTop: Math.max(insets.top + 12, Platform.OS === 'web' ? 28 : 24), paddingBottom: bottomNavigationSpace }, contentContainerStyle]}
+      contentContainerStyle={[styles.scrollContent, { paddingTop: contentTopPadding, paddingBottom: bottomNavigationSpace }, contentContainerStyle]}
       style={[styles.scrollView, style]}
     >
       <View style={styles.contentShell}>{children}</View>
     </ScrollView>
   ) : (
-    <View style={[styles.fixedContent, style, { paddingTop: Math.max(insets.top + 12, Platform.OS === 'web' ? 28 : 24), paddingBottom: bottomNavigationSpace }, contentContainerStyle]}>
+    <View style={[styles.fixedContent, style, { paddingTop: contentTopPadding, paddingBottom: bottomNavigationSpace }, contentContainerStyle]}>
       <View style={styles.contentShell}>{children}</View>
     </View>
   );
