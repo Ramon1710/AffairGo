@@ -8,9 +8,10 @@ test('Hauptnavigation rendert mobil unten und auf Desktop oben mit derselben Rou
 
   assert.match(source, /MAIN_NAV_ITEMS\.map/);
   assert.match(source, /const isDesktop = isDesktopMainNavigation\(width, Platform\.OS\)/);
+  assert.match(source, /const isCompactDesktop = isDesktop && width < 1100/);
+  assert.match(source, /const isWideDesktop = isDesktop && width >= 1280/);
   assert.match(source, /styles\.overlayDesktop/);
-  assert.match(source, /<NightWhisperLogo height=\{38\} \/>/);
-  assert.match(source, /String\(item\.label \|\| ''\)\.replace\(/);
+  assert.match(source, /<NightWhisperLogo height=\{isCompactDesktop \? 34 : 38\} \/>/);
   assert.match(navSource, /main-nav-aktuelles/);
   assert.match(navSource, /main-nav-kennenlernen/);
   assert.match(navSource, /main-nav-matching-map/);
@@ -18,7 +19,9 @@ test('Hauptnavigation rendert mobil unten und auf Desktop oben mit derselben Rou
   assert.match(navSource, /main-nav-rooms/);
   assert.match(navSource, /main-nav-profil/);
   assert.match(source, /numberOfLines=\{2\}/);
-  assert.match(source, /numberOfLines=\{1\}/);
+  assert.match(source, /size=\{isWideDesktop \? 30 : isCompactDesktop \? 26 : 28\}/);
+  assert.match(source, /styles\.itemDesktop/);
+  assert.match(source, /styles\.itemActiveDesktop/);
   assert.match(source, /\{item\.label\}/);
   assert.match(source, /<Ionicons name=\{iconName\}/);
 });
@@ -33,6 +36,7 @@ test('SimpleNavigation behält Browser-History und Popstate-Sync für Web bei', 
 
 test('AppBackground berücksichtigt Safe Area sowie Desktop-Topabstand statt Desktop-Bottomabstand', () => {
   const source = fs.readFileSync('/workspaces/AffairGo/components/AffairGoUI.js', 'utf8');
+  const navSource = fs.readFileSync('/workspaces/AffairGo/untils/mainNavigation.js', 'utf8');
 
   assert.match(source, /useSafeAreaInsets/);
   assert.match(source, /bottomNavigationSpace/);
@@ -41,6 +45,7 @@ test('AppBackground berücksichtigt Safe Area sowie Desktop-Topabstand statt Des
   assert.match(source, /MAIN_NAV_DESKTOP_BAR_HEIGHT/);
   assert.match(source, /MAIN_NAV_MOBILE_BAR_HEIGHT/);
   assert.match(source, /isDesktopMainNavigation/);
+  assert.match(navSource, /const MAIN_NAV_DESKTOP_BAR_HEIGHT = 94/);
 });
 
 test('Aktuelles zeigt die Profilkarte nur unter 100 Prozent und öffnet Matches mit Online-Filter', () => {

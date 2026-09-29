@@ -44,6 +44,8 @@ const MainBottomNavigation = () => {
   const activeRouteName = getMainNavRouteName(route.name);
   const isDesktop = isDesktopMainNavigation(width, Platform.OS);
   const isCompactMobile = !isDesktop && width <= 390;
+  const isCompactDesktop = isDesktop && width < 1100;
+  const isWideDesktop = isDesktop && width >= 1280;
   const chatUnreadCount = useMemo(
     () => chats.reduce((sum, chat) => sum + Math.max(0, Number(chat?.unreadCount) || 0), 0),
     [chats],
@@ -158,7 +160,7 @@ const MainBottomNavigation = () => {
               style={styles.desktopLogoWrap}
               testID="main-nav-logo"
             >
-              <NightWhisperLogo height={38} />
+              <NightWhisperLogo height={isCompactDesktop ? 34 : 38} />
             </Pressable>
           ) : null}
 
@@ -167,7 +169,6 @@ const MainBottomNavigation = () => {
               const isActive = activeRouteName === item.routeName;
               const badgeValue = badgeMap[item.routeName] || '';
               const iconName = isActive ? item.activeIcon : item.icon;
-              const desktopLabel = String(item.label || '').replace(/\n/g, ' ');
 
               return (
                 <Pressable
@@ -179,6 +180,8 @@ const MainBottomNavigation = () => {
                     styles.item,
                     isCompactMobile ? styles.itemCompact : null,
                     isDesktop ? styles.itemDesktop : null,
+                    isCompactDesktop ? styles.itemDesktopCompact : null,
+                    isWideDesktop ? styles.itemDesktopWide : null,
                     isActive ? styles.itemActive : null,
                     isActive && isDesktop ? styles.itemActiveDesktop : null,
                   ]}
@@ -191,9 +194,22 @@ const MainBottomNavigation = () => {
                   ) : null}
                   {isDesktop ? (
                     <>
-                      <Ionicons name={iconName} size={19} color={isActive ? affairGoTheme.colors.accent : affairGoTheme.colors.textMuted} />
-                      <Text numberOfLines={1} style={[styles.label, styles.labelDesktop, isActive ? styles.labelActive : null]}>
-                        {desktopLabel}
+                      <Ionicons
+                        name={iconName}
+                        size={isWideDesktop ? 30 : isCompactDesktop ? 26 : 28}
+                        color={isActive ? affairGoTheme.colors.accent : affairGoTheme.colors.textMuted}
+                      />
+                      <Text
+                        numberOfLines={2}
+                        style={[
+                          styles.label,
+                          styles.labelDesktop,
+                          isCompactDesktop ? styles.labelDesktopCompact : null,
+                          isWideDesktop ? styles.labelDesktopWide : null,
+                          isActive ? styles.labelActiveDesktop : null,
+                        ]}
+                      >
+                        {item.label}
                       </Text>
                     </>
                   ) : (
@@ -269,8 +285,8 @@ const styles = StyleSheet.create({
     borderWidth: 0,
     backgroundColor: 'transparent',
     paddingHorizontal: 0,
-    paddingTop: 8,
-    paddingBottom: 8,
+    paddingTop: 10,
+    paddingBottom: 10,
     shadowOpacity: 0,
     shadowRadius: 0,
     shadowOffset: { width: 0, height: 0 },
@@ -280,7 +296,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   desktopLogoWrap: {
-    marginRight: 16,
+    marginRight: 12,
     flexShrink: 0,
     alignSelf: 'center',
   },
@@ -291,8 +307,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   itemsRowDesktop: {
-    justifyContent: 'flex-end',
-    alignItems: 'center',
+    justifyContent: 'space-between',
+    alignItems: 'stretch',
     flexWrap: 'nowrap',
   },
   item: {
@@ -312,15 +328,33 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   itemDesktop: {
-    flex: 0,
-    flexDirection: 'row',
+    flex: 1,
+    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 46,
-    marginLeft: 8,
+    minHeight: 74,
+    minWidth: 76,
+    maxWidth: 100,
+    marginLeft: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 7,
+    borderRadius: 18,
+  },
+  itemDesktopCompact: {
+    minWidth: 76,
+    maxWidth: 86,
+    minHeight: 70,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+    gap: 6,
+  },
+  itemDesktopWide: {
+    minWidth: 92,
+    maxWidth: 100,
+    minHeight: 78,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    gap: 8,
   },
   itemActive: {
     backgroundColor: 'rgba(118, 87, 255, 0.18)',
@@ -328,8 +362,8 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(118, 87, 255, 0.22)',
   },
   itemActiveDesktop: {
-    backgroundColor: 'rgba(118, 87, 255, 0.16)',
-    borderColor: 'rgba(179, 157, 255, 0.32)',
+    backgroundColor: 'rgba(42, 32, 91, 0.96)',
+    borderColor: 'rgba(118, 87, 255, 0.34)',
   },
   label: {
     color: affairGoTheme.colors.textMuted,
@@ -346,12 +380,26 @@ const styles = StyleSheet.create({
   },
   labelDesktop: {
     fontSize: 13,
+    lineHeight: 15,
+    minHeight: 30,
+    textAlign: 'center',
+    textAlignVertical: 'center',
+  },
+  labelDesktopCompact: {
+    fontSize: 12,
+    lineHeight: 14,
+    minHeight: 28,
+  },
+  labelDesktopWide: {
+    fontSize: 14,
     lineHeight: 16,
-    minHeight: 0,
-    textAlign: 'left',
+    minHeight: 32,
   },
   labelActive: {
     color: affairGoTheme.colors.accent,
+  },
+  labelActiveDesktop: {
+    color: affairGoTheme.colors.text,
   },
   badge: {
     position: 'absolute',
@@ -371,8 +419,8 @@ const styles = StyleSheet.create({
     right: 4,
   },
   badgeDesktop: {
-    top: 4,
-    right: 4,
+    top: 6,
+    right: 8,
   },
   badgeText: {
     color: affairGoTheme.colors.text,
