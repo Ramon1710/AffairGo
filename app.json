@@ -5,7 +5,7 @@
     "scheme": "nightwhisper",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/branding/night-whisper-symbol-square.png",
+    "icon": "./assets/branding/ICON_Night_Whisper.png",
     "platforms": ["ios", "android", "web"],
     "splash": {
       "image": "./assets/splash.png",
@@ -17,6 +17,7 @@
     },
     "assetBundlePatterns": ["**/*"],
     "ios": {
+      "icon": "./assets/branding/ICON_Night_Whisper.png",
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Night-Whisper nutzt die Kamera fuer Alterspruefung und optionale Bildauswahl.",
@@ -26,7 +27,7 @@
     "android": {
       "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "CAMERA"],
       "adaptiveIcon": {
-        "foregroundImage": "./assets/branding/night-whisper-symbol-square.png",
+        "foregroundImage": "./assets/branding/ICON_Night_Whisper-foreground.png",
         "backgroundColor": "#080B1E"
       }
     },
@@ -39,7 +40,7 @@
       ]
     ],
     "web": {
-      "favicon": "./assets/branding/night-whisper-symbol-square.png"
+      "favicon": "./assets/branding/ICON_Night_Whisper.png"
     },
     "extra": {
       "websiteUrl": "https://night-whisper.com",
