@@ -8,6 +8,7 @@ import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
 import { EYE_OPTIONS, FIGURE_OPTIONS, GENDER_OPTIONS, HAIR_OPTIONS, MONTH_OPTIONS, SEARCH_GENDER_OPTIONS, SKIN_OPTIONS } from '../data/mockData';
 import { useNavigation, useRoute } from '../naviagtion/SimpleNavigation';
+import { getProfileCompletionState } from '../untils/profileStatus';
 import { allowScreenCaptureAsync, preventScreenCaptureAsync } from '../untils/screenCapture';
 
 const IMAGE_MEDIA_TYPE = ImagePicker.MediaTypeOptions?.Images ?? ImagePicker.MediaType?.Images;
@@ -52,6 +53,92 @@ const formatBirthDetails = (profile) => {
   }
 
   return 'Geburtsdatum nicht hinterlegt';
+};
+
+const normalizeTextValue = (value) => (typeof value === 'string' ? value.trim() : '');
+
+const getRelationshipStatusLabel = (profile) => normalizeTextValue(
+  profile?.relationshipStatus
+  || profile?.beziehungsstatus
+  || profile?.relationship
+  || profile?.relationshipGoal
+);
+
+const getZodiacLabel = (profile) => {
+  const birthDay = Number(profile?.birthDay);
+  const birthMonthIndex = Number(profile?.birthMonth);
+
+  if (!Number.isInteger(birthDay) || birthDay < 1 || !Number.isInteger(birthMonthIndex) || birthMonthIndex < 0 || birthMonthIndex > 11) {
+    return '';
+  }
+
+  const birthMonth = birthMonthIndex + 1;
+  const zodiacRanges = [
+    { sign: 'Steinbock', from: [12, 22], to: [1, 20] },
+    { sign: 'Wassermann', from: [1, 21], to: [2, 19] },
+    { sign: 'Fische', from: [2, 20], to: [3, 20] },
+    { sign: 'Widder', from: [3, 21], to: [4, 20] },
+    { sign: 'Stier', from: [4, 21], to: [5, 20] },
+    { sign: 'Zwillinge', from: [5, 21], to: [6, 21] },
+    { sign: 'Krebs', from: [6, 22], to: [7, 22] },
+    { sign: 'Loewe', from: [7, 23], to: [8, 23] },
+    { sign: 'Jungfrau', from: [8, 24], to: [9, 23] },
+    { sign: 'Waage', from: [9, 24], to: [10, 23] },
+    { sign: 'Skorpion', from: [10, 24], to: [11, 22] },
+    { sign: 'Schuetze', from: [11, 23], to: [12, 21] },
+  ];
+
+  const inRange = ([fromMonth, fromDay], [toMonth, toDay]) => {
+    if (fromMonth <= toMonth) {
+      return (
+        (birthMonth > fromMonth || (birthMonth === fromMonth && birthDay >= fromDay))
+        && (birthMonth < toMonth || (birthMonth === toMonth && birthDay <= toDay))
+      );
+    }
+
+    return (
+      birthMonth > fromMonth
+      || birthMonth < toMonth
+      || (birthMonth === fromMonth && birthDay >= fromDay)
+      || (birthMonth === toMonth && birthDay <= toDay)
+    );
+  };
+
+  return zodiacRanges.find((entry) => inRange(entry.from, entry.to))?.sign || '';
+};
+
+const hasDisplayValue = (value) => {
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+
+  return Boolean(normalizeTextValue(value) || Number.isFinite(Number(value)));
+};
+
+const buildProfileFactRows = (profile, zodiacLabel) => [
+  { label: 'Ort', value: profile?.city },
+  { label: 'Geschlecht', value: profile?.gender },
+  { label: 'Sternzeichen', value: zodiacLabel },
+  { label: 'Koerpergroesse', value: profile?.height },
+  { label: 'Figur', value: profile?.figure },
+  { label: 'Haarfarbe', value: profile?.hairColor },
+  { label: 'Augenfarbe', value: profile?.eyeColor },
+  { label: 'Hauttyp', value: profile?.skinType },
+  { label: 'Penisgroesse', value: profile?.penisSize },
+  { label: 'BH-Groesse', value: profile?.braSize },
+].filter((entry) => hasDisplayValue(entry.value));
+
+const buildSearchFactRows = (profile) => {
+  const searchAgeMin = Number(profile?.searchAgeMin);
+  const searchAgeMax = Number(profile?.searchAgeMax);
+  const ageRange = Number.isFinite(searchAgeMin) && Number.isFinite(searchAgeMax)
+    ? `${searchAgeMin} bis ${searchAgeMax} Jahre`
+    : '';
+
+  return [
+    { label: 'Gesuchtes Alter', value: ageRange },
+    { label: 'Ich suche nach', value: Array.isArray(profile?.searchGenders) ? profile.searchGenders.join(', ') : '' },
+  ].filter((entry) => hasDisplayValue(entry.value));
 };
 
 const ProfilScreen = () => {
@@ -337,7 +424,20 @@ const ProfilScreen = () => {
     }
   };
 
+  useEffect(() => {
+    preventScreenCaptureAsync().catch(() => undefined);
+
+    return () => {
+      allowScreenCaptureAsync().catch(() => undefined);
+    };
+  }, []);
+
   const profile = isOwnProfile ? draft : viewedProfile;
+
+  if (!profile) {
+    return null;
+  }
+
   const canSeeSensitiveMatchDetails = isOwnProfile || chats.some((chat) => chat.userId === profile?.id && chat.match);
   const moderationProfile = isOwnProfile ? currentUser : profile;
   const travelSummary = getProfileTravelSummary(profile);
@@ -366,17 +466,23 @@ const ProfilScreen = () => {
   const recentModerationEntries = (moderationAuditTrail || []).slice(0, 5);
   const viewedProfileMatch = !isOwnProfile && profile ? getMatchEligibility(currentUser, profile) : null;
 
-  useEffect(() => {
-    preventScreenCaptureAsync().catch(() => undefined);
-
-    return () => {
-      allowScreenCaptureAsync().catch(() => undefined);
-    };
-  }, []);
-
-  if (!profile) {
-    return null;
-  }
+  const profileCompletion = getProfileCompletionState(profile);
+  const zodiacLabel = getZodiacLabel(profile);
+  const relationshipStatusLabel = getRelationshipStatusLabel(profile);
+  const fullName = [profile.firstName, profile.lastName].filter((value) => normalizeTextValue(value)).join(' ').trim();
+  const displayName = isOwnProfile ? (fullName || profile.nickname) : (profile.nickname || fullName || 'Profil');
+  const secondaryNameLine = isOwnProfile
+    ? (profile.nickname && profile.nickname !== displayName ? profile.nickname : '')
+    : (fullName && fullName !== displayName ? fullName : '');
+  const heroMetaLine = [
+    Number.isFinite(Number(profile.age)) ? `${profile.age} Jahre` : '',
+    zodiacLabel,
+    relationshipStatusLabel || profile.gender,
+  ].filter(Boolean).join(' • ');
+  const profileFactRows = buildProfileFactRows(profile, zodiacLabel);
+  const searchFactRows = buildSearchFactRows(profile);
+  const galleryItems = Array.isArray(profile.gallery) ? profile.gallery : [];
+  const shouldShowGallery = isOwnProfile || galleryItems.length > 0;
 
   return (
     <AppBackground>
@@ -400,12 +506,15 @@ const ProfilScreen = () => {
         </View>
         {isOwnProfile ? <AccentButton label={isUploadingMedia ? 'Bild wird hochgeladen...' : 'Profilbild ändern'} variant="secondary" onPress={handleUploadProfilePhoto} disabled={isUploadingMedia} style={styles.avatarButton} /> : null}
         {isOwnProfile && uploadFeedback ? <Text style={styles.uploadFeedback}>{uploadFeedback}</Text> : null}
-        <Text style={styles.nameLine}>{isOwnProfile ? `${profile.firstName} ${profile.lastName}` : profile.nickname}</Text>
+        <Text style={styles.nameLine}>{displayName}</Text>
+        {secondaryNameLine ? <Text style={styles.nameSecondary}>{secondaryNameLine}</Text> : null}
         <Text style={styles.metaLine}>{formatBirthDetails(profile)}</Text>
-        <Text style={styles.metaLine}>{profile.gender}</Text>
-        <StatusPill label={verificationLabel} tone={verificationTone} style={styles.statusPill} />
-        <StatusPill label={ageVerificationLabel} tone={ageVerificationTone} style={styles.statusPill} />
-        {isOwnProfile ? <StatusPill label={moderationLabel} tone={moderationTone} style={styles.statusPill} /> : null}
+        {heroMetaLine ? <Text style={styles.heroMetaLine}>{heroMetaLine}</Text> : null}
+        <View style={styles.heroStatusRow}>
+          <StatusPill label={verificationLabel} tone={verificationTone} style={styles.statusPill} />
+          <StatusPill label={ageVerificationLabel} tone={ageVerificationTone} style={styles.statusPill} />
+          {isOwnProfile ? <StatusPill label={moderationLabel} tone={moderationTone} style={styles.statusPill} /> : null}
+        </View>
         {profile.ageVerificationProvider ? <Text style={styles.photoAge}>Altersprüfung: bestätigt</Text> : null}
         <Text style={styles.photoAge}>
           {profile.profilePhotoUrl || profile.profileImageUri
@@ -417,156 +526,211 @@ const ProfilScreen = () => {
         {!isOwnProfile ? <AccentButton label="Profil melden" variant="secondary" onPress={() => setReportModalOpen(true)} style={styles.avatarButton} /> : null}
       </GlassCard>
 
-      <GlassCard style={styles.infoCard}>
-        {isOwnProfile ? (
-          <>
-            <Text style={styles.groupTitle}>Zugang und Sichtbarkeit</Text>
-            <Text style={styles.readonlyLine}>Aktueller Zugang: {accessStatusLabel}</Text>
-            <View style={styles.visibilityBox}>
-              <Text style={styles.visibilityTitle}>Matchingvoraussetzungen</Text>
-              <Text style={styles.visibilityText}>Du siehst nur Profile, deren Alter und Suchziel zu dir passen. Gleichzeitig bist du auch nur für diese Personen sichtbar.</Text>
-              <View style={[styles.filterToggleRow, isCompactWeb && styles.filterToggleRowCompact]}>
-                <Text style={styles.filterToggleText}>Nur verifizierte Matches anzeigen</Text>
-                <ToggleChip label="Nur verifiziert" active={Boolean(profile.verifiedMatchesOnly)} onPress={() => updateField('verifiedMatchesOnly', !profile.verifiedMatchesOnly)} />
-              </View>
-              <View style={[styles.filterToggleRow, isCompactWeb && styles.filterToggleRowCompact]}>
-                <Text style={styles.filterToggleText}>Community-Aktivität aggregiert anzeigen</Text>
-                <ToggleChip label={profile.showCommunityActivityStatus === false ? 'Verborgen' : 'Sichtbar'} active={profile.showCommunityActivityStatus !== false} onPress={() => updateField('showCommunityActivityStatus', profile.showCommunityActivityStatus === false)} />
-              </View>
-              <Text style={styles.visibilityText}>Wenn du diesen Status verbirgst, tauchst du weder individuell noch in aggregierten Community-Aktivitätszahlen auf.</Text>
-              <View style={[styles.row, isCompactWeb && styles.rowCompact]}>
-                <View style={[styles.half, isCompactWeb && styles.halfCompact]}>
-                  <FormField
-                    label="Suche Alter von"
-                    value={String(profile.searchAgeMin ?? '')}
-                    onChangeText={(value) => updateSearchAgeField('searchAgeMin', value)}
-                    keyboardType="number-pad"
-                  />
-                </View>
-                <View style={[styles.half, isCompactWeb && styles.halfCompact]}>
-                  <FormField
-                    label="Suche Alter bis"
-                    value={String(profile.searchAgeMax ?? '')}
-                    onChangeText={(value) => updateSearchAgeField('searchAgeMax', value)}
-                    keyboardType="number-pad"
-                  />
-                </View>
-              </View>
-              <Text style={styles.pickerLabel}>Ich suche nach</Text>
-              <View style={styles.chipsCompact}>
-                {SEARCH_GENDER_OPTIONS.map((item) => (
-                  <View key={item} style={styles.chipItem}>
-                    <ToggleChip label={item} active={profile.searchGenders.includes(item)} onPress={() => toggleListValue('searchGenders', item)} />
-                  </View>
-                ))}
-              </View>
-            </View>
-            <View style={styles.sectionSpacer} />
-          </>
-        ) : null}
-
-        {travelSummary ? (
-          <>
-            <Text style={styles.groupTitle}>Reiseplanung</Text>
-            <Text style={styles.readonlyLine}>{travelSummary.label}</Text>
-            {travelSummary.location ? <Text style={styles.readonlyLine}>Ort: {travelSummary.location}</Text> : null}
-            {travelSummary.period ? <Text style={styles.readonlyLine}>Zeitraum: {travelSummary.period}</Text> : null}
-          </>
-        ) : null}
-
-        {isOwnProfile ? (
-          <>
-            {travelSummary ? <View style={styles.sectionSpacer} /> : null}
-            <FormField label="Bestätigte E-Mail-Adresse" value={profile.email} onChangeText={(value) => updateField('email', value)} hint="Änderung wird erst nach Bestätigung aktiv" />
-            {profile.pendingEmail ? (
-              <View style={styles.pendingEmailBox}>
-                <Text style={styles.pendingEmailTitle}>Ausstehende E-Mail-Änderung</Text>
-                <Text style={styles.pendingEmailText}>{profile.pendingEmail}</Text>
-                <Text style={styles.pendingEmailHint}>Diese Adresse wird erst aktiv, wenn du den Bestätigungslink aus der E-Mail öffnest.</Text>
-                <AccentButton
-                  label={isCheckingEmailVerification ? 'Bestätigung wird geprüft...' : 'Bestätigung prüfen'}
-                  variant="secondary"
-                  onPress={checkEmailVerification}
-                  disabled={isCheckingEmailVerification}
-                  style={styles.pendingEmailButton}
-                />
-              </View>
-            ) : null}
-            {profile.pendingNickname ? (
-              <View style={styles.pendingEmailBox}>
-                <Text style={styles.pendingEmailTitle}>Ausstehender Spitzname</Text>
-                <Text style={styles.pendingEmailText}>{profile.pendingNickname}</Text>
-                <Text style={styles.pendingEmailHint}>Der neue Spitzname wird erst nach deiner ausdrücklichen Bestätigung sichtbar übernommen.</Text>
-                <AccentButton
-                  label={isConfirmingNickname ? 'Spitzname wird übernommen...' : 'Spitzname übernehmen'}
-                  variant="secondary"
-                  onPress={handleConfirmPendingNickname}
-                  disabled={isConfirmingNickname}
-                  style={styles.pendingEmailButton}
-                />
-              </View>
-            ) : null}
-            <FormField label="Spitzname" value={profile.nickname} onChangeText={(value) => updateField('nickname', value)} hint="Öffentlich sichtbar, nur falls verfügbar" />
-            <View style={[styles.row, isCompactWeb && styles.rowCompact]}>
-              <View style={[styles.half, isCompactWeb && styles.halfCompact]}><FormField label="Vorname" value={profile.firstName} onChangeText={(value) => updateField('firstName', value)} /></View>
-              <View style={[styles.half, isCompactWeb && styles.halfCompact]}><FormField label="Nachname" value={profile.lastName} onChangeText={(value) => updateField('lastName', value)} /></View>
-            </View>
-            <FormField label="Ort" value={profile.city} onChangeText={(value) => updateField('city', value)} />
-            <Text style={styles.pickerLabel}>Geschlecht</Text>
-            <View style={styles.chipsCompact}>
-              {GENDER_OPTIONS.map((item) => (
-                <View key={item} style={styles.chipItem}>
-                  <ToggleChip label={item} active={profile.gender === item} onPress={() => updateField('gender', item)} />
-                </View>
-              ))}
-            </View>
-            <View style={[styles.row, isCompactWeb && styles.rowCompact]}>
-              <View style={[styles.half, isCompactWeb && styles.halfCompact]}><FormField label="Körpergröße" value={profile.height} onChangeText={(value) => updateField('height', value)} /></View>
-              <View style={[styles.half, isCompactWeb && styles.halfCompact]}><Text style={styles.pickerLabel}>Figur</Text><View style={styles.pickerWrap}><Picker selectedValue={profile.figure} onValueChange={(value) => updateField('figure', value)}>{FIGURE_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View></View>
-            </View>
-            <AccentButton label="Passwort ändern" variant="secondary" onPress={() => setPasswordModalOpen(true)} style={styles.passwordButton} />
-            {shouldShowPenisSizeField(profile.gender) ? <FormField label="Penisgröße" value={profile.penisSize} onChangeText={(value) => updateField('penisSize', value)} /> : null}
-            {shouldShowBraSizeField(profile.gender) ? <FormField label="BH-Größe" value={profile.braSize} onChangeText={(value) => updateField('braSize', value)} /> : null}
-            <View style={[styles.row, isCompactWeb && styles.rowCompact]}>
-              <View style={[styles.half, isCompactWeb && styles.halfCompact]}><Text style={styles.pickerLabel}>Haarfarbe</Text><View style={styles.pickerWrap}><Picker selectedValue={profile.hairColor} onValueChange={(value) => updateField('hairColor', value)}>{HAIR_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View></View>
-              <View style={[styles.half, isCompactWeb && styles.halfCompact]}><Text style={styles.pickerLabel}>Augenfarbe</Text><View style={styles.pickerWrap}><Picker selectedValue={profile.eyeColor} onValueChange={(value) => updateField('eyeColor', value)}>{EYE_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View></View>
-            </View>
-            <Text style={styles.pickerLabel}>Hauttyp</Text>
-            <View style={styles.pickerWrap}><Picker selectedValue={profile.skinType} onValueChange={(value) => updateField('skinType', value)}>{SKIN_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View>
-            <AccentButton label="Profil speichern" onPress={save} style={styles.saveButton} />
-            {saveFeedback ? <Text style={styles.saveFeedback}>{saveFeedback}</Text> : null}
-          </>
-        ) : (
-          <>
-            {travelSummary ? <View style={styles.sectionSpacer} /> : null}
-            <Text style={styles.readonlyLine}>Spitzname: {profile.nickname}</Text>
-            <Text style={styles.readonlyLine}>Körpergröße: {profile.height}</Text>
-            <Text style={styles.readonlyLine}>Figur: {profile.figure}</Text>
-            {profile.penisSize ? <Text style={styles.readonlyLine}>Penisgröße: {profile.penisSize}</Text> : null}
-            {profile.braSize ? <Text style={styles.readonlyLine}>BH-Größe: {profile.braSize}</Text> : null}
-            <AccentButton label="Direkt schreiben" variant="secondary" onPress={() => navigation.navigate('Chat', { userId: profile.id })} style={styles.passwordButton} />
-          </>
-        )}
-      </GlassCard>
-
       {isOwnProfile ? (
         <GlassCard style={styles.infoCard}>
-          <Text style={styles.groupTitle}>Datenschutz und Konto</Text>
-          <Text style={styles.copyLine}>Datenexport zuletzt angefordert: {profile.dataExportRequestedAt || 'Noch nie'}</Text>
-          <Text style={styles.copyLine}>Löschanfrage: {profile.accountDeletionRequestedAt || 'Keine offene Anfrage'}</Text>
-          <AccentButton label={isExportingData ? 'Datenexport wird erstellt...' : 'Datenexport erstellen'} variant="secondary" onPress={handleExportData} style={styles.privacyButton} disabled={isExportingData} />
-          <AccentButton label={isRequestingDeletion ? 'Löschanfrage wird gespeichert...' : 'Konto-Löschung anfragen'} variant="ghost" onPress={handleRequestDeletion} disabled={isRequestingDeletion} />
-          <AccentButton
-            label="Abmelden"
-            variant="secondary"
-            onPress={async () => {
-              await logout();
-              navigation.reset({ index: 0, routes: [{ name: 'Landing' }] });
-            }}
-            style={styles.logoutButton}
-          />
+          <View style={styles.completionHeader}>
+            <View style={styles.completionCopy}>
+              <Text style={styles.groupTitle}>Profil-Vollständigkeit</Text>
+              <Text style={styles.copyLine}>Dein Profil bleibt sichtbar, je vollständiger die Basisdaten und das Profilbild gepflegt sind.</Text>
+            </View>
+            <StatusPill label={`${profileCompletion.percent}% vollständig`} tone={profileCompletion.isComplete ? 'success' : 'warning'} />
+          </View>
+          {profileCompletion.isComplete ? (
+            <Text style={styles.readonlyLine}>Alle Pflichtangaben für die Profilfreigabe sind vorhanden.</Text>
+          ) : (
+            <Text style={styles.readonlyLine}>Es fehlen noch: {profileCompletion.missingFieldLabels.join(', ')}.</Text>
+          )}
         </GlassCard>
       ) : null}
+
+      {travelSummary || isOwnProfile ? (
+        <GlassCard style={styles.infoCard}>
+          <Text style={styles.groupTitle}>Reiseplanung</Text>
+          {travelSummary ? (
+            <>
+              <Text style={styles.readonlyLine}>{travelSummary.label}</Text>
+              {travelSummary.location ? <Text style={styles.readonlyLine}>Ort: {travelSummary.location}</Text> : null}
+              {travelSummary.period ? <Text style={styles.readonlyLine}>Zeitraum: {travelSummary.period}</Text> : null}
+            </>
+          ) : (
+            <Text style={styles.copyLine}>Plane Urlaub oder Dienstreise direkt aus deinem Profil. Die vorhandene Reiseplanung bleibt die zentrale Quelle für Dashboard und Matching Map.</Text>
+          )}
+          {isOwnProfile ? (
+            <View style={styles.travelActionRow}>
+              <AccentButton label="Urlaub" variant="secondary" onPress={() => navigation.navigate('TravelPlanner', { mode: 'vacation' })} style={styles.travelActionButton} />
+              <AccentButton label="Dienstreise" variant="secondary" onPress={() => navigation.navigate('TravelPlanner', { mode: 'business' })} style={styles.travelActionButton} />
+            </View>
+          ) : null}
+        </GlassCard>
+      ) : null}
+
+      <GlassCard style={styles.infoCard}>
+              {isOwnProfile ? (
+                <>
+                  <Text style={styles.groupTitle}>Zugang und Sichtbarkeit</Text>
+                  <Text style={styles.readonlyLine}>Aktueller Zugang: {accessStatusLabel}</Text>
+                  <View style={styles.visibilityBox}>
+                    <Text style={styles.visibilityTitle}>Matchingvoraussetzungen</Text>
+                    <Text style={styles.visibilityText}>Du siehst nur Profile, deren Alter und Suchziel zu dir passen. Gleichzeitig bist du auch nur für diese Personen sichtbar.</Text>
+                    <View style={[styles.filterToggleRow, isCompactWeb && styles.filterToggleRowCompact]}>
+                      <Text style={styles.filterToggleText}>Nur verifizierte Matches anzeigen</Text>
+                      <ToggleChip label="Nur verifiziert" active={Boolean(profile.verifiedMatchesOnly)} onPress={() => updateField('verifiedMatchesOnly', !profile.verifiedMatchesOnly)} />
+                    </View>
+                    <View style={[styles.filterToggleRow, isCompactWeb && styles.filterToggleRowCompact]}>
+                      <Text style={styles.filterToggleText}>Community-Aktivität aggregiert anzeigen</Text>
+                      <ToggleChip label={profile.showCommunityActivityStatus === false ? 'Verborgen' : 'Sichtbar'} active={profile.showCommunityActivityStatus !== false} onPress={() => updateField('showCommunityActivityStatus', profile.showCommunityActivityStatus === false)} />
+                    </View>
+                    <Text style={styles.visibilityText}>Wenn du diesen Status verbirgst, tauchst du weder individuell noch in aggregierten Community-Aktivitätszahlen auf.</Text>
+                    <View style={[styles.row, isCompactWeb && styles.rowCompact]}>
+                      <View style={[styles.half, isCompactWeb && styles.halfCompact]}>
+                        <FormField
+                          label="Suche Alter von"
+                          value={String(profile.searchAgeMin ?? '')}
+                          onChangeText={(value) => updateSearchAgeField('searchAgeMin', value)}
+                          keyboardType="number-pad"
+                        />
+                      </View>
+                      <View style={[styles.half, isCompactWeb && styles.halfCompact]}>
+                        <FormField
+                          label="Suche Alter bis"
+                          value={String(profile.searchAgeMax ?? '')}
+                          onChangeText={(value) => updateSearchAgeField('searchAgeMax', value)}
+                          keyboardType="number-pad"
+                        />
+                      </View>
+                    </View>
+                    <Text style={styles.pickerLabel}>Ich suche nach</Text>
+                    <View style={styles.chipsCompact}>
+                      {SEARCH_GENDER_OPTIONS.map((item) => (
+                        <View key={item} style={styles.chipItem}>
+                          <ToggleChip label={item} active={profile.searchGenders.includes(item)} onPress={() => toggleListValue('searchGenders', item)} />
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                  <View style={styles.sectionSpacer} />
+                  <Text style={styles.groupTitle}>Persönlich</Text>
+                  <Text style={styles.readonlyLine}>{formatBirthDetails(profile)}</Text>
+                  {zodiacLabel ? <Text style={styles.readonlyLine}>Sternzeichen: {zodiacLabel}</Text> : null}
+                  {relationshipStatusLabel ? <Text style={styles.readonlyLine}>Beziehungsstatus: {relationshipStatusLabel}</Text> : null}
+                  <FormField label="Bestätigte E-Mail-Adresse" value={profile.email} onChangeText={(value) => updateField('email', value)} hint="Änderung wird erst nach Bestätigung aktiv" />
+                  {profile.pendingEmail ? (
+                    <View style={styles.pendingEmailBox}>
+                      <Text style={styles.pendingEmailTitle}>Ausstehende E-Mail-Änderung</Text>
+                      <Text style={styles.pendingEmailText}>{profile.pendingEmail}</Text>
+                      <Text style={styles.pendingEmailHint}>Diese Adresse wird erst aktiv, wenn du den Bestätigungslink aus der E-Mail öffnest.</Text>
+                      <AccentButton
+                        label={isCheckingEmailVerification ? 'Bestätigung wird geprüft...' : 'Bestätigung prüfen'}
+                        variant="secondary"
+                        onPress={checkEmailVerification}
+                        disabled={isCheckingEmailVerification}
+                        style={styles.pendingEmailButton}
+                      />
+                    </View>
+                  ) : null}
+                  {profile.pendingNickname ? (
+                    <View style={styles.pendingEmailBox}>
+                      <Text style={styles.pendingEmailTitle}>Ausstehender Spitzname</Text>
+                      <Text style={styles.pendingEmailText}>{profile.pendingNickname}</Text>
+                      <Text style={styles.pendingEmailHint}>Der neue Spitzname wird erst nach deiner ausdrücklichen Bestätigung sichtbar übernommen.</Text>
+                      <AccentButton
+                        label={isConfirmingNickname ? 'Spitzname wird übernommen...' : 'Spitzname übernehmen'}
+                        variant="secondary"
+                        onPress={handleConfirmPendingNickname}
+                        disabled={isConfirmingNickname}
+                        style={styles.pendingEmailButton}
+                      />
+                    </View>
+                  ) : null}
+                  <FormField label="Spitzname" value={profile.nickname} onChangeText={(value) => updateField('nickname', value)} hint="Öffentlich sichtbar, nur falls verfügbar" />
+                  <View style={[styles.row, isCompactWeb && styles.rowCompact]}>
+                    <View style={[styles.half, isCompactWeb && styles.halfCompact]}><FormField label="Vorname" value={profile.firstName} onChangeText={(value) => updateField('firstName', value)} /></View>
+                    <View style={[styles.half, isCompactWeb && styles.halfCompact]}><FormField label="Nachname" value={profile.lastName} onChangeText={(value) => updateField('lastName', value)} /></View>
+                  </View>
+                  <FormField label="Ort" value={profile.city} onChangeText={(value) => updateField('city', value)} />
+                  <Text style={styles.pickerLabel}>Geschlecht</Text>
+                  <View style={styles.chipsCompact}>
+                    {GENDER_OPTIONS.map((item) => (
+                      <View key={item} style={styles.chipItem}>
+                        <ToggleChip label={item} active={profile.gender === item} onPress={() => updateField('gender', item)} />
+                      </View>
+                    ))}
+                  </View>
+                  <Text style={styles.groupTitle}>Aussehen</Text>
+                  <View style={[styles.row, isCompactWeb && styles.rowCompact]}>
+                    <View style={[styles.half, isCompactWeb && styles.halfCompact]}><FormField label="Körpergröße" value={profile.height} onChangeText={(value) => updateField('height', value)} /></View>
+                    <View style={[styles.half, isCompactWeb && styles.halfCompact]}><Text style={styles.pickerLabel}>Figur</Text><View style={styles.pickerWrap}><Picker selectedValue={profile.figure} onValueChange={(value) => updateField('figure', value)}>{FIGURE_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View></View>
+                  </View>
+                  <AccentButton label="Passwort ändern" variant="secondary" onPress={() => setPasswordModalOpen(true)} style={styles.passwordButton} />
+                  {shouldShowPenisSizeField(profile.gender) ? <FormField label="Penisgröße" value={profile.penisSize} onChangeText={(value) => updateField('penisSize', value)} /> : null}
+                  {shouldShowBraSizeField(profile.gender) ? <FormField label="BH-Größe" value={profile.braSize} onChangeText={(value) => updateField('braSize', value)} /> : null}
+                  <View style={[styles.row, isCompactWeb && styles.rowCompact]}>
+                    <View style={[styles.half, isCompactWeb && styles.halfCompact]}><Text style={styles.pickerLabel}>Haarfarbe</Text><View style={styles.pickerWrap}><Picker selectedValue={profile.hairColor} onValueChange={(value) => updateField('hairColor', value)}>{HAIR_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View></View>
+                    <View style={[styles.half, isCompactWeb && styles.halfCompact]}><Text style={styles.pickerLabel}>Augenfarbe</Text><View style={styles.pickerWrap}><Picker selectedValue={profile.eyeColor} onValueChange={(value) => updateField('eyeColor', value)}>{EYE_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View></View>
+                  </View>
+                  <Text style={styles.pickerLabel}>Hauttyp</Text>
+                  <View style={styles.pickerWrap}><Picker selectedValue={profile.skinType} onValueChange={(value) => updateField('skinType', value)}>{SKIN_OPTIONS.map((item) => <Picker.Item key={item} label={item} value={item} color="#111" />)}</Picker></View>
+                  <Text style={styles.groupTitle}>Suche</Text>
+                  {searchFactRows.length ? (
+                    <View style={styles.factList}>
+                      {searchFactRows.map((entry) => (
+                        <View key={entry.label} style={styles.factRow}>
+                          <Text style={styles.factLabel}>{entry.label}</Text>
+                          <Text style={styles.factValue}>{entry.value}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+                  <AccentButton label="Profil speichern" onPress={save} style={styles.saveButton} />
+                  {saveFeedback ? <Text style={styles.saveFeedback}>{saveFeedback}</Text> : null}
+                </>
+              ) : (
+                <>
+                  <Text style={styles.groupTitle}>Profil</Text>
+                  <View style={styles.factList}>
+                    {profileFactRows.map((entry) => (
+                      <View key={entry.label} style={styles.factRow}>
+                        <Text style={styles.factLabel}>{entry.label}</Text>
+                        <Text style={styles.factValue}>{entry.value}</Text>
+                      </View>
+                    ))}
+                  </View>
+                  {searchFactRows.length ? (
+                    <>
+                      <Text style={styles.groupTitle}>Suche</Text>
+                      <View style={styles.factList}>
+                        {searchFactRows.map((entry) => (
+                          <View key={entry.label} style={styles.factRow}>
+                            <Text style={styles.factLabel}>{entry.label}</Text>
+                            <Text style={styles.factValue}>{entry.value}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    </>
+                  ) : null}
+                  <AccentButton label="Direkt schreiben" variant="secondary" onPress={() => navigation.navigate('Chat', { userId: profile.id })} style={styles.passwordButton} />
+                </>
+              )}
+            </GlassCard>
+
+            {isOwnProfile ? (
+              <GlassCard style={styles.infoCard}>
+                <Text style={styles.groupTitle}>Datenschutz und Konto</Text>
+                <Text style={styles.copyLine}>Datenexport zuletzt angefordert: {profile.dataExportRequestedAt || 'Noch nie'}</Text>
+                <Text style={styles.copyLine}>Löschanfrage: {profile.accountDeletionRequestedAt || 'Keine offene Anfrage'}</Text>
+                <AccentButton label={isExportingData ? 'Datenexport wird erstellt...' : 'Datenexport erstellen'} variant="secondary" onPress={handleExportData} style={styles.privacyButton} disabled={isExportingData} />
+                <AccentButton label={isRequestingDeletion ? 'Löschanfrage wird gespeichert...' : 'Konto-Löschung anfragen'} variant="ghost" onPress={handleRequestDeletion} disabled={isRequestingDeletion} />
+                <AccentButton
+                  label="Abmelden"
+                  variant="secondary"
+                  onPress={async () => {
+                    await logout();
+                    navigation.reset({ index: 0, routes: [{ name: 'Landing' }] });
+                  }}
+                  style={styles.logoutButton}
+                />
+              </GlassCard>
+            ) : null}
 
       <GlassCard style={styles.infoCard}>
         <Text style={styles.groupTitle}>Vorlieben</Text>
@@ -593,24 +757,26 @@ const ProfilScreen = () => {
         )}
       </GlassCard>
 
-      <GlassCard style={styles.infoCard}>
-        <Text style={styles.groupTitle}>Galerie</Text>
-        <View style={styles.galleryRow}>
-          {profile.gallery.map((item) => (
-            <View key={item.id} style={[styles.galleryItem, isCompactWeb && styles.galleryItemCompact]}>
-              {item.imageUri ? <Image source={{ uri: item.imageUri }} style={styles.galleryImage} resizeMode="cover" /> : <Ionicons name="image-outline" size={28} color={affairGoTheme.colors.textMuted} />}
-              <Text style={styles.galleryLabel}>{item.label}</Text>
-              <Text style={styles.galleryAge}>{item.ageLabel}</Text>
-            </View>
-          ))}
-          {isOwnProfile && profile.gallery.length < 10 ? (
-            <Pressable style={[styles.galleryItem, isCompactWeb && styles.galleryItemCompact]} onPress={handleAddGalleryImage}>
-              <Ionicons name="add" size={34} color={affairGoTheme.colors.text} />
-              <Text style={styles.galleryLabel}>Foto hinzufügen</Text>
-            </Pressable>
-          ) : null}
-        </View>
-      </GlassCard>
+      {shouldShowGallery ? (
+        <GlassCard style={styles.infoCard}>
+          <Text style={styles.groupTitle}>Galerie</Text>
+          <View style={styles.galleryRow}>
+            {galleryItems.map((item) => (
+              <View key={item.id} style={[styles.galleryItem, isCompactWeb && styles.galleryItemCompact]}>
+                {item.imageUri ? <Image source={{ uri: item.imageUri }} style={styles.galleryImage} resizeMode="cover" /> : <Ionicons name="image-outline" size={28} color={affairGoTheme.colors.textMuted} />}
+                <Text style={styles.galleryLabel}>{item.label}</Text>
+                <Text style={styles.galleryAge}>{item.ageLabel}</Text>
+              </View>
+            ))}
+            {isOwnProfile && galleryItems.length < 10 ? (
+              <Pressable style={[styles.galleryItem, isCompactWeb && styles.galleryItemCompact]} onPress={handleAddGalleryImage}>
+                <Ionicons name="add" size={34} color={affairGoTheme.colors.text} />
+                <Text style={styles.galleryLabel}>Foto hinzufügen</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </GlassCard>
+      ) : null}
 
       <Modal transparent visible={passwordModalOpen} animationType="fade" onRequestClose={() => setPasswordModalOpen(false)}>
         <View style={styles.modalBackdrop}>
@@ -696,21 +862,7 @@ const styles = StyleSheet.create({
     color: affairGoTheme.colors.textMuted,
     marginTop: 6,
     textAlign: 'center',
-  },
-  photoAge: {
-    color: affairGoTheme.colors.text,
-    marginTop: 14,
-  },
-  warnSoft: {
-    color: affairGoTheme.colors.accentSoft,
-    marginTop: 6,
-  },
-  warnRed: {
-    color: affairGoTheme.colors.danger,
-    marginTop: 6,
-  },
-  infoCard: {
-    marginBottom: 14,
+    flex: 1,
   },
   securityCard: {
     marginBottom: 14,
@@ -845,12 +997,43 @@ const styles = StyleSheet.create({
     marginTop: 6,
     marginBottom: 10,
   },
+  travelActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+  },
+  travelActionButton: {
+    flex: 1,
+  },
   logoutButton: {
     marginTop: 6,
   },
   readonlyLine: {
     color: affairGoTheme.colors.text,
     lineHeight: 26,
+  },
+  factList: {
+    marginBottom: 12,
+  },
+  factRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: affairGoTheme.colors.line,
+  },
+  factLabel: {
+    flex: 1,
+    color: affairGoTheme.colors.textMuted,
+    lineHeight: 22,
+  },
+  factValue: {
+    flex: 1,
+    color: affairGoTheme.colors.text,
+    lineHeight: 22,
+    textAlign: 'right',
   },
   groupTitle: {
     color: affairGoTheme.colors.text,

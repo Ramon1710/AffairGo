@@ -83,3 +83,24 @@ test('Matching-Map-UI enthaelt keine Fotoalter-Auswahl mehr', () => {
   assert.equal(screenSource.includes('Foto >'), false);
   assert.equal(screenSource.includes('Monate alt'), false);
 });
+
+test('Matching-Map nutzt einen diskreten Radiusregler auf Basis der bestehenden Radiusoptionen', () => {
+  const screenSource = readFileSync('/workspaces/AffairGo/screens/MatchingMapScreen.js', 'utf8');
+
+  assert.match(screenSource, /const radiusOptions = useMemo\(\(\) => getAllowedRadiusOptions\(\), \[]\);/);
+  assert.match(screenSource, /const \[pendingRadius, setPendingRadius\] = useState\(currentRadius\);/);
+  assert.match(screenSource, /commitRadiusSelection/);
+  assert.match(screenSource, /PanResponder\.create/);
+  assert.match(screenSource, /accessibilityRole="adjustable"/);
+  assert.match(screenSource, /radiusKm=\{displayRadius\}/);
+  assert.match(screenSource, /await setCurrentRadius\(normalizedRadius\);/);
+});
+
+test('Matching-Map speichert den zentralen Radius erst beim Loslassen oder gezielten Auswählen', () => {
+  const screenSource = readFileSync('/workspaces/AffairGo/screens/MatchingMapScreen.js', 'utf8');
+
+  assert.match(screenSource, /onPanResponderRelease: \(\) => \{/);
+  assert.match(screenSource, /commitRadiusSelection\(pendingRadiusRef\.current\);/);
+  assert.match(screenSource, /onPress=\{\(event\) => handleRadiusTrackPress\(event\.nativeEvent\.locationX\)\}/);
+  assert.equal(screenSource.includes('ToggleChip label={formatRadiusKm(radius)} active={currentRadius === radius} onPress={() => setCurrentRadius(radius)}'), false);
+});

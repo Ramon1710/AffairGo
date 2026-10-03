@@ -1,4 +1,4 @@
-import { collection, collectionGroup, doc, getDoc, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
+import { collection, collectionGroup, doc, getDoc, limit, onSnapshot, orderBy, query, Timestamp, where } from 'firebase/firestore';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -14,6 +14,7 @@ import {
     useWindowDimensions,
     View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { AccentButton, AppBackground, EmptyState, GlassCard, ScreenHeader, StatusPill } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
@@ -1384,9 +1385,13 @@ const CommunityRoomScreen = () => {
 
     if (roomMissing || roomInactive) {
       return (
-        <GlassCard strong style={styles.stateCard}>
-          <Text style={styles.stateTitle}>Dieser Community-Raum ist momentan nicht verfügbar.</Text>
-        </GlassCard>
+        <EmptyState
+          title={roomMissing ? 'Dieser Community-Raum wurde nicht gefunden.' : 'Dieser Community-Raum ist momentan nicht verfügbar.'}
+          detail={roomMissing
+            ? 'Bitte prüfe den Link oder gehe zurück zur Community-Übersicht, um einen gültigen Raum zu öffnen.'
+            : 'Der Raum ist derzeit deaktiviert oder vorübergehend nicht erreichbar.'}
+          action={<AccentButton label="Zur Community-Übersicht" variant="secondary" onPress={() => navigation.navigate('Community')} />}
+        />
       );
     }
 

@@ -67,15 +67,15 @@ import {
 } from '../data/mockData';
 import { auth, authReady, db, storage } from '../firebase';
 import {
-  buildMatchedProfiles,
     DEFAULT_PRESENCE_STALE_AFTER_MS,
+    buildMatchedProfiles,
     getCompatibility as getCompatibilityScore,
     getMatchEligibility as getMatchEligibilityScore,
     hasStoredProfilePhoto,
     isPresenceFresh,
 } from '../untils/matching';
-import { getProfileCompletionState } from '../untils/profileStatus';
 import { buildSwipeDeckProfiles } from '../untils/matchingMap';
+import { getProfileCompletionState } from '../untils/profileStatus';
 import { getDefaultRadiusKm, normalizeRadiusKm } from '../untils/radius';
 
 const { markDirectChatsAsRead } = require('../untils/directChat');
@@ -84,8 +84,6 @@ const AffairGoContext = createContext(null);
 const LIVE_LOCATION_INTERVAL_MS = 8000;
 const MAX_MODERATION_AUDIT_TRAIL_ENTRIES = 40;
 const PROFILE_PHOTO_UPLOAD_TIMEOUT_MS = 20000;
-const FIXED_ADMIN_EMAIL = 'ramon.meyer@admin.de';
-const FIXED_ADMIN_PASSWORD = 'heihachi17';
 const SESSION_CACHE_STORAGE_KEY = 'affairgo.session.v1';
 const REGISTRATION_SUBMIT_DRAFT_STORAGE_KEY = 'affairgo.registration-submit-draft.v1';
 const REGISTRATION_PROFILE_CACHE_STORAGE_KEY = 'affairgo.registration-profile.v1';
@@ -580,35 +578,6 @@ const createDefaultCurrentUser = () => ({
   travelPlans: createEmptyTravelPlans(),
 });
 
-const isFixedAdminEmail = (email = '') => email.trim().toLowerCase() === FIXED_ADMIN_EMAIL;
-
-const matchesFixedAdminCredentials = (identifier = '', password = '') => (
-  isFixedAdminEmail(identifier) && password === FIXED_ADMIN_PASSWORD
-);
-
-const buildFixedAdminProfile = (uid = 'affairgo-admin') => ({
-  ...createDefaultCurrentUser(),
-  id: uid,
-  email: FIXED_ADMIN_EMAIL,
-  nickname: 'RamonAdmin',
-  firstName: 'Ramon',
-  lastName: 'Meyer',
-  age: 35,
-  birthYear: new Date().getFullYear() - 35,
-  city: 'Berlin',
-  joinedLabel: 'Admin',
-  verified: true,
-  emailVerified: true,
-  ageVerified: true,
-  ageVerificationStatus: 'verified',
-  onboardingCompleted: true,
-  searchActive: true,
-  showCommunityActivityStatus: true,
-  membership: FREE_ACCESS_MEMBERSHIP,
-  role: 'admin',
-  isAdmin: true,
-});
-
 const normalizeGermanComparison = (value = '') => String(value)
   .trim()
   .toLowerCase()
@@ -938,7 +907,7 @@ const isTravelPlanVisible = (travelPlan, referenceDate = new Date()) => {
 };
 
 const getVisibleTravelPlans = (profile, referenceDate = new Date()) => {
-  const normalizedTravelPlans = normalizeTravelPlans(profile.travelPlans);
+  const normalizedTravelPlans = normalizeTravelPlans(profile?.travelPlans);
 
   return {
     business: normalizedTravelPlans.business.filter((entry) => isTravelPlanVisible(entry, referenceDate)),
@@ -958,12 +927,12 @@ const getProfileTravelSummary = (profile) => {
   });
 
   if (!allPlans.length) {
-    return profile.travelMode && profile.travelMode !== 'active'
+    return profile?.travelMode && profile.travelMode !== 'active'
       ? {
           mode: profile.travelMode,
           label: profile.travelMode === 'business' ? 'Dienstreise' : 'Urlaub',
           period: '',
-          location: profile.city || '',
+          location: profile?.city || '',
         }
       : null;
   }
@@ -1007,12 +976,12 @@ const getTravelMatchForAddress = (profile, address = '') => {
   return getProfileTravelCities(profile).find((city) => normalizedAddress.includes(city)) || '';
 };
 
-const normalizeUserProfile = (profile = {}, firebaseUser = null) => {
+const normalizeUserProfile = (profile = {}, firebaseUser = null, { trustAdminMetadata = false } = {}) => {
   const defaults = createDefaultCurrentUser();
   const aliasValues = getProfileFieldAliases(profile);
   const resolvedTravelPlans = normalizeTravelPlans(profile.travelPlans);
   const resolvedEmail = profile.email || firebaseUser?.email || defaults.email;
-  const fixedAdmin = Boolean(profile.isAdmin) || profile.role === 'admin' || isFixedAdminEmail(resolvedEmail);
+  const trustedAdmin = trustAdminMetadata && (profile.isAdmin === true || profile.role === 'admin');
   const { searchAgeMin, searchAgeMax } = normalizeSearchAgeRange(profile, defaults);
   const normalizedPreferences = normalizeOptionList(profile.preferences, PREFERENCE_OPTIONS, defaults.preferences);
   const normalizedTaboos = normalizeOptionList(profile.taboos, TABOO_OPTIONS, defaults.taboos);
@@ -1037,13 +1006,13 @@ const normalizeUserProfile = (profile = {}, firebaseUser = null) => {
     hairColor: normalizeOptionValue(aliasValues.hairColor, HAIR_OPTIONS, defaults.hairColor),
     eyeColor: normalizeOptionValue(aliasValues.eyeColor, EYE_OPTIONS, defaults.eyeColor),
     skinType: normalizeOptionValue(aliasValues.skinType, SKIN_OPTIONS, defaults.skinType),
-    emailVerified: fixedAdmin ? true : (firebaseUser?.emailVerified ?? profile.emailVerified ?? false),
+    emailVerified: firebaseUser?.emailVerified ?? profile.emailVerified ?? false,
     pendingEmail: profile.pendingEmail || '',
     pendingNickname: profile.pendingNickname || '',
     privacyConsentAccepted: Boolean(profile.privacyConsentAccepted),
     privacyConsentAcceptedAt: profile.privacyConsentAcceptedAt || '',
-    ageVerified: fixedAdmin ? true : (profile.ageVerified ?? Boolean(profile.age >= 18)),
-    ageVerificationStatus: fixedAdmin ? 'verified' : (profile.ageVerificationStatus || (profile.age >= 18 ? 'verified' : 'not_started')),
+    ageVerified: profile.ageVerified ?? Boolean(profile.age >= 18),
+    ageVerificationStatus: profile.ageVerificationStatus || (profile.age >= 18 ? 'verified' : 'not_started'),
     ageVerificationProvider: profile.ageVerificationProvider || '',
     ageVerificationReferenceId: profile.ageVerificationReferenceId || '',
     ageVerificationCheckedAt: profile.ageVerificationCheckedAt || '',
@@ -1052,8 +1021,8 @@ const normalizeUserProfile = (profile = {}, firebaseUser = null) => {
     moderationLastCheckedAt: profile.moderationLastCheckedAt || '',
     moderationRateLimitUntil: profile.moderationRateLimitUntil || '',
     moderationAuditTrail: Array.isArray(profile.moderationAuditTrail) ? profile.moderationAuditTrail : [],
-    verified: fixedAdmin ? true : (profile.verified ?? Boolean(profile.profileImageUploaded)),
-    verifiedMatchesOnly: fixedAdmin ? true : Boolean(profile.verifiedMatchesOnly),
+    verified: profile.verified ?? Boolean(profile.profileImageUploaded),
+    verifiedMatchesOnly: Boolean(profile.verifiedMatchesOnly),
     showCommunityActivityStatus: profile.showCommunityActivityStatus !== false,
     dismissedProfileIds: normalizeIdList(profile.dismissedProfileIds),
     premiumTrialActive: false,
@@ -1077,11 +1046,11 @@ const normalizeUserProfile = (profile = {}, firebaseUser = null) => {
     taboos: normalizedTaboos,
     travelPlans: resolvedTravelPlans,
     forcePasswordChange: Boolean(profile.forcePasswordChange),
-    onboardingCompleted: fixedAdmin ? true : (Boolean(profile.onboardingCompleted) || hasCompletedPreferenceSetup({ preferences: normalizedPreferences })),
-    searchActive: fixedAdmin ? true : Boolean(profile.searchActive),
+    onboardingCompleted: Boolean(profile.onboardingCompleted) || hasCompletedPreferenceSetup({ preferences: normalizedPreferences }),
+    searchActive: Boolean(profile.searchActive),
     membership: FREE_ACCESS_MEMBERSHIP,
-    role: fixedAdmin ? 'admin' : (profile.role || defaults.role),
-    isAdmin: fixedAdmin,
+    role: trustedAdmin ? 'admin' : defaults.role,
+    isAdmin: trustedAdmin,
   };
 };
 
@@ -1091,6 +1060,8 @@ const toStoredProfile = (profile) => {
   const { searchAgeMin, searchAgeMax } = normalizeSearchAgeRange(profile, createDefaultCurrentUser());
   delete sanitized.password;
   delete sanitized.repeatPassword;
+  delete sanitized.isAdmin;
+  delete sanitized.role;
 
   return {
     ...sanitized,
@@ -1809,22 +1780,6 @@ const persistProfileViaFunctionFallback = async (profile, attemptLabel = 'functi
   return storedProfile;
 };
 
-const ensureFixedAdminProfileStored = async (firebaseUser) => {
-  const adminProfile = buildFixedAdminProfile(firebaseUser?.uid || 'affairgo-admin');
-
-  try {
-    await withTimeout(
-      setDoc(doc(db, 'users', adminProfile.id), toStoredProfile(adminProfile), { merge: true }),
-      10000,
-      'Das Admin-Profil konnte nicht rechtzeitig gespeichert werden.'
-    );
-  } catch (error) {
-    console.warn('AffairGo fixed admin persist warning', error);
-  }
-
-  return adminProfile;
-};
-
 const findStoredProfileByEmail = async (email) => {
   const normalizedEmail = email.trim().toLowerCase();
 
@@ -2231,18 +2186,30 @@ export const AffairGoProvider = ({ children }) => {
     }
   };
 
-  const hydrateAuthenticatedSession = (sessionData, firebaseUser = null) => {
+  const hydrateAuthenticatedSession = (sessionData, firebaseUser = null, { trustAdminMetadata = false } = {}) => {
     const resolvedProfile = sessionData?.profile && typeof sessionData.profile === 'object'
       ? sessionData.profile
       : sessionData;
-    const normalizedProfile = normalizeUserProfile(resolvedProfile, firebaseUser);
+    const normalizedProfile = normalizeUserProfile(resolvedProfile, firebaseUser, { trustAdminMetadata });
+    const normalizedChats = normalizeStoredChats(sessionData?.chats);
+    const normalizedSwipeHistory = Array.isArray(sessionData?.swipeHistory) ? sessionData.swipeHistory : [];
+    const normalizedDismissedProfiles = getDismissedSwipeIds(sessionData?.swipeHistory);
 
     setCurrentUser(normalizedProfile);
-  setChats(normalizeStoredChats(sessionData?.chats));
-    setSwipeHistory(Array.isArray(sessionData?.swipeHistory) ? sessionData.swipeHistory : []);
-    setDismissedProfiles(getDismissedSwipeIds(sessionData?.swipeHistory));
+    setChats(normalizedChats);
+    setSwipeHistory(normalizedSwipeHistory);
+    setDismissedProfiles(normalizedDismissedProfiles);
     setCurrentRadiusState(normalizedProfile.radius);
     setIsAuthenticated(true);
+
+    if (normalizedProfile.id && normalizedProfile.id !== 'me') {
+      writeCachedSession(normalizedProfile.id, {
+        profile: normalizedProfile,
+        chats: normalizedChats,
+        swipeHistory: normalizedSwipeHistory,
+        dismissedProfileIds: normalizedDismissedProfiles,
+      });
+    }
 
     return normalizedProfile;
   };
@@ -2266,8 +2233,9 @@ export const AffairGoProvider = ({ children }) => {
       };
     }
 
-    let normalizedProfile = hydrateAuthenticatedSession(profileData, firebaseUser);
-    const normalizedAuthEmail = firebaseUser.email?.trim().toLowerCase() || '';
+    let normalizedProfile = hydrateAuthenticatedSession(profileData, firebaseUser, {
+      trustAdminMetadata: profileData.__profileLookup === 'found',
+    });
     const normalizedStoredEmail = normalizedProfile.email?.trim().toLowerCase() || '';
     const normalizedPendingEmail = normalizedProfile.pendingEmail?.trim().toLowerCase() || '';
     const shouldBackfillLegacyFields = hasLegacyProfileAliases(profileData);
@@ -2282,7 +2250,9 @@ export const AffairGoProvider = ({ children }) => {
         }), { merge: true });
 
         const repairedProfileData = await loadStoredProfile(firebaseUser.uid, firebaseUser.email);
-        normalizedProfile = hydrateAuthenticatedSession(repairedProfileData, firebaseUser);
+        normalizedProfile = hydrateAuthenticatedSession(repairedProfileData, firebaseUser, {
+          trustAdminMetadata: repairedProfileData.__profileLookup === 'found',
+        });
         clearCachedRegistrationProfile(firebaseUser.uid);
         clearRegistrationSubmitDraft(firebaseUser.email || cachedRegistrationProfile?.email || profileData.email || '');
       } catch (repairError) {
@@ -2377,7 +2347,7 @@ export const AffairGoProvider = ({ children }) => {
         const cachedSession = readCachedSession(firebaseUser.uid);
 
         if (cachedSession) {
-          hydrateAuthenticatedSession(cachedSession, firebaseUser);
+          hydrateAuthenticatedSession(cachedSession, firebaseUser, { trustAdminMetadata: false });
           setIsAuthReady(true);
         }
 
@@ -2458,7 +2428,7 @@ export const AffairGoProvider = ({ children }) => {
     const unsubscribeUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
       const storedUsers = snapshot.docs
         .map((profileDoc) => ({
-          ...normalizeUserProfile({ id: profileDoc.id, ...profileDoc.data() }),
+          ...normalizeUserProfile({ id: profileDoc.id, ...profileDoc.data() }, null, { trustAdminMetadata: true }),
           latitude: null,
           longitude: null,
         }))
@@ -3110,133 +3080,97 @@ export const AffairGoProvider = ({ children }) => {
   const selectedProfile = users.find((profile) => profile.id === selectedProfileId) || visibleProfiles[0] || users[0];
 
   const login = async ({ identifier, password }) => {
-    const fixedAdminLogin = matchesFixedAdminCredentials(identifier, password);
-    const normalizedEmail = fixedAdminLogin
-      ? FIXED_ADMIN_EMAIL
-      : await withTimeout(
-          resolveAuthEmail(identifier),
-          5000,
-          'Die Anmeldung hat beim Aufloesen deiner Kennung zu lange gedauert. Bitte versuche es erneut.'
-        );
+    const normalizedEmail = await withTimeout(
+      resolveAuthEmail(identifier),
+      5000,
+      'Die Anmeldung hat beim Aufloesen deiner Kennung zu lange gedauert. Bitte versuche es erneut.'
+    );
 
-    if (!fixedAdminLogin) {
-      await withTimeout(moderatePreAuthAction({
-        actionType: 'login_attempt',
-        email: normalizedEmail,
-        identifier,
-        metadata: { hasPassword: Boolean(password) },
-      }), 5000, 'Die Sicherheitspruefung vor dem Login hat zu lange gedauert. Bitte versuche es erneut.');
-    }
+    await withTimeout(moderatePreAuthAction({
+      actionType: 'login_attempt',
+      email: normalizedEmail,
+      identifier,
+      metadata: { hasPassword: Boolean(password) },
+    }), 5000, 'Die Sicherheitspruefung vor dem Login hat zu lange gedauert. Bitte versuche es erneut.');
 
     try {
       let credentials;
       let profileData;
 
-      if (fixedAdminLogin) {
-        try {
-          credentials = await withTimeout(
-            signInWithEmailAndPassword(auth, FIXED_ADMIN_EMAIL, FIXED_ADMIN_PASSWORD),
-            12000,
-            'Der Admin-Login hat zu lange gedauert. Bitte versuche es erneut.'
-          );
-        } catch (error) {
-          if (error?.code === 'auth/user-not-found' || error?.code === 'auth/invalid-credential') {
-            credentials = await withTimeout(
-              createUserWithEmailAndPassword(auth, FIXED_ADMIN_EMAIL, FIXED_ADMIN_PASSWORD),
-              12000,
-              'Das Admin-Konto konnte nicht rechtzeitig angelegt werden. Bitte versuche es erneut.'
-            );
-          } else {
-            throw error;
-          }
-        }
+      credentials = await withTimeout(
+        signInWithEmailAndPassword(auth, normalizedEmail, password),
+        12000,
+        'Der Login hat zu lange gedauert. Bitte pruefe deine Verbindung und versuche es erneut.'
+      );
 
-        const [, persistedAdminProfile] = await Promise.all([
-          withTimeout(
-            reload(credentials.user),
-            4000,
-            'Das Aktualisieren des Admin-Status hat zu lange gedauert.'
-          ).catch((error) => {
-            console.warn('AffairGo admin reload warning', error);
-            return null;
-          }),
-          ensureFixedAdminProfileStored(credentials.user),
-        ]);
-        profileData = persistedAdminProfile;
-      } else {
-        credentials = await withTimeout(
-          signInWithEmailAndPassword(auth, normalizedEmail, password),
-          12000,
-          'Der Login hat zu lange gedauert. Bitte pruefe deine Verbindung und versuche es erneut.'
-        );
+      await withTimeout(
+        reload(credentials.user),
+        4000,
+        'Das Aktualisieren deines Login-Status hat zu lange gedauert.'
+      ).catch((error) => {
+        console.warn('AffairGo login reload warning', error);
+        return null;
+      });
 
-        await withTimeout(
-          reload(credentials.user),
-          4000,
-          'Das Aktualisieren deines Login-Status hat zu lange gedauert.'
-        ).catch((error) => {
-          console.warn('AffairGo login reload warning', error);
-          return null;
+      const cachedSession = readCachedSession(credentials.user.uid);
+      const cachedRegistrationProfile = readCachedRegistrationProfile(credentials.user.uid)
+        || buildCachedRegistrationProfileFromDraft(credentials.user.uid, credentials.user.email || normalizedEmail);
+
+      if (cachedSession) {
+        const normalizedProfile = hydrateAuthenticatedSession(cachedSession, credentials.user, { trustAdminMetadata: false });
+
+        syncCurrentUserFromFirebase(credentials.user).catch((error) => {
+          console.warn('AffairGo login refresh warning', error);
         });
 
-        const cachedSession = readCachedSession(credentials.user.uid);
-        const cachedRegistrationProfile = readCachedRegistrationProfile(credentials.user.uid)
-          || buildCachedRegistrationProfileFromDraft(credentials.user.uid, credentials.user.email || normalizedEmail);
-
-        if (cachedSession) {
-          const normalizedProfile = hydrateAuthenticatedSession(cachedSession, credentials.user);
-
-          syncCurrentUserFromFirebase(credentials.user).catch((error) => {
-            console.warn('AffairGo login refresh warning', error);
-          });
-
-          return {
-            requiresPasswordChange: normalizedProfile.isAdmin ? false : normalizedProfile.forcePasswordChange,
-            needsOnboarding: normalizedProfile.isAdmin ? false : !normalizedProfile.onboardingCompleted,
-          };
-        }
-
-        profileData = await withTimeout(
-          loadStoredProfile(credentials.user.uid, credentials.user.email),
-          5000,
-          'Das Laden deines Profils hat zu lange gedauert.'
-        ).catch((error) => {
-          console.warn('AffairGo login profile fallback warning', error);
-          syncCurrentUserFromFirebase(credentials.user).catch((syncError) => {
-            console.warn('AffairGo login fallback refresh warning', syncError);
-          });
-          return {
-            id: credentials.user.uid,
-            email: credentials.user.email || normalizedEmail,
-            __profileLookup: 'error',
-          };
-        });
-
-        if (profileData.__profileLookup === 'missing' && cachedRegistrationProfile) {
-          profileData = {
-            ...cachedRegistrationProfile,
-            __profileExists: false,
-            __profileLookup: 'cached-registration',
-          };
-        } else if (profileData.__profileLookup === 'found' && cachedRegistrationProfile && isMissingRegistrationProfileCore(profileData)) {
-          profileData = {
-            ...mergeRegistrationCacheIntoProfile(profileData, cachedRegistrationProfile),
-            __profileExists: true,
-            __profileLookup: 'cached-registration-repair',
-          };
-        }
+        return {
+          requiresPasswordChange: normalizedProfile.forcePasswordChange,
+          needsOnboarding: !normalizedProfile.onboardingCompleted,
+        };
       }
 
-      if (!fixedAdminLogin && !credentials.user.emailVerified) {
+      profileData = await withTimeout(
+        loadStoredProfile(credentials.user.uid, credentials.user.email),
+        5000,
+        'Das Laden deines Profils hat zu lange gedauert.'
+      ).catch((error) => {
+        console.warn('AffairGo login profile fallback warning', error);
+        syncCurrentUserFromFirebase(credentials.user).catch((syncError) => {
+          console.warn('AffairGo login fallback refresh warning', syncError);
+        });
+        return {
+          id: credentials.user.uid,
+          email: credentials.user.email || normalizedEmail,
+          __profileLookup: 'error',
+        };
+      });
+
+      if (profileData.__profileLookup === 'missing' && cachedRegistrationProfile) {
+        profileData = {
+          ...cachedRegistrationProfile,
+          __profileExists: false,
+          __profileLookup: 'cached-registration',
+        };
+      } else if (profileData.__profileLookup === 'found' && cachedRegistrationProfile && isMissingRegistrationProfileCore(profileData)) {
+        profileData = {
+          ...mergeRegistrationCacheIntoProfile(profileData, cachedRegistrationProfile),
+          __profileExists: true,
+          __profileLookup: 'cached-registration-repair',
+        };
+      }
+
+      if (!credentials.user.emailVerified) {
         trySendVerificationEmail(credentials.user).catch(() => undefined);
       }
 
-      const normalizedProfile = hydrateAuthenticatedSession(profileData, credentials.user);
+      const normalizedProfile = hydrateAuthenticatedSession(profileData, credentials.user, {
+        trustAdminMetadata: profileData.__profileLookup === 'found',
+      });
 
       return {
-        emailVerificationPending: !fixedAdminLogin && !credentials.user.emailVerified,
-        requiresPasswordChange: normalizedProfile.isAdmin ? false : normalizedProfile.forcePasswordChange,
-        needsOnboarding: normalizedProfile.isAdmin ? false : !normalizedProfile.onboardingCompleted,
+        emailVerificationPending: !credentials.user.emailVerified,
+        requiresPasswordChange: normalizedProfile.forcePasswordChange,
+        needsOnboarding: !normalizedProfile.onboardingCompleted,
       };
     } catch (error) {
       throw new Error(mapAuthError(error, error?.message || 'Login fehlgeschlagen.'));

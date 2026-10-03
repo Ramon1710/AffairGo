@@ -1,4 +1,5 @@
 const { HttpsError } = require('firebase-functions/v2/https');
+const { resolveDateLocation } = require('./dateLocation');
 
 const DATE_COLLECTION = 'dates';
 const DATE_INTERESTS_SUBCOLLECTION = 'interests';
@@ -14,6 +15,10 @@ const DATE_VISIBILITY = Object.freeze({
 
 const normalizeOptionalString = (value) => (typeof value === 'string' ? value.trim() : '');
 const normalizeOptionalBoolean = (value, fallback = false) => (typeof value === 'boolean' ? value : fallback);
+const normalizeOptionalNumber = (value, fallback = null) => {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : fallback;
+};
 const normalizeStringList = (value) => (Array.isArray(value)
   ? value.filter((entry) => typeof entry === 'string').map((entry) => entry.trim()).filter(Boolean)
   : []);
@@ -76,6 +81,18 @@ const isPrivilegedModerator = (profile = {}) => (
   || normalizeOptionalString(profile?.role).toLowerCase() === 'admin'
   || normalizeOptionalString(profile?.role).toLowerCase() === 'moderator'
 );
+
+const isEligibleDateParticipantProfile = (profile = {}) => {
+  const emailVerified = profile.emailVerified === true;
+  const verificationStatus = normalizeOptionalString(profile.ageVerificationStatus).toLowerCase();
+  const ageVerified = profile.ageVerified === true
+    && (!verificationStatus || verificationStatus === 'verified' || verificationStatus === 'approved');
+  const noPendingDeletion = !normalizeOptionalString(profile.accountDeletionRequestedAt);
+  const moderationState = normalizeOptionalString(profile.moderationState).toLowerCase() || 'clear';
+  const noRestriction = moderationState === 'clear' || moderationState === 'review';
+
+  return emailVerified && ageVerified && noPendingDeletion && noRestriction;
+};
 
 const hasCommunityRulesAccepted = async ({ firestore, uid, currentRulesVersion }) => {
   if (!uid || !currentRulesVersion) {
@@ -148,24 +165,52 @@ const assertEligibleDateAuthor = async ({ firestore, uid }) => {
   return { profile, rulesVersion };
 };
 
+const sanitizeClientRequestId = (value) => {
+  const normalizedValue = normalizeOptionalString(value);
+
+  if (!normalizedValue) {
+    return '';
+  }
+
+  if (!/^[a-zA-Z0-9_-]{6,80}$/.test(normalizedValue)) {
+    throw new HttpsError('invalid-argument', 'Die Anfrage-ID des Dates ist ungültig.');
+  }
+
+  return normalizedValue;
+};
+
 const sanitizeDatePayload = (payload = {}, nowMs = Date.now()) => {
   const { scheduledAt, scheduledAtMs } = ensureFutureDate(payload.scheduledAt, nowMs);
   const visibility = normalizeOptionalString(payload.visibility).toLowerCase() || DATE_VISIBILITY.COMMUNITY;
+  const resolvedLocation = resolveDateLocation({
+    locationQuery: payload.locationQuery || payload.regionLabel,
+    publicPlaceLabel: payload.publicPlaceLabel,
+  });
 
   if (!Object.values(DATE_VISIBILITY).includes(visibility)) {
     throw new HttpsError('invalid-argument', 'Die Sichtbarkeit ist ungültig.');
   }
 
   return {
-    title: sanitizeLimitedText(payload.title, 'Titel', { min: 4, max: 80 }),
-    description: sanitizeLimitedText(payload.description, 'Beschreibung', { min: 12, max: 1200 }),
+    title: sanitizeLimitedText(payload.title, 'Aktivität oder Wunsch', { min: 3, max: 120 }),
+    description: sanitizeLimitedText(payload.description, 'Zusätzliche Beschreibung', { required: false, max: 1200 }),
     category: sanitizeLimitedText(payload.category, 'Kategorie', { required: false, max: 80 }),
-    regionLabel: sanitizeLimitedText(payload.regionLabel, 'Region', { min: 2, max: 120 }),
     visibility,
     scheduledAt,
     scheduledAtMs,
+    clientRequestId: sanitizeClientRequestId(payload.clientRequestId),
+    durationMinutes: normalizeOptionalNumber(payload.durationMinutes, null),
+    ...resolvedLocation,
   };
 };
+
+const buildCreatorProfileSummary = (profile = {}) => ({
+  nickname: normalizeOptionalString(profile.nickname) || 'Night-Whisper Mitglied',
+  age: Number(profile.age) || null,
+  city: normalizeOptionalString(profile.city),
+  profilePhotoUrl: normalizeOptionalString(profile.profilePhotoUrl),
+  profileImageUri: normalizeOptionalString(profile.profileImageUri),
+});
 
 const buildDateRecord = ({
   dateId,
@@ -179,12 +224,21 @@ const buildDateRecord = ({
   id: dateId,
   creatorId: uid,
   creatorNickname: normalizeOptionalString(authorProfile.nickname) || 'Night-Whisper Mitglied',
+  creatorProfileSummary: buildCreatorProfileSummary(authorProfile),
   title: payload.title,
   description: payload.description,
   category: payload.category,
+  locationQuery: payload.locationQuery,
+  publicPlaceLabel: payload.publicPlaceLabel,
+  cityLabel: payload.cityLabel,
   regionLabel: payload.regionLabel,
+  coordinate: payload.coordinate,
+  geohash: payload.geohash,
+  locationResolution: payload.locationResolution,
   visibility: payload.visibility,
   status: DATE_STATUS.ACTIVE,
+  clientRequestId: payload.clientRequestId || '',
+  durationMinutes: Number.isFinite(Number(payload.durationMinutes)) ? Number(payload.durationMinutes) : null,
   scheduledAt: timestamp.fromDate ? timestamp.fromDate(payload.scheduledAt) : payload.scheduledAt,
   scheduledAtMs: payload.scheduledAtMs,
   interestCount: 0,
@@ -208,7 +262,18 @@ const createCreateDateHandler = ({ firestore, fieldValue, timestamp }) => async 
   const uid = assertAuthenticated(request);
   const { profile, rulesVersion } = await assertEligibleDateAuthor({ firestore, uid });
   const sanitizedPayload = sanitizeDatePayload(request.data || {});
-  const dateRef = firestore.collection(DATE_COLLECTION).doc();
+  const dateRef = sanitizedPayload.clientRequestId
+    ? firestore.collection(DATE_COLLECTION).doc(`${uid}__${sanitizedPayload.clientRequestId}`)
+    : firestore.collection(DATE_COLLECTION).doc();
+
+  if (sanitizedPayload.clientRequestId) {
+    const existingSnapshot = await dateRef.get();
+
+    if (existingSnapshot.exists) {
+      return { ok: true, duplicate: true, dateId: dateRef.id, date: existingSnapshot.data() };
+    }
+  }
+
   const dateRecord = buildDateRecord({
     dateId: dateRef.id,
     payload: sanitizedPayload,
@@ -229,7 +294,7 @@ const createListDatesHandler = ({ firestore }) => async (request) => {
   const nowMs = Date.now();
   const snapshot = await firestore.collection(DATE_COLLECTION)
     .where('status', '==', DATE_STATUS.ACTIVE)
-    .where('scheduledAtMs', '>', nowMs)
+    .where('scheduledAt', '>', new Date(nowMs))
     .get();
   const entries = snapshot.docs
     .map((entry) => ({ id: entry.id, ...entry.data() }))
@@ -253,6 +318,10 @@ const createListDatesHandler = ({ firestore }) => async (request) => {
       return false;
     }
 
+    if (!isEligibleDateParticipantProfile(creatorProfile)) {
+      return false;
+    }
+
     if (isMutuallyBlocked(viewerProfile, creatorProfile, uid, creatorId)) {
       return false;
     }
@@ -260,7 +329,16 @@ const createListDatesHandler = ({ firestore }) => async (request) => {
     return true;
   });
 
-  return { ok: true, dates };
+  return {
+    ok: true,
+    dates: dates.map((entry) => {
+      const creatorProfile = creatorProfiles.get(normalizeOptionalString(entry.creatorId)) || null;
+      return {
+        ...entry,
+        creatorProfileSummary: creatorProfile ? buildCreatorProfileSummary(creatorProfile) : (entry.creatorProfileSummary || null),
+      };
+    }),
+  };
 };
 
 const createUpdateDateHandler = ({ firestore, fieldValue, timestamp }) => async (request) => {
@@ -290,8 +368,15 @@ const createUpdateDateHandler = ({ firestore, fieldValue, timestamp }) => async 
     title: sanitizedPayload.title,
     description: sanitizedPayload.description,
     category: sanitizedPayload.category,
+    locationQuery: sanitizedPayload.locationQuery,
+    publicPlaceLabel: sanitizedPayload.publicPlaceLabel,
+    cityLabel: sanitizedPayload.cityLabel,
     regionLabel: sanitizedPayload.regionLabel,
+    coordinate: sanitizedPayload.coordinate,
+    geohash: sanitizedPayload.geohash,
+    locationResolution: sanitizedPayload.locationResolution,
     visibility: sanitizedPayload.visibility,
+    durationMinutes: Number.isFinite(Number(sanitizedPayload.durationMinutes)) ? Number(sanitizedPayload.durationMinutes) : null,
     scheduledAt: timestamp.fromDate ? timestamp.fromDate(sanitizedPayload.scheduledAt) : sanitizedPayload.scheduledAt,
     scheduledAtMs: sanitizedPayload.scheduledAtMs,
     updatedAt: fieldValue.serverTimestamp(),
@@ -346,10 +431,14 @@ const createToggleDateInterestHandler = ({ firestore, fieldValue }) => async (re
     throw new HttpsError('failed-precondition', 'Du kannst nicht auf dein eigenes Date reagieren.');
   }
 
-  const [viewerProfile, creatorProfile] = await Promise.all([
-    loadUserProfile(firestore, uid),
+  const [{ profile: viewerProfile }, creatorProfile] = await Promise.all([
+    assertEligibleDateAuthor({ firestore, uid }),
     loadUserProfile(firestore, dateRecord.creatorId),
   ]);
+
+  if (!isEligibleDateParticipantProfile(creatorProfile)) {
+    throw new HttpsError('failed-precondition', 'Auf dieses Date kann derzeit nicht reagiert werden.');
+  }
 
   if (isMutuallyBlocked(viewerProfile, creatorProfile, uid, dateRecord.creatorId)) {
     throw new HttpsError('permission-denied', 'Blockierte Nutzer können nicht aufeinander reagieren.');

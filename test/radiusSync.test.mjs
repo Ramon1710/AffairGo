@@ -43,8 +43,10 @@ test('Matching Map und Context nutzen dieselbe zentrale Radiusquelle', () => {
   const mapSource = readFileSync('/workspaces/AffairGo/screens/MatchingMapScreen.js', 'utf8');
   const contextSource = readFileSync('/workspaces/AffairGo/context/AffairGoContext.js', 'utf8');
 
-  assert.match(mapSource, /radiusKm=\{currentRadius\}/u);
-  assert.match(mapSource, /setCurrentRadius\(radius\)/u);
+  assert.match(mapSource, /const \[pendingRadius, setPendingRadius\] = useState\(currentRadius\);/u);
+  assert.match(mapSource, /radiusKm=\{displayRadius\}/u);
+  assert.match(mapSource, /await setCurrentRadius\(normalizedRadius\);/u);
+  assert.match(mapSource, /commitRadiusSelection\(pendingRadiusRef\.current\);/u);
   assert.match(contextSource, /setCurrentUser\(\(previous\) => \(\{ \.\.\.previous, radius: nextRadius \}\)\)/u);
   assert.match(contextSource, /persistCurrentUserPatch\(\{ radius: nextRadius \}\)/u);
   assert.match(contextSource, /setCurrentRadiusState\(normalizedProfile\.radius\)/u);

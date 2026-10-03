@@ -898,7 +898,7 @@ const getCommunityAccessState = ({
     };
   }
 
-  if (!roomsLoaded || !readsLoaded) {
+  if (!roomsLoaded) {
     return {
       status: 'loading',
       accessAllowed: false,

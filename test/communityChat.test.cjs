@@ -1123,6 +1123,33 @@ test('Starträume: der Leerzustand verschwindet, sobald aktive Räume vorhanden 
   assert.equal(getCommunityAccessState({ ...baseState, roomCount: 4 }).status, 'allowed');
 });
 
+test('Starträume: geladene Räume bleiben sichtbar, auch wenn der Read-State noch nachlädt', () => {
+  const accessRequirements = getCommunityAccessRequirements({
+    id: 'u1',
+    emailVerified: true,
+    ageVerified: true,
+    ageVerificationStatus: 'verified',
+    moderationState: 'clear',
+  }, { uid: 'u1', emailVerified: true }, {
+    rules: { version: '1.0', active: true, sections: [{ heading: 'A', paragraphs: ['B'] }] },
+    acceptance: { latestAcceptedVersion: '1.0' },
+  });
+
+  const state = getCommunityAccessState({
+    accessRequirements,
+    rulesEnvelope: {
+      rules: { version: '1.0', active: true, sections: [{ heading: 'A', paragraphs: ['B'] }] },
+      acceptance: { latestAcceptedVersion: '1.0' },
+    },
+    rulesLoaded: true,
+    roomsLoaded: true,
+    readsLoaded: false,
+    roomCount: 4,
+  });
+
+  assert.equal(state.status, 'allowed');
+});
+
 test('Starträume: ohne bestätigte Regelversion bleibt der Raumeinstieg gesperrt', () => {
   const accessRequirements = getCommunityAccessRequirements({
     id: 'u1',
@@ -1161,6 +1188,23 @@ test('Starträume: Melden und Blockieren stehen im Raum weiterhin zur Verfügung
   assert.match(source, /unblockCommunityUser/u);
 });
 
+test('Starträume: CommunityRoomScreen importiert SafeAreaView und Timestamp für Modals und Nachrichten-Query korrekt', () => {
+  const source = fs.readFileSync('/workspaces/AffairGo/screens/CommunityRoomScreen.js', 'utf8');
+
+  assert.match(source, /import \{ SafeAreaView \} from 'react-native-safe-area-context';/u);
+  assert.match(source, /import \{[^\n]*collection[^\n]*collectionGroup[^\n]*doc[^\n]*getDoc[^\n]*limit[^\n]*onSnapshot[^\n]*orderBy[^\n]*query[^\n]*Timestamp[^\n]*where[^\n]*\} from 'firebase\/firestore';/u);
+  assert.match(source, /<SafeAreaView style=\{styles\.sheetSafeArea\}>/u);
+  assert.match(source, /Timestamp\.fromMillis\(/u);
+});
+
+test('Starträume: ungültige Raum-IDs zeigen einen verständlichen Fallback statt eines leeren Screens', () => {
+  const source = fs.readFileSync('/workspaces/AffairGo/screens/CommunityRoomScreen.js', 'utf8');
+
+  assert.match(source, /title=\{roomMissing \? 'Dieser Community-Raum wurde nicht gefunden\.' : 'Dieser Community-Raum ist momentan nicht verfügbar\.'\}/u);
+  assert.match(source, /Bitte prüfe den Link oder gehe zurück zur Community-Übersicht/u);
+  assert.match(source, /label="Zur Community-Übersicht"/u);
+});
+
 test('Starträume: der Seed lässt sich ausschließlich von Admins auslösen', () => {
   const source = fs.readFileSync('/workspaces/AffairGo/screens/CommunityScreen.js', 'utf8');
 
@@ -1168,4 +1212,20 @@ test('Starträume: der Seed lässt sich ausschließlich von Admins auslösen', (
   assert.match(source, /action=\{currentUser\?\.isAdmin \? <AccentButton label=\{isSeedingRoom \? 'Räume werden ergänzt\.\.\.' : 'Standardräume anlegen'\}/u);
   // Kein direkter Firestore-Schreibzugriff auf communityRooms aus dem Client.
   assert.equal(/setDoc\(\s*doc\(db, 'communityRooms'/u.test(source), false);
+});
+
+test('Community-Screen misst Room-Ladezeit strukturiert, cached Snapshots und hält nur einen Rooms-Listener', () => {
+  const source = fs.readFileSync('/workspaces/AffairGo/screens/CommunityScreen.js', 'utf8');
+  const roomQueryOccurrences = source.split("const roomsQuery = query(collection(db, 'communityRooms'), where('active', '==', true));").length - 1;
+
+  assert.match(source, /\[CommunityOverviewPerf\]/u);
+  assert.match(source, /screen_mount/u);
+  assert.match(source, /auth_status_available/u);
+  assert.match(source, /rules_status_available/u);
+  assert.match(source, /rooms_query_started/u);
+  assert.match(source, /rooms_first_snapshot/u);
+  assert.match(source, /overview_render_ready/u);
+  assert.match(source, /communityOverviewCache/u);
+  assert.match(source, /CommunityRoomsSkeleton/u);
+  assert.equal(roomQueryOccurrences, 1);
 });

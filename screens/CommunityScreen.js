@@ -36,6 +36,29 @@ const {
 } = require('../untils/communityChat');
 
 const isDevEnvironment = typeof __DEV__ !== 'undefined' && __DEV__ === true;
+const createCommunityOverviewCache = () => ({ uid: '', rooms: [], reads: [] });
+let communityOverviewCache = createCommunityOverviewCache();
+const getCommunityPerfNow = () => (typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now());
+
+const CommunityRoomsSkeleton = () => (
+  <View style={styles.skeletonGrid}>
+    {[0, 1, 2].map((entry) => (
+      <View key={entry} style={styles.skeletonItem}>
+        <GlassCard strong style={styles.skeletonCard}>
+          <View style={styles.skeletonPill} />
+          <View style={styles.skeletonTitle} />
+          <View style={styles.skeletonMeta} />
+          <View style={styles.skeletonBodyShort} />
+          <View style={styles.skeletonBodyLong} />
+          <View style={styles.skeletonStatsRow}>
+            <View style={styles.skeletonStatBlock} />
+            <View style={styles.skeletonStatBlock} />
+          </View>
+        </GlassCard>
+      </View>
+    ))}
+  </View>
+);
 
 const CommunityScreen = () => {
   const navigation = useNavigation();
@@ -60,6 +83,7 @@ const CommunityScreen = () => {
   const [accessActionError, setAccessActionError] = useState('');
   const [isRefreshingEmailVerification, setIsRefreshingEmailVerification] = useState(false);
   const [isResendingVerificationEmail, setIsResendingVerificationEmail] = useState(false);
+  const perfRef = useRef({ startedAt: getCommunityPerfNow(), marks: {} });
 
   const accessRequirements = useMemo(() => getCommunityAccessRequirements(currentUser, auth.currentUser, rulesEnvelope), [currentUser, rulesEnvelope]);
   const currentRulesVersion = String(rulesEnvelope?.version || '').trim();
@@ -69,9 +93,45 @@ const CommunityScreen = () => {
   const isTablet = width >= 760;
   const isDesktop = width >= 1180;
 
+  const logCommunityOverviewPerf = (phase, details = {}) => {
+    if (!isDevEnvironment) {
+      return;
+    }
+
+    const nextPhase = String(phase || '').trim();
+    if (!nextPhase || perfRef.current.marks[nextPhase]) {
+      return;
+    }
+
+    perfRef.current.marks[nextPhase] = true;
+    console.log('[CommunityOverviewPerf]', {
+      phase: nextPhase,
+      elapsedMs: Math.round((getCommunityPerfNow() - perfRef.current.startedAt) * 10) / 10,
+      uid: currentUser?.id || null,
+      ...details,
+    });
+  };
+
   useEffect(() => {
     rulesEnvelopeRef.current = rulesEnvelope;
   }, [rulesEnvelope]);
+
+  useEffect(() => {
+    logCommunityOverviewPerf('screen_mount', { route: '/community' });
+  }, []);
+
+  useEffect(() => {
+    if (!accessRequirements.loggedIn) {
+      return;
+    }
+
+    logCommunityOverviewPerf('auth_status_available', {
+      preRulesRequirementsMet: accessRequirements.preRulesRequirementsMet,
+      authEmailVerified: accessRequirements.authEmailVerified,
+      profileEmailVerified: accessRequirements.profileEmailVerified,
+      ageVerified: accessRequirements.ageVerified,
+    });
+  }, [accessRequirements.ageVerified, accessRequirements.authEmailVerified, accessRequirements.loggedIn, accessRequirements.preRulesRequirementsMet, accessRequirements.profileEmailVerified]);
 
   useEffect(() => {
     if (!accessRequirements.preRulesRequirementsMet || !rulesLoaded || !needsRulesAcceptance || !rulesEnvelope?.version) {
@@ -242,6 +302,17 @@ const CommunityScreen = () => {
   }, [accessRequirements.preRulesRequirementsMet, currentUser?.ageVerified, currentUser?.emailVerified, currentUser?.id]);
 
   useEffect(() => {
+    if (!rulesLoaded) {
+      return;
+    }
+
+    logCommunityOverviewPerf('rules_status_available', {
+      rulesAcceptedCurrent: rulesEnvelope?.acceptedCurrent === true,
+      hasRulesError: Boolean(rulesError),
+    });
+  }, [rulesEnvelope?.acceptedCurrent, rulesError, rulesLoaded]);
+
+  useEffect(() => {
     if (!accessRequirements.canReadOverview) {
       setRooms([]);
       setRoomsLoaded(true);
@@ -249,10 +320,20 @@ const CommunityScreen = () => {
       return undefined;
     }
 
-    setRoomsLoaded(false);
+    const canUseCachedRooms = communityOverviewCache.uid === currentUser?.id && communityOverviewCache.rooms.length > 0;
+    if (canUseCachedRooms) {
+      setRooms(communityOverviewCache.rooms);
+      setRoomsLoaded(true);
+    } else {
+      setRoomsLoaded(false);
+    }
     setLoadError('');
 
     const roomsQuery = query(collection(db, 'communityRooms'), where('active', '==', true));
+    logCommunityOverviewPerf('rooms_query_started', {
+      reusedCachedRooms: canUseCachedRooms,
+      query: "communityRooms where active == true",
+    });
     const unsubscribe = onSnapshot(
       roomsQuery,
       (snapshot) => {
@@ -264,9 +345,18 @@ const CommunityScreen = () => {
           });
         }
 
+        communityOverviewCache = {
+          ...communityOverviewCache,
+          uid: currentUser?.id || '',
+          rooms: nextRooms,
+        };
         setRooms(nextRooms);
         setRoomsLoaded(true);
         setLoadError('');
+        logCommunityOverviewPerf('rooms_first_snapshot', {
+          roomCount: nextRooms.length,
+          fromCache: snapshot.metadata?.fromCache === true,
+        });
       },
       (error) => {
         logCommunityOverviewDebug('rooms-query-failed', {
@@ -291,12 +381,23 @@ const CommunityScreen = () => {
       return undefined;
     }
 
-    setReadsLoaded(false);
+    const canUseCachedReads = communityOverviewCache.uid === currentUser.id && communityOverviewCache.reads.length > 0;
+    if (canUseCachedReads) {
+      setReads(communityOverviewCache.reads);
+      setReadsLoaded(true);
+    } else {
+      setReadsLoaded(false);
+    }
     const readsQuery = query(collection(db, 'communityRoomReads'), where('userId', '==', currentUser.id));
     const unsubscribe = onSnapshot(
       readsQuery,
       (snapshot) => {
         const nextReads = snapshot.docs.map((readDoc) => normalizeCommunityRoomRead({ id: readDoc.id, ...readDoc.data() }, readDoc.id));
+        communityOverviewCache = {
+          ...communityOverviewCache,
+          uid: currentUser.id,
+          reads: nextReads,
+        };
         setReads(nextReads);
         setReadsLoaded(true);
       },
@@ -432,7 +533,6 @@ const CommunityScreen = () => {
     readMap,
     lastVisitedRoomId: lastVisitedRoom?.id || '',
   }), [lastVisitedRoom?.id, readMap, roomsWithPresence]);
-  const noRoomsAvailable = roomsLoaded && !roomsWithPresence.length;
   const unreadRoomsCount = useMemo(() => getCommunityUnreadRoomsCount(roomsWithPresence, reads), [reads, roomsWithPresence]);
   const activeMembersLabel = getCommunityActiveCountLabel(presenceSummary.activeMemberCount, presenceSummary.publicCountThreshold);
   const communityAccessState = useMemo(() => getCommunityAccessState({
@@ -445,6 +545,19 @@ const CommunityScreen = () => {
     loadError,
     roomCount: roomsWithPresence.length,
   }), [accessRequirements, loadError, readsLoaded, roomsLoaded, roomsWithPresence.length, rulesEnvelope, rulesError, rulesLoaded]);
+
+  useEffect(() => {
+    if (!accessRequirements.preRulesRequirementsMet || communityAccessState.status === 'loading') {
+      return;
+    }
+
+    logCommunityOverviewPerf('overview_render_ready', {
+      status: communityAccessState.status,
+      roomCount: roomsWithPresence.length,
+      readsLoaded,
+      hasRulesError: Boolean(rulesError),
+    });
+  }, [accessRequirements.preRulesRequirementsMet, communityAccessState.status, readsLoaded, roomsWithPresence.length, rulesError]);
 
   const openRoom = (roomId) => {
     if (needsRulesAcceptance) {
@@ -818,10 +931,14 @@ const CommunityScreen = () => {
       ) : null}
 
       {accessRequirements.preRulesRequirementsMet && communityAccessState.status === 'loading' ? (
-        <GlassCard strong style={styles.stateCard}>
-          <ActivityIndicator size="small" color={affairGoTheme.colors.accent} />
-          <Text style={styles.stateTitle}>Community-Räume werden geladen …</Text>
-        </GlassCard>
+        <>
+          <GlassCard strong style={styles.stateCard}>
+            <ActivityIndicator size="small" color={affairGoTheme.colors.accent} />
+            <Text style={styles.stateTitle}>Community-Räume werden geladen …</Text>
+            <Text style={styles.stateSubtitle}>Aktive Räume werden vorbereitet. Online- und Ungelesen-Zahlen können kurz danach erscheinen.</Text>
+          </GlassCard>
+          <CommunityRoomsSkeleton />
+        </>
       ) : accessRequirements.preRulesRequirementsMet && communityAccessState.status === 'backend_error' ? (
         <GlassCard strong style={styles.stateCard}>
           <Text style={styles.stateTitle}>{communityAccessState.message || loadError || rulesError}</Text>
@@ -1016,8 +1133,76 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 22,
   },
+  stateSubtitle: {
+    color: affairGoTheme.colors.textMuted,
+    lineHeight: 20,
+    marginTop: 10,
+    textAlign: 'center',
+  },
   stateAction: {
     marginTop: 14,
+  },
+  skeletonGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -6,
+    marginTop: 8,
+  },
+  skeletonItem: {
+    width: '100%',
+    paddingHorizontal: 6,
+    marginBottom: 10,
+  },
+  skeletonCard: {
+    minHeight: 220,
+    justifyContent: 'space-between',
+    opacity: 0.9,
+  },
+  skeletonPill: {
+    width: 84,
+    height: 26,
+    borderRadius: affairGoTheme.radius.pill,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    marginBottom: 16,
+  },
+  skeletonTitle: {
+    width: '72%',
+    height: 22,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    marginBottom: 10,
+  },
+  skeletonMeta: {
+    width: '46%',
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    marginBottom: 14,
+  },
+  skeletonBodyShort: {
+    width: '86%',
+    height: 14,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    marginBottom: 8,
+  },
+  skeletonBodyLong: {
+    width: '96%',
+    height: 14,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    marginBottom: 18,
+  },
+  skeletonStatsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 'auto',
+  },
+  skeletonStatBlock: {
+    flex: 1,
+    height: 44,
+    borderRadius: affairGoTheme.radius.md,
+    backgroundColor: 'rgba(255,255,255,0.1)',
   },
   lastVisitedCard: {
     marginBottom: 12,

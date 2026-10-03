@@ -1,28 +1,94 @@
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { Picker } from '@react-native-picker/picker';
+import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { AccentButton, AppBackground, EmptyState, FormField, GlassCard, InfoBanner, ScreenHeader, StatusPill, ToggleChip } from '../components/AffairGoUI';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme } from '../constants/affairGoTheme';
+import { getCommunityRules } from '../constants/communityChatProvider';
 import { cancelDate, createDate, listDates, toggleDateInterest, updateDate } from '../constants/dateProvider';
 import { useAffairGo } from '../context/AffairGoContext';
-import { db } from '../firebase';
+import { auth, db } from '../firebase';
 import { useNavigation, useRoute } from '../naviagtion/SimpleNavigation';
 import { isPresenceFresh } from '../untils/matching';
 
-const { normalizeCommunityRoom } = require('../untils/communityChat');
+const {
+  getCommunityAccessRequirements,
+  normalizeCommunityRoom,
+  normalizeCommunityRulesEnvelope,
+} = require('../untils/communityChat');
+const { filterNearbyDates } = require('../untils/dateLocation');
 
 const SEGMENTS = ['matches', 'dates', 'events'];
 const MATCH_FILTERS = ['all', 'online'];
-const EMPTY_DATE_FORM = {
-  title: '',
-  description: '',
-  dateValue: '',
-  timeValue: '',
-  regionLabel: '',
-  category: '',
+const DATE_PICKER_TOTAL_DAYS = 90;
+const DATE_PICKER_STEP_MINUTES = 30;
+
+const createEmptyDateForm = ({
+  title = '',
+  description = '',
+  dateValue = '',
+  timeValue = '',
+  locationQuery = '',
+  publicPlaceLabel = '',
+  clientRequestId = '',
+} = {}) => ({
+  description,
+  dateValue,
+  timeValue,
+  locationQuery,
+  publicPlaceLabel,
   visibility: 'community',
+  clientRequestId,
+  title,
+});
+
+const buildDatePickerValue = (value) => {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };
+
+const buildTimePickerValue = (value) => {
+  const hours = String(value.getHours()).padStart(2, '0');
+  const minutes = String(value.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+};
+
+const buildDateOptions = (totalDays = DATE_PICKER_TOTAL_DAYS) => Array.from({ length: totalDays }, (_, index) => {
+  const nextDate = new Date();
+  nextDate.setHours(0, 0, 0, 0);
+  nextDate.setDate(nextDate.getDate() + index + 1);
+  return {
+    value: buildDatePickerValue(nextDate),
+    label: nextDate.toLocaleDateString('de-DE', {
+      weekday: 'short',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    }),
+  };
+});
+
+const buildTimeOptions = (stepMinutes = DATE_PICKER_STEP_MINUTES) => {
+  const options = [];
+
+  for (let hour = 0; hour < 24; hour += 1) {
+    for (let minute = 0; minute < 60; minute += stepMinutes) {
+      const current = new Date();
+      current.setHours(hour, minute, 0, 0);
+      options.push({
+        value: buildTimePickerValue(current),
+        label: current.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }),
+      });
+    }
+  }
+
+  return options;
+};
+
+const createClientRequestId = () => `date_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
 const parseEventDateTimeMs = (event = {}) => {
   const dateLabel = String(event.date || '').trim();
@@ -57,12 +123,49 @@ const buildScheduledAtPayload = (dateValue, timeValue) => {
     return null;
   }
 
-  const scheduledAt = new Date(`${dateValue}T${timeValue}:00`);
+  const [year, month, day] = String(dateValue).split('-').map((entry) => Number(entry));
+  const [hours, minutes] = String(timeValue).split(':').map((entry) => Number(entry));
+  const scheduledAt = new Date(year, (month || 1) - 1, day || 1, hours || 0, minutes || 0, 0, 0);
   if (Number.isNaN(scheduledAt.getTime())) {
     return null;
   }
 
   return scheduledAt.toISOString();
+};
+
+const getDefaultDateFormSelection = (dateOptions = [], timeOptions = [], currentUser = {}) => createEmptyDateForm({
+  dateValue: dateOptions[0]?.value || '',
+  timeValue: timeOptions.find((entry) => entry.value === '19:00')?.value || timeOptions[0]?.value || '',
+  locationQuery: String(currentUser?.city || '').trim(),
+  clientRequestId: createClientRequestId(),
+});
+
+const getDateAccessMessage = (accessRequirements = {}) => {
+  if (!accessRequirements.loggedIn) {
+    return 'Bitte melde dich zuerst an, um Dates zu sehen oder selbst zu erstellen.';
+  }
+
+  if (!accessRequirements.emailVerified) {
+    return 'Für Dates muss deine E-Mail-Adresse bestätigt sein.';
+  }
+
+  if (!accessRequirements.ageVerified) {
+    return 'Für Dates ist eine bestätigte 18+-Freigabe erforderlich.';
+  }
+
+  if (!accessRequirements.accountActive) {
+    return 'Mit offener Kontolöschung kannst du keine Dates nutzen.';
+  }
+
+  if (!accessRequirements.moderationAllowed) {
+    return 'Dein Konto ist derzeit nicht für Dates freigeschaltet.';
+  }
+
+  if (!accessRequirements.rulesAccepted) {
+    return 'Akzeptiere zuerst die aktuellen Community-Regeln, bevor du Dates nutzt.';
+  }
+
+  return '';
 };
 
 const ExploreScreen = () => {
@@ -82,8 +185,12 @@ const ExploreScreen = () => {
   const [segment, setSegment] = useState('matches');
   const [matchFilter, setMatchFilter] = useState('all');
   const [datesState, setDatesState] = useState({ loading: true, error: '', items: [] });
+  const [datesRulesEnvelope, setDatesRulesEnvelope] = useState(null);
+  const [datesRulesLoaded, setDatesRulesLoaded] = useState(false);
   const [isDateModalVisible, setIsDateModalVisible] = useState(false);
-  const [dateForm, setDateForm] = useState(EMPTY_DATE_FORM);
+  const dateOptions = useMemo(() => buildDateOptions(), []);
+  const timeOptions = useMemo(() => buildTimeOptions(), []);
+  const [dateForm, setDateForm] = useState(() => getDefaultDateFormSelection(dateOptions, timeOptions));
   const [editingDateId, setEditingDateId] = useState('');
   const [submittingDate, setSubmittingDate] = useState(false);
   const [selectedDateId, setSelectedDateId] = useState('');
@@ -93,6 +200,12 @@ const ExploreScreen = () => {
   const selectedDate = datesState.items.find((entry) => entry.id === selectedDateId) || null;
   const isDesktop = Platform.OS === 'web' && width >= 980;
   const isCompactLayout = width < 420;
+  const dateAccessRequirements = useMemo(
+    () => getCommunityAccessRequirements(currentUser, auth.currentUser, datesRulesEnvelope),
+    [currentUser, datesRulesEnvelope],
+  );
+  const canUseDates = dateAccessRequirements.allRequirementsMet === true;
+  const dateAccessMessage = getDateAccessMessage(dateAccessRequirements);
 
   useEffect(() => {
     if (SEGMENTS.includes(route.params?.segment)) {
@@ -119,7 +232,66 @@ const ExploreScreen = () => {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+
+    const loadDateRules = async () => {
+      if (!currentUser?.id) {
+        setDatesRulesEnvelope(null);
+        setDatesRulesLoaded(true);
+        return;
+      }
+
+      setDatesRulesLoaded(false);
+
+      try {
+        const result = await getCommunityRules();
+
+        if (!active) {
+          return;
+        }
+
+        setDatesRulesEnvelope(normalizeCommunityRulesEnvelope(result));
+      } catch {
+        try {
+          const [rulesSnapshot, acceptanceSnapshot] = await Promise.all([
+            getDoc(doc(db, 'communityConfig', 'rules')),
+            getDoc(doc(db, 'communityRuleAcceptances', currentUser.id)),
+          ]);
+
+          if (!active) {
+            return;
+          }
+
+          setDatesRulesEnvelope(normalizeCommunityRulesEnvelope({
+            rules: rulesSnapshot.exists() ? rulesSnapshot.data() : null,
+            acceptance: acceptanceSnapshot.exists() ? acceptanceSnapshot.data() : null,
+          }));
+        } catch {
+          if (active) {
+            setDatesRulesEnvelope(null);
+          }
+        }
+      } finally {
+        if (active) {
+          setDatesRulesLoaded(true);
+        }
+      }
+    };
+
+    loadDateRules();
+
+    return () => {
+      active = false;
+    };
+  }, [currentUser?.id]);
+
   const refreshDates = async ({ keepLoadingState = false } = {}) => {
+    if (!canUseDates) {
+      setDatesState({ loading: false, error: '', items: [] });
+      return;
+    }
+
     if (!keepLoadingState) {
       setDatesState((previous) => ({ ...previous, loading: true, error: '' }));
     }
@@ -133,8 +305,12 @@ const ExploreScreen = () => {
   };
 
   useEffect(() => {
+    if (!datesRulesLoaded) {
+      return;
+    }
+
     refreshDates();
-  }, []);
+  }, [datesRulesLoaded, canUseDates]);
 
   useEffect(() => {
     requestAnimationFrame(() => {
@@ -161,24 +337,29 @@ const ExploreScreen = () => {
 
       return Number(left.distanceKm || 0) - Number(right.distanceKm || 0);
     }), [events]);
-  const nearbyDates = useMemo(() => datesState.items
+  const nearbyDates = useMemo(() => filterNearbyDates(datesState.items
     .map((entry) => {
       const creatorProfile = userMap.get(entry.creatorId) || null;
-      const creatorDistanceKm = Number(creatorProfile?.distanceKm);
       return {
         ...entry,
         creatorProfile,
-        creatorDistanceKm: Number.isFinite(creatorDistanceKm) ? creatorDistanceKm : null,
         creatorOnline: Boolean(creatorProfile?.online) && isPresenceFresh(creatorProfile?.lastLiveSyncAt),
       };
-    })
-    .filter((entry) => entry.creatorDistanceKm == null || entry.creatorDistanceKm <= currentRadius)
-    .sort((left, right) => Number(left.scheduledAtMs || 0) - Number(right.scheduledAtMs || 0)), [currentRadius, datesState.items, userMap]);
+    }), { currentUser, radiusKm: currentRadius }), [currentRadius, currentUser, datesState.items, userMap]);
 
   const openDateCreate = () => {
+    if (!canUseDates) {
+      Alert.alert('Date erstellen', dateAccessMessage || 'Dates sind für dein Konto derzeit nicht freigeschaltet.');
+      return;
+    }
+
     setEditingDateId('');
-    setDateForm(EMPTY_DATE_FORM);
+    setDateForm(getDefaultDateFormSelection(dateOptions, timeOptions, currentUser));
     setIsDateModalVisible(true);
+  };
+
+  const openEventCreate = () => {
+    navigation.navigate('Event', { focus: 'create' });
   };
 
   const openDateEdit = (dateEntry) => {
@@ -191,14 +372,19 @@ const ExploreScreen = () => {
       description: dateEntry.description || '',
       dateValue: localDate,
       timeValue: localTime,
-      regionLabel: dateEntry.regionLabel || '',
-      category: dateEntry.category || '',
+      locationQuery: dateEntry.locationQuery || dateEntry.cityLabel || dateEntry.regionLabel || '',
+      publicPlaceLabel: dateEntry.publicPlaceLabel || '',
       visibility: dateEntry.visibility || 'community',
+      clientRequestId: '',
     });
     setIsDateModalVisible(true);
   };
 
   const submitDateForm = async () => {
+    if (submittingDate) {
+      return;
+    }
+
     const scheduledAt = buildScheduledAtPayload(dateForm.dateValue, dateForm.timeValue);
     if (!scheduledAt) {
       Alert.alert('Ungültiger Termin', 'Bitte gib ein gültiges Datum und eine Uhrzeit an.');
@@ -211,8 +397,9 @@ const ExploreScreen = () => {
         title: dateForm.title,
         description: dateForm.description,
         scheduledAt,
-        regionLabel: dateForm.regionLabel,
-        category: dateForm.category,
+        locationQuery: dateForm.locationQuery,
+        publicPlaceLabel: dateForm.publicPlaceLabel,
+        clientRequestId: editingDateId ? '' : dateForm.clientRequestId,
         visibility: dateForm.visibility,
       };
 
@@ -224,7 +411,7 @@ const ExploreScreen = () => {
 
       setIsDateModalVisible(false);
       setEditingDateId('');
-      setDateForm(EMPTY_DATE_FORM);
+      setDateForm(getDefaultDateFormSelection(dateOptions, timeOptions, currentUser));
       await refreshDates({ keepLoadingState: true });
     } catch (error) {
       Alert.alert('Date konnte nicht gespeichert werden', error.message || 'Bitte prüfe deine Eingaben.');
@@ -317,65 +504,114 @@ const ExploreScreen = () => {
   };
 
   const renderDates = () => {
+    const createButton = <AccentButton label="+ Date erstellen" onPress={openDateCreate} />;
+
+    if (!datesRulesLoaded) {
+      return (
+        <>
+          <View style={styles.sectionActionRow}>
+            <Text style={styles.sectionHint}>Date-Zugriff wird geprüft.</Text>
+            {createButton}
+          </View>
+          <GlassCard strong style={styles.card}>
+            <Text style={styles.cardTitle}>Dates werden vorbereitet...</Text>
+            <Text style={styles.cardMeta}>Zugriff und Regeln werden geprüft.</Text>
+          </GlassCard>
+        </>
+      );
+    }
+
+    if (!canUseDates) {
+      return (
+        <>
+          <View style={styles.sectionActionRow}>
+            <Text style={styles.sectionHint}>Nur freigeschaltete Community-Mitglieder können Dates nutzen.</Text>
+            {createButton}
+          </View>
+          <InfoBanner
+            title="Dates aktuell nicht freigeschaltet"
+            detail={dateAccessMessage}
+            tone="warning"
+          />
+        </>
+      );
+    }
+
+    const header = (
+      <View style={styles.sectionActionRow}>
+        <Text style={styles.sectionHint}>Aktive Dates werden nur innerhalb deines aktuellen Radius angezeigt.</Text>
+        {createButton}
+      </View>
+    );
+
     if (datesState.loading) {
       return (
-        <GlassCard strong style={styles.card}>
-          <Text style={styles.cardTitle}>Dates werden geladen...</Text>
-          <Text style={styles.cardMeta}>Aktive und kommende Verabredungen aus deiner Nähe werden vorbereitet.</Text>
-        </GlassCard>
+        <>
+          {header}
+          <GlassCard strong style={styles.card}>
+            <Text style={styles.cardTitle}>Dates werden geladen...</Text>
+            <Text style={styles.cardMeta}>Aktive und kommende Verabredungen aus deiner Nähe werden vorbereitet.</Text>
+          </GlassCard>
+        </>
       );
     }
 
     if (datesState.error) {
       return (
-        <EmptyState
-          title="Dates konnten nicht geladen werden"
-          detail={datesState.error}
-          action={<AccentButton label="Erneut laden" variant="secondary" onPress={() => refreshDates()} />}
-        />
+        <>
+          {header}
+          <EmptyState
+            title="Dates konnten nicht geladen werden"
+            detail={datesState.error}
+            action={<AccentButton label="Erneut laden" variant="secondary" onPress={() => refreshDates()} />}
+          />
+        </>
       );
     }
 
     if (!nearbyDates.length) {
       return (
-        <EmptyState
-          title="Noch keine aktiven Dates in deiner Nähe"
-          detail="Erstelle das erste Date oder prüfe später erneut, sobald neue Verabredungen veröffentlicht werden."
-          action={<AccentButton label="Date erstellen" onPress={openDateCreate} />}
-        />
+        <>
+          {header}
+          <EmptyState
+            title="In deiner Umgebung gibt es noch keine Dates."
+            detail="Erstelle das erste Date oder prüfe später erneut, sobald neue Verabredungen veröffentlicht werden."
+            action={<AccentButton label="Erstes Date erstellen" onPress={openDateCreate} />}
+          />
+        </>
       );
     }
 
     return (
       <>
-        <View style={styles.sectionActionRow}>
-          <Text style={styles.sectionHint}>Nur aktive und zukünftige Dates werden hier angezeigt.</Text>
-          <AccentButton label="Date erstellen" onPress={openDateCreate} />
-        </View>
+        {header}
         <View style={styles.grid}>
           {nearbyDates.map((dateEntry) => {
             const isOwnDate = dateEntry.creatorId === currentUser.id;
-            const creatorName = dateEntry.creatorProfile?.nickname || dateEntry.creatorNickname || 'Night-Whisper Mitglied';
+            const creatorName = dateEntry.creatorProfileSummary?.nickname || dateEntry.creatorProfile?.nickname || dateEntry.creatorNickname || 'Night-Whisper Mitglied';
             const isInterested = interestMap[dateEntry.id] === true;
             const knownOnlineMatch = matchedProfiles.some((profile) => profile.id === dateEntry.creatorId);
             return (
               <Pressable key={dateEntry.id} style={[styles.gridItem, isDesktop ? styles.gridItemDesktop : null]} onPress={() => setSelectedDateId(dateEntry.id)}>
                 <GlassCard strong style={styles.card}>
                   <View style={styles.metricRow}>
-                    <StatusPill label={isOwnDate ? 'Dein Date' : dateEntry.creatorOnline ? 'Online' : knownOnlineMatch ? 'Match' : 'Date'} tone={isOwnDate ? 'info' : dateEntry.creatorOnline ? 'success' : knownOnlineMatch ? 'info' : 'default'} />
-                    {dateEntry.category ? <StatusPill label={dateEntry.category} tone="default" /> : null}
+                    <StatusPill label={isOwnDate ? 'Dein Date' : dateEntry.creatorOnline ? 'Online' : knownOnlineMatch ? 'Match' : 'Aktiv'} tone={isOwnDate ? 'info' : dateEntry.creatorOnline ? 'success' : knownOnlineMatch ? 'info' : 'default'} />
+                    <StatusPill label={dateEntry.status === 'active' ? 'Aktiv' : dateEntry.status} tone="default" />
                   </View>
                   <Text style={styles.cardTitle}>{dateEntry.title}</Text>
                   <Text style={styles.cardMeta}>{formatDateCardLabel(dateEntry.scheduledAtMs)}</Text>
                   <Text style={styles.cardMeta}>{dateEntry.regionLabel}</Text>
-                  <Text style={styles.cardMeta}>Von {creatorName}{dateEntry.creatorDistanceKm != null ? ` · ca. ${Math.round(dateEntry.creatorDistanceKm)} km` : ''}</Text>
-                  <Text style={styles.cardBody}>{dateEntry.description}</Text>
+                  <Text style={styles.cardMeta}>Von {creatorName}{dateEntry.distanceKm != null ? ` · ca. ${Math.round(dateEntry.distanceKm)} km` : ''}</Text>
+                  {dateEntry.description ? <Text style={styles.cardBody}>{dateEntry.description}</Text> : null}
                   <Text style={styles.cardMeta}>{dateEntry.interestCount || 0} Interessenbekundungen</Text>
-                  {!isOwnDate ? (
-                    <AccentButton label={isInterested ? 'Interesse zurückziehen' : 'Interesse bekunden'} variant={isInterested ? 'secondary' : 'primary'} onPress={() => handleToggleInterest(dateEntry.id)} style={styles.inlineButton} />
-                  ) : (
-                    <AccentButton label="Bearbeiten" variant="secondary" onPress={() => openDateEdit(dateEntry)} style={styles.inlineButton} />
-                  )}
+                  <View style={styles.cardActionRow}>
+                    <AccentButton label="Details" variant="secondary" onPress={() => setSelectedDateId(dateEntry.id)} style={styles.inlineButtonHalf} />
+                    {!isOwnDate ? (
+                      <AccentButton label={isInterested ? 'Interesse zurückziehen' : 'Interesse'} variant={isInterested ? 'secondary' : 'primary'} onPress={() => handleToggleInterest(dateEntry.id)} style={styles.inlineButtonHalf} />
+                    ) : (
+                      <AccentButton label="Bearbeiten" variant="secondary" onPress={() => openDateEdit(dateEntry)} style={styles.inlineButtonHalf} />
+                    )}
+                  </View>
                 </GlassCard>
               </Pressable>
             );
@@ -386,37 +622,53 @@ const ExploreScreen = () => {
   };
 
   const renderEvents = () => {
+    const header = (
+      <View style={styles.sectionActionRow}>
+        <Text style={styles.sectionHint}>Events verwenden den bestehenden Event-Hub und zeigen nur aktive, kommende Veranstaltungen.</Text>
+        <View style={styles.sectionActionGroup}>
+          <AccentButton label="+ Event erstellen" onPress={openEventCreate} />
+          <AccentButton label="Event-Hub" variant="secondary" onPress={() => navigation.navigate('Event')} />
+        </View>
+      </View>
+    );
+
     if (!upcomingEvents.length) {
       return (
-        <EmptyState
-          title="Keine kommenden Events im Feed"
-          detail="Sobald neue Partys oder Veranstaltungen aktiv sind, erscheinen sie hier automatisch."
-          action={<AccentButton label="Event-Hub öffnen" variant="secondary" onPress={() => navigation.navigate('Event')} />}
-        />
+        <>
+          {header}
+          <EmptyState
+            title="Keine kommenden Events im Feed"
+            detail="Sobald neue Partys oder Veranstaltungen aktiv sind, erscheinen sie hier automatisch."
+            action={<AccentButton label="Event-Hub öffnen" variant="secondary" onPress={() => navigation.navigate('Event')} />}
+          />
+        </>
       );
     }
 
     return (
-      <View style={styles.grid}>
-        {upcomingEvents.map((event) => (
-          <Pressable key={event.id} style={[styles.gridItem, isDesktop ? styles.gridItemDesktop : null]} onPress={() => navigation.navigate('Event', { eventId: event.id })}>
-            <GlassCard strong style={styles.card}>
-              <Text style={styles.cardTitle}>{event.title}</Text>
-              <Text style={styles.cardMeta}>{event.date}, {event.time}</Text>
-              <Text style={styles.cardMeta}>{event.address}</Text>
-              <Text style={styles.cardBody}>{event.description}</Text>
-              {event.imageUri ? <Image source={{ uri: event.imageUri }} style={styles.eventImage} resizeMode="cover" /> : null}
-              <View style={styles.metricRow}>
-                <StatusPill label={event.category || 'Event'} tone="info" />
-                {eventRoomMap[event.id]?.id ? <StatusPill label="Event-Room" tone="success" /> : null}
-              </View>
-              {eventRoomMap[event.id]?.id ? (
-                <AccentButton label="Zum Event-Room" variant="secondary" onPress={() => navigation.navigate('CommunityRoom', { roomId: eventRoomMap[event.id].id })} style={styles.inlineButton} />
-              ) : null}
-            </GlassCard>
-          </Pressable>
-        ))}
-      </View>
+      <>
+        {header}
+        <View style={styles.grid}>
+          {upcomingEvents.map((event) => (
+            <Pressable key={event.id} style={[styles.gridItem, isDesktop ? styles.gridItemDesktop : null]} onPress={() => navigation.navigate('Event', { eventId: event.id })}>
+              <GlassCard strong style={styles.card}>
+                <Text style={styles.cardTitle}>{event.title}</Text>
+                <Text style={styles.cardMeta}>{event.date}, {event.time}</Text>
+                <Text style={styles.cardMeta}>{event.address}</Text>
+                <Text style={styles.cardBody}>{event.description}</Text>
+                {event.imageUri ? <Image source={{ uri: event.imageUri }} style={styles.eventImage} resizeMode="cover" /> : null}
+                <View style={styles.metricRow}>
+                  <StatusPill label={event.category || 'Event'} tone="info" />
+                  {eventRoomMap[event.id]?.id ? <StatusPill label="Event-Room" tone="success" /> : null}
+                </View>
+                {eventRoomMap[event.id]?.id ? (
+                  <AccentButton label="Zum Event-Room" variant="secondary" onPress={() => navigation.navigate('CommunityRoom', { roomId: eventRoomMap[event.id].id })} style={styles.inlineButton} />
+                ) : null}
+              </GlassCard>
+            </Pressable>
+          ))}
+        </View>
+      </>
     );
   };
 
@@ -428,7 +680,7 @@ const ExploreScreen = () => {
         <View style={styles.segmentRow}>
           {SEGMENTS.map((entry) => (
             <Pressable key={entry} onPress={() => setSegment(entry)} style={[styles.segmentButton, isCompactLayout ? styles.segmentButtonCompact : null, segment === entry ? styles.segmentButtonActive : null]}>
-              <Text style={[styles.segmentButtonLabel, segment === entry ? styles.segmentButtonLabelActive : null]}>
+              <Text style={[styles.segmentButtonLabel, isCompactLayout ? styles.segmentButtonLabelCompact : null, segment === entry ? styles.segmentButtonLabelActive : null]}>
                 {entry === 'matches' ? 'Matches' : entry === 'dates' ? 'Dates' : 'Events'}
               </Text>
             </Pressable>
@@ -440,12 +692,7 @@ const ExploreScreen = () => {
             <View style={styles.filterChipWrap}><ToggleChip label="Online" active={matchFilter === 'online'} onPress={() => setMatchFilter('online')} /></View>
           </View>
         ) : null}
-        {segment === 'events' ? (
-          <View style={styles.filterRow}>
-            <StatusPill label={`${currentRadius} km Radius`} tone="info" />
-            <AccentButton label="Event-Hub" variant="secondary" onPress={() => navigation.navigate('Event')} />
-          </View>
-        ) : null}
+        {segment === 'events' ? <View style={styles.filterRow}><StatusPill label={`${currentRadius} km Radius`} tone="info" /></View> : null}
       </GlassCard>
 
       {segment === 'matches' ? renderMatches() : null}
@@ -464,15 +711,27 @@ const ExploreScreen = () => {
             <GlassCard strong style={styles.modalCard}>
               <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
                 <Text style={styles.modalTitle}>{editingDateId ? 'Date bearbeiten' : 'Date erstellen'}</Text>
-                <FormField label="Titel" value={dateForm.title} onChangeText={(value) => setDateForm((previous) => ({ ...previous, title: value }))} />
-                <FormField label="Beschreibung" value={dateForm.description} multiline onChangeText={(value) => setDateForm((previous) => ({ ...previous, description: value }))} />
-                <FormField label="Datum" value={dateForm.dateValue} onChangeText={(value) => setDateForm((previous) => ({ ...previous, dateValue: value }))} placeholder="2026-10-03" />
-                <FormField label="Uhrzeit" value={dateForm.timeValue} onChangeText={(value) => setDateForm((previous) => ({ ...previous, timeValue: value }))} placeholder="20:00" />
-                <FormField label="Stadt oder Region" value={dateForm.regionLabel} onChangeText={(value) => setDateForm((previous) => ({ ...previous, regionLabel: value }))} />
-                <FormField label="Kategorie" value={dateForm.category} onChangeText={(value) => setDateForm((previous) => ({ ...previous, category: value }))} placeholder="Optional" />
-                <View style={styles.filterRow}>
-                  <View style={styles.filterChipWrap}><ToggleChip label="Community" active={dateForm.visibility === 'community'} onPress={() => setDateForm((previous) => ({ ...previous, visibility: 'community' }))} /></View>
-                  <View style={styles.filterChipWrap}><ToggleChip label="Öffentlich" active={dateForm.visibility === 'public'} onPress={() => setDateForm((previous) => ({ ...previous, visibility: 'public' }))} /></View>
+                <FormField label="Aktivität oder Wunsch" value={dateForm.title} onChangeText={(value) => setDateForm((previous) => ({ ...previous, title: value }))} hint="Zum Beispiel: Kaffeetrinken, Freitagabend gemeinsam essen gehen, Sexdate" />
+                <FormField label="Zusätzliche Beschreibung" value={dateForm.description} multiline onChangeText={(value) => setDateForm((previous) => ({ ...previous, description: value }))} hint="Optional" />
+                <FormField label="Ort oder Stadt" value={dateForm.locationQuery} onChangeText={(value) => setDateForm((previous) => ({ ...previous, locationQuery: value }))} hint="Aktuell serverseitig nur für bekannte Städte aus der Matching-Map auflösbar" placeholder="z. B. Köln oder 50667 Köln" />
+                <FormField label="Öffentliche Ortsbezeichnung" value={dateForm.publicPlaceLabel} onChangeText={(value) => setDateForm((previous) => ({ ...previous, publicPlaceLabel: value }))} hint="Optional, zum Beispiel Café oder Club" placeholder="z. B. Café am Rhein" />
+                <View style={styles.pickerGrid}>
+                  <View style={[styles.pickerField, styles.pickerFieldDate]}>
+                    <Text style={styles.pickerLabel}>Datum</Text>
+                    <View style={styles.pickerWrap}>
+                      <Picker selectedValue={dateForm.dateValue} onValueChange={(value) => setDateForm((previous) => ({ ...previous, dateValue: value }))} dropdownIconColor={affairGoTheme.colors.text}>
+                        {dateOptions.map((entry) => <Picker.Item key={entry.value} label={entry.label} value={entry.value} color="#111" />)}
+                      </Picker>
+                    </View>
+                  </View>
+                  <View style={[styles.pickerField, styles.pickerFieldTime]}>
+                    <Text style={styles.pickerLabel}>Uhrzeit</Text>
+                    <View style={styles.pickerWrap}>
+                      <Picker selectedValue={dateForm.timeValue} onValueChange={(value) => setDateForm((previous) => ({ ...previous, timeValue: value }))} dropdownIconColor={affairGoTheme.colors.text}>
+                        {timeOptions.map((entry) => <Picker.Item key={entry.value} label={entry.label} value={entry.value} color="#111" />)}
+                      </Picker>
+                    </View>
+                  </View>
                 </View>
                 <View style={styles.modalActions}>
                   <AccentButton label="Abbrechen" variant="ghost" onPress={() => setIsDateModalVisible(false)} style={styles.modalAction} />
@@ -492,7 +751,8 @@ const ExploreScreen = () => {
                 <Text style={styles.modalTitle}>{selectedDate.title}</Text>
                 <Text style={styles.cardMeta}>{formatDateCardLabel(selectedDate.scheduledAtMs)}</Text>
                 <Text style={styles.cardMeta}>{selectedDate.regionLabel}</Text>
-                <Text style={styles.cardBody}>{selectedDate.description}</Text>
+                {selectedDate.distanceKm != null ? <Text style={styles.cardMeta}>Entfernung ungefähr {selectedDate.distanceKm} km</Text> : null}
+                {selectedDate.description ? <Text style={styles.cardBody}>{selectedDate.description}</Text> : null}
                 <Text style={styles.cardMeta}>Sichtbarkeit: {selectedDate.visibility === 'public' ? 'Öffentlich' : 'Community'}</Text>
                 <Text style={styles.cardMeta}>{selectedDate.interestCount || 0} Interessenbekundungen</Text>
                 {selectedDate.creatorId === currentUser.id ? (
@@ -523,13 +783,13 @@ const styles = StyleSheet.create({
   },
   segmentRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap',
     gap: 8,
   },
   segmentButton: {
     minHeight: 46,
-    flexGrow: 1,
-    flexBasis: '31%',
+    flex: 1,
+    minWidth: 0,
     borderRadius: affairGoTheme.radius.pill,
     borderWidth: 1,
     borderColor: affairGoTheme.colors.line,
@@ -540,7 +800,8 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   segmentButtonCompact: {
-    flexBasis: '100%',
+    minHeight: 42,
+    paddingHorizontal: 8,
   },
   segmentButtonActive: {
     backgroundColor: 'rgba(118, 87, 255, 0.18)',
@@ -550,6 +811,10 @@ const styles = StyleSheet.create({
     color: affairGoTheme.colors.textMuted,
     fontSize: 14,
     fontWeight: '700',
+    textAlign: 'center',
+  },
+  segmentButtonLabelCompact: {
+    fontSize: 12,
   },
   segmentButtonLabelActive: {
     color: affairGoTheme.colors.text,
@@ -575,6 +840,12 @@ const styles = StyleSheet.create({
     flex: 1,
     color: affairGoTheme.colors.textMuted,
     lineHeight: 20,
+  },
+  sectionActionGroup: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    justifyContent: 'flex-end',
   },
   grid: {
     flexDirection: 'row',
@@ -630,8 +901,18 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginTop: 12,
   },
+  cardActionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 14,
+  },
   inlineButton: {
     marginTop: 14,
+  },
+  inlineButtonHalf: {
+    flexGrow: 1,
+    minWidth: 160,
   },
   metricRow: {
     flexDirection: 'row',
@@ -667,6 +948,38 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '700',
     marginBottom: 16,
+  },
+  pickerGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 6,
+  },
+  pickerField: {
+    flexGrow: 1,
+  },
+  pickerFieldDate: {
+    minWidth: 260,
+    flex: 1.45,
+  },
+  pickerFieldTime: {
+    minWidth: 180,
+    flex: 1,
+  },
+  pickerLabel: {
+    color: affairGoTheme.colors.text,
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  pickerWrap: {
+    minHeight: 52,
+    borderRadius: affairGoTheme.radius.md,
+    borderWidth: 1,
+    borderColor: affairGoTheme.colors.line,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    overflow: 'hidden',
+    justifyContent: 'center',
   },
   modalActions: {
     flexDirection: 'row',

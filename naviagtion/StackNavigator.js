@@ -1,16 +1,17 @@
-import { useEffect } from 'react';
+import { Component, useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { AccentButton, AppBackground, EmptyState, ScreenHeader } from '../components/AffairGoUI';
 import MainBottomNavigation from '../components/MainBottomNavigation';
 import { affairGoTheme } from '../constants/affairGoTheme';
 import { useAffairGo } from '../context/AffairGoContext';
 import { auth } from '../firebase';
-import { useCurrentRoute, useNavigation } from './SimpleNavigation';
 import { getMainNavRouteName } from '../untils/mainNavigation';
+import { useCurrentRoute, useNavigation } from './SimpleNavigation';
 
 import ChatScreen from '../screens/ChatScreen';
-import CommunityScreen from '../screens/CommunityScreen';
 import CommunityModerationScreen from '../screens/CommunityModerationScreen';
 import CommunityRoomScreen from '../screens/CommunityRoomScreen';
+import CommunityScreen from '../screens/CommunityScreen';
 import Dashboard from '../screens/Dashboard';
 import EventScreen from '../screens/EventScreen';
 import ExploreScreen from '../screens/ExploreScreen';
@@ -44,10 +45,45 @@ const screens = {
 const PUBLIC_ROUTES = new Set(['Landing', 'Login', 'Register']);
 const PROFILE_PHOTO_REQUIRED_ROUTES = new Set(['MatchingMap', 'Swipe']);
 
+class RouteErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidUpdate(previousProps) {
+    if (previousProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false });
+    }
+  }
+
+  render() {
+    if (!this.state.hasError) {
+      return this.props.children;
+    }
+
+    return (
+      <AppBackground>
+        <ScreenHeader title="Ansicht vorübergehend nicht verfügbar" subtitle="Night Whisper" />
+        <EmptyState
+          title="Dieser Bereich konnte gerade nicht geöffnet werden."
+          detail="Bitte versuche es erneut oder gehe zurück zur vorherigen Übersicht."
+          action={<AccentButton label="Ansicht neu laden" onPress={this.props.onRetry} />}
+        />
+      </AppBackground>
+    );
+  }
+}
+
 const StackNavigator = () => {
   const navigation = useNavigation();
   const route = useCurrentRoute();
   const { currentUser, isAuthenticated, isAuthReady } = useAffairGo();
+  const [routeErrorResetKey, setRouteErrorResetKey] = useState(0);
 
   useEffect(() => {
     if (!isAuthReady) {
@@ -87,10 +123,13 @@ const StackNavigator = () => {
 
   const ActiveScreen = screens[route.name] || LandingScreen;
   const showMainNavigation = Boolean(isAuthenticated && getMainNavRouteName(route.name));
+  const routeResetKey = `${route.name}:${JSON.stringify(route.params || {})}:${routeErrorResetKey}`;
 
   return (
     <View style={styles.appFrame}>
-      <ActiveScreen />
+      <RouteErrorBoundary resetKey={routeResetKey} onRetry={() => setRouteErrorResetKey((previous) => previous + 1)}>
+        <ActiveScreen />
+      </RouteErrorBoundary>
       {showMainNavigation ? <MainBottomNavigation /> : null}
     </View>
   );

@@ -13,6 +13,24 @@ const {
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
+const normalizeComparableValue = (value) => {
+  if (value instanceof Date) {
+    return value.getTime();
+  }
+
+  const numericValue = Number(value);
+  if (Number.isFinite(numericValue)) {
+    return numericValue;
+  }
+
+  const timestamp = Date.parse(value);
+  if (Number.isFinite(timestamp)) {
+    return timestamp;
+  }
+
+  return Number.NaN;
+};
+
 class MockDocumentSnapshot {
   constructor(ref, entry) {
     this.ref = ref;
@@ -83,7 +101,7 @@ class MockCollectionReference {
         }
 
         if (operator === '>') {
-          return Number(entryValue) > Number(value);
+          return normalizeComparableValue(entryValue) > normalizeComparableValue(value);
         }
 
         return false;
@@ -198,7 +216,13 @@ const createBaseDocs = (nowMs = Date.now()) => ({
     title: 'Freitag essen gehen',
     description: 'Gemeinsam essen und reden in der Stadt.',
     category: '',
+    locationQuery: 'Hamburg',
+    publicPlaceLabel: 'Innenstadt',
+    cityLabel: 'Hamburg',
     regionLabel: 'Hamburg',
+    coordinate: { latitude: 53.5511, longitude: 9.9937 },
+    geohash: 'u1x0es5x',
+    locationResolution: 'city_catalog',
     visibility: 'community',
     status: 'active',
     scheduledAt: new Date(nowMs + (24 * 60 * 60 * 1000)).toISOString(),
@@ -221,8 +245,10 @@ test('Dates: createDate setzt creatorId ausschließlich aus request.auth.uid', a
       creatorId: 'mallory',
       title: 'Samstagabend im Club',
       description: 'Suche Begleitung für einen gemeinsamen Abend im Club.',
-      regionLabel: 'Berlin',
+      locationQuery: 'Berlin',
+      publicPlaceLabel: 'Club am Ring',
       scheduledAt: Date.now() + (2 * 24 * 60 * 60 * 1000),
+      clientRequestId: 'create-date-alice-1',
       visibility: 'community',
     },
   }));
@@ -246,11 +272,71 @@ test('Dates: ohne aktuelle Regelzustimmung wird createDate abgelehnt', async () 
     data: {
       title: 'Samstagabend im Club',
       description: 'Suche Begleitung für einen gemeinsamen Abend im Club.',
-      regionLabel: 'Berlin',
+      locationQuery: 'Berlin',
       scheduledAt: Date.now() + (2 * 24 * 60 * 60 * 1000),
       visibility: 'community',
     },
   })), 'permission-denied');
+});
+
+test('Dates: vergangene Termine werden serverseitig abgelehnt', async () => {
+  const firestore = new MockFirestore(createBaseDocs());
+  const createDateHandler = createCreateDateHandler({
+    firestore,
+    fieldValue: createFieldValueStub(),
+    timestamp: createTimestampStub(),
+  });
+
+  await expectHttpsError(createDateHandler(createRequest({
+    uid: 'alice',
+    data: {
+      title: 'Zu spät',
+      description: 'Dieses Date liegt bereits in der Vergangenheit.',
+      locationQuery: 'Köln',
+      scheduledAt: Date.now() - (60 * 60 * 1000),
+      visibility: 'community',
+    },
+  })), 'invalid-argument');
+});
+
+test('Dates: fehlende Pflichtfelder werden abgelehnt', async () => {
+  const firestore = new MockFirestore(createBaseDocs());
+  const createDateHandler = createCreateDateHandler({
+    firestore,
+    fieldValue: createFieldValueStub(),
+    timestamp: createTimestampStub(),
+  });
+
+  await expectHttpsError(createDateHandler(createRequest({
+    uid: 'alice',
+    data: {
+      title: '',
+      description: 'Kurzer Test ohne Aktivität.',
+      locationQuery: 'Berlin',
+      scheduledAt: Date.now() + (2 * 24 * 60 * 60 * 1000),
+      visibility: 'community',
+    },
+  })), 'invalid-argument');
+});
+
+test('Dates: ungültiger Ort oder fehlende Geo-Daten werden behandelt', async () => {
+  const firestore = new MockFirestore(createBaseDocs());
+  const createDateHandler = createCreateDateHandler({
+    firestore,
+    fieldValue: createFieldValueStub(),
+    timestamp: createTimestampStub(),
+  });
+
+  await expectHttpsError(createDateHandler(createRequest({
+    uid: 'alice',
+    data: {
+      title: 'Unbekannter Ort',
+      description: 'Soll an einem nicht auflösbaren Ort stattfinden.',
+      locationQuery: '99999',
+      scheduledAt: Date.now() + (2 * 24 * 60 * 60 * 1000),
+      visibility: 'community',
+    },
+  })), 'invalid-argument');
 });
 
 test('Dates: fremdes Date kann nicht bearbeitet oder abgesagt werden', async () => {
@@ -271,7 +357,7 @@ test('Dates: fremdes Date kann nicht bearbeitet oder abgesagt werden', async () 
       dateId: 'date-1',
       title: 'Manipuliert',
       description: 'Manipuliert Manipuliert Manipuliert',
-      regionLabel: 'Koeln',
+      locationQuery: 'Koeln',
       scheduledAt: Date.now() + (3 * 24 * 60 * 60 * 1000),
       visibility: 'community',
     },
@@ -314,7 +400,7 @@ test('Dates: listDates filtert blockierte Ersteller serverseitig aus', async () 
     regionLabel: 'Berlin',
     visibility: 'community',
     status: 'active',
-    scheduledAt: new Date(Date.now() + (48 * 60 * 60 * 1000)).toISOString(),
+    scheduledAt: new Date(Date.now() + (48 * 60 * 60 * 1000)),
     scheduledAtMs: Date.now() + (48 * 60 * 60 * 1000),
     interestCount: 0,
   };
@@ -344,4 +430,69 @@ test('Dates: Admin kann problematische Dates deaktivieren', async () => {
   assert.equal(result.status, DATE_STATUS.DISABLED);
   const snapshot = await firestore.collection('dates').doc('date-1').get();
   assert.equal(snapshot.data().status, DATE_STATUS.DISABLED);
+});
+
+test('Dates: eigenes Date kann bearbeitet und abgesagt werden', async () => {
+  const firestore = new MockFirestore(createBaseDocs());
+  const updateDateHandler = createUpdateDateHandler({
+    firestore,
+    fieldValue: createFieldValueStub(),
+    timestamp: createTimestampStub(),
+  });
+  const cancelDateHandler = createCancelDateHandler({
+    firestore,
+    fieldValue: createFieldValueStub(),
+  });
+
+  await updateDateHandler(createRequest({
+    uid: 'alice',
+    data: {
+      dateId: 'date-1',
+      title: 'Samstag gemeinsam essen gehen',
+      description: 'Nun am Samstagabend gemeinsam essen gehen.',
+      locationQuery: 'Berlin',
+      publicPlaceLabel: 'Café Mitte',
+      scheduledAt: Date.now() + (3 * 24 * 60 * 60 * 1000),
+      visibility: 'community',
+    },
+  }));
+
+  let snapshot = await firestore.collection('dates').doc('date-1').get();
+  assert.equal(snapshot.data().title, 'Samstag gemeinsam essen gehen');
+  assert.equal(snapshot.data().cityLabel, 'Berlin');
+  assert.equal(snapshot.data().regionLabel, 'Café Mitte, Berlin');
+
+  await cancelDateHandler(createRequest({
+    uid: 'alice',
+    data: { dateId: 'date-1' },
+  }));
+
+  snapshot = await firestore.collection('dates').doc('date-1').get();
+  assert.equal(snapshot.data().status, DATE_STATUS.CANCELLED);
+});
+
+test('Dates: Doppelklick mit gleicher clientRequestId erzeugt kein doppeltes Date', async () => {
+  const firestore = new MockFirestore(createBaseDocs());
+  const createDateHandler = createCreateDateHandler({
+    firestore,
+    fieldValue: createFieldValueStub(),
+    timestamp: createTimestampStub(),
+  });
+  const payload = {
+    title: 'Dienstag im Café',
+    description: 'Suche Begleitung zum Kaffeetrinken.',
+    locationQuery: 'Köln',
+    publicPlaceLabel: 'Café Altstadt',
+    scheduledAt: Date.now() + (2 * 24 * 60 * 60 * 1000),
+    clientRequestId: 'double-click-safe-1',
+    visibility: 'community',
+  };
+
+  const firstResult = await createDateHandler(createRequest({ uid: 'alice', data: payload }));
+  const secondResult = await createDateHandler(createRequest({ uid: 'alice', data: payload }));
+
+  assert.equal(firstResult.dateId, secondResult.dateId);
+  assert.equal(secondResult.duplicate, true);
+  const allDates = await firestore.collection('dates').get();
+  assert.equal(allDates.docs.filter((entry) => entry.id.includes('double-click-safe-1')).length, 1);
 });

@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { AccentButton, AppBackground, GlassCard, InfoBanner, ScreenHeader, ToggleChip } from '../components/AffairGoUI';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AccentButton, AppBackground, GlassCard, InfoBanner, ScreenHeader, StatusPill, ToggleChip } from '../components/AffairGoUI';
 import MatchingMapLeaflet from '../components/MatchingMapLeaflet';
 import { Ionicons } from '../components/SimpleIcons';
 import { affairGoTheme, travelModeColors } from '../constants/affairGoTheme';
@@ -57,7 +57,17 @@ const MatchingMapScreen = () => {
     visibleMapEvents,
     visibleProfiles,
   } = useAffairGo();
+  const radiusOptions = useMemo(() => getAllowedRadiusOptions(), []);
+  const [pendingRadius, setPendingRadius] = useState(currentRadius);
+  const [radiusTrackWidth, setRadiusTrackWidth] = useState(0);
+  const [isRadiusDragging, setIsRadiusDragging] = useState(false);
+  const [isSavingRadius, setIsSavingRadius] = useState(false);
+  const pendingRadiusRef = useRef(currentRadius);
+  const radiusCommitStateRef = useRef({ saving: false, queuedRadius: null });
   const hasMapApiKey = hasConfiguredMapApiKey();
+  const displayRadius = isRadiusDragging ? pendingRadius : currentRadius;
+  const displayRadiusIndex = Math.max(radiusOptions.indexOf(displayRadius), 0);
+  const displayRadiusProgress = radiusOptions.length > 1 ? displayRadiusIndex / (radiusOptions.length - 1) : 0;
   const filteredProfiles = useMemo(
     () => filterMatchingMapProfiles(visibleProfiles, { verifiedOnly }),
     [verifiedOnly, visibleProfiles],
@@ -96,6 +106,114 @@ const MatchingMapScreen = () => {
     setSelectedProfileId(profile.id);
   };
 
+  useEffect(() => {
+    pendingRadiusRef.current = pendingRadius;
+  }, [pendingRadius]);
+
+  useEffect(() => {
+    if (!isRadiusDragging) {
+      setPendingRadius(currentRadius);
+    }
+  }, [currentRadius, isRadiusDragging]);
+
+  const getRadiusIndexForValue = (value) => {
+    const normalizedRadius = radiusOptions.includes(value) ? value : Number(value);
+    const fallbackIndex = Math.max(radiusOptions.indexOf(currentRadius), 0);
+    const nextIndex = radiusOptions.indexOf(normalizedRadius);
+    return nextIndex >= 0 ? nextIndex : fallbackIndex;
+  };
+
+  const getRadiusFromTrackPosition = (positionX) => {
+    if (radiusTrackWidth <= 0 || radiusOptions.length <= 1) {
+      return radiusOptions[0] || currentRadius;
+    }
+
+    const clampedX = Math.max(0, Math.min(radiusTrackWidth, Number(positionX) || 0));
+    const progress = clampedX / radiusTrackWidth;
+    const index = Math.round(progress * (radiusOptions.length - 1));
+    return radiusOptions[index] || radiusOptions[0] || currentRadius;
+  };
+
+  const commitRadiusSelection = async (nextRadius) => {
+    const normalizedRadius = radiusOptions.includes(nextRadius) ? nextRadius : radiusOptions[getRadiusIndexForValue(nextRadius)] || currentRadius;
+
+    if (normalizedRadius === currentRadius && !radiusCommitStateRef.current.saving) {
+      setPendingRadius(normalizedRadius);
+      return;
+    }
+
+    if (radiusCommitStateRef.current.saving) {
+      radiusCommitStateRef.current.queuedRadius = normalizedRadius;
+      return;
+    }
+
+    radiusCommitStateRef.current.saving = true;
+    radiusCommitStateRef.current.queuedRadius = null;
+    setIsSavingRadius(true);
+
+    try {
+      await setCurrentRadius(normalizedRadius);
+    } finally {
+      const queuedRadius = radiusCommitStateRef.current.queuedRadius;
+      radiusCommitStateRef.current.saving = false;
+      radiusCommitStateRef.current.queuedRadius = null;
+      setIsSavingRadius(false);
+
+      if (queuedRadius != null && queuedRadius !== normalizedRadius) {
+        commitRadiusSelection(queuedRadius);
+      }
+    }
+  };
+
+  const handleRadiusTrackPress = (positionX) => {
+    const nextRadius = getRadiusFromTrackPosition(positionX);
+    setPendingRadius(nextRadius);
+    commitRadiusSelection(nextRadius);
+  };
+
+  const handleRadiusKeyDown = (event) => {
+    const key = event?.nativeEvent?.key || event?.key;
+    const currentIndex = getRadiusIndexForValue(displayRadius);
+    let nextIndex = currentIndex;
+
+    if (key === 'ArrowLeft' || key === 'ArrowDown') {
+      nextIndex = Math.max(0, currentIndex - 1);
+    } else if (key === 'ArrowRight' || key === 'ArrowUp') {
+      nextIndex = Math.min(radiusOptions.length - 1, currentIndex + 1);
+    } else if (key === 'Home') {
+      nextIndex = 0;
+    } else if (key === 'End') {
+      nextIndex = radiusOptions.length - 1;
+    } else {
+      return;
+    }
+
+    event?.preventDefault?.();
+    const nextRadius = radiusOptions[nextIndex] || currentRadius;
+    setPendingRadius(nextRadius);
+    commitRadiusSelection(nextRadius);
+  };
+
+  const radiusPanResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: (event) => {
+      setIsRadiusDragging(true);
+      setPendingRadius(getRadiusFromTrackPosition(event.nativeEvent.locationX));
+    },
+    onPanResponderMove: (event) => {
+      setPendingRadius(getRadiusFromTrackPosition(event.nativeEvent.locationX));
+    },
+    onPanResponderRelease: () => {
+      setIsRadiusDragging(false);
+      commitRadiusSelection(pendingRadiusRef.current);
+    },
+    onPanResponderTerminate: () => {
+      setIsRadiusDragging(false);
+      commitRadiusSelection(pendingRadiusRef.current);
+    },
+  }), [currentRadius, radiusOptions, radiusTrackWidth]);
+
   return (
     <AppBackground>
       <ScreenHeader
@@ -129,13 +247,49 @@ const MatchingMapScreen = () => {
         <InfoBanner tone="warning" title="Radius noch nicht gespeichert" detail={radiusUpdateError} />
       ) : null}
 
-      <View style={styles.filters}>
-        {getAllowedRadiusOptions().map((radius) => (
-          <View key={radius} style={styles.filterChip}>
-            <ToggleChip label={formatRadiusKm(radius)} active={currentRadius === radius} onPress={() => setCurrentRadius(radius)} />
+      <GlassCard strong style={styles.radiusCard}>
+        <View style={styles.radiusHeaderRow}>
+          <View style={styles.radiusHeaderCopy}>
+            <Text style={styles.radiusEyebrow}>Entfernung</Text>
+            <Text style={styles.radiusTitle}>{formatRadiusKm(displayRadius)}</Text>
+            <Text style={styles.radiusMeta}>{isRadiusDragging ? 'Anzeige aktualisiert sich sofort, gespeichert wird erst beim Loslassen.' : isSavingRadius ? 'Radius wird gespeichert …' : 'Der bestehende Suchradius wird für Matching Map und Profile verwendet.'}</Text>
           </View>
-        ))}
-      </View>
+          <StatusPill label={`${radiusOptions[0]}-${radiusOptions[radiusOptions.length - 1]} km`} tone="info" />
+        </View>
+
+        <Pressable
+          accessibilityRole="adjustable"
+          accessibilityLabel="Suchradius"
+          accessibilityValue={{ min: radiusOptions[0], max: radiusOptions[radiusOptions.length - 1], now: displayRadius, text: formatRadiusKm(displayRadius) }}
+          focusable
+          onKeyDown={handleRadiusKeyDown}
+          onLayout={(event) => setRadiusTrackWidth(event.nativeEvent.layout.width)}
+          onPress={(event) => handleRadiusTrackPress(event.nativeEvent.locationX)}
+          style={styles.radiusScaleShell}
+        >
+          <View style={styles.radiusTrackBase} />
+          <View style={[styles.radiusTrackActive, { width: `${displayRadiusProgress * 100}%` }]} />
+          <View style={styles.radiusStopsRow} pointerEvents="box-none">
+            {radiusOptions.map((radius, index) => {
+              const active = index <= displayRadiusIndex;
+              return (
+                <Pressable key={radius} onPress={() => handleRadiusTrackPress((radiusTrackWidth / Math.max(radiusOptions.length - 1, 1)) * index)} hitSlop={10} style={styles.radiusStopHitArea}>
+                  <View style={[styles.radiusStop, active ? styles.radiusStopActive : null]} />
+                </Pressable>
+              );
+            })}
+          </View>
+          <View style={[styles.radiusHandle, { left: `${displayRadiusProgress * 100}%` }]} {...radiusPanResponder.panHandlers}>
+            <View style={styles.radiusHandleInner} />
+          </View>
+        </Pressable>
+
+        <View style={styles.radiusLabelsRow}>
+          {radiusOptions.map((radius) => (
+            <Text key={radius} style={[styles.radiusLabel, radius === displayRadius ? styles.radiusLabelActive : null]}>{formatRadiusKm(radius)}</Text>
+          ))}
+        </View>
+      </GlassCard>
 
       <View style={styles.filters}>
         <View style={styles.filterChip}>
@@ -153,7 +307,7 @@ const MatchingMapScreen = () => {
         <GlassCard strong style={styles.mapCard}>
           <MatchingMapLeaflet
             center={mapCenterCoordinates}
-            radiusKm={currentRadius}
+            radiusKm={displayRadius}
             profiles={mapProfiles}
             events={mapEvents}
             onProfilePress={openProfile}
@@ -260,6 +414,115 @@ const styles = StyleSheet.create({
   },
   permissionCard: {
     marginBottom: 12,
+  },
+  radiusCard: {
+    marginBottom: 14,
+  },
+  radiusHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 16,
+  },
+  radiusHeaderCopy: {
+    flex: 1,
+  },
+  radiusEyebrow: {
+    color: affairGoTheme.colors.accentSoft,
+    textTransform: 'uppercase',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+  },
+  radiusTitle: {
+    color: affairGoTheme.colors.text,
+    fontSize: 28,
+    fontWeight: '700',
+    marginTop: 6,
+  },
+  radiusMeta: {
+    color: affairGoTheme.colors.textMuted,
+    lineHeight: 21,
+    marginTop: 8,
+  },
+  radiusScaleShell: {
+    position: 'relative',
+    height: 48,
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  radiusTrackBase: {
+    height: 8,
+    borderRadius: affairGoTheme.radius.pill,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  radiusTrackActive: {
+    position: 'absolute',
+    left: 0,
+    top: 20,
+    height: 8,
+    borderRadius: affairGoTheme.radius.pill,
+    backgroundColor: affairGoTheme.colors.accent,
+  },
+  radiusStopsRow: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  radiusStopHitArea: {
+    width: 32,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radiusStop: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 2,
+    borderColor: affairGoTheme.colors.line,
+    backgroundColor: affairGoTheme.colors.cardStrong,
+  },
+  radiusStopActive: {
+    borderColor: affairGoTheme.colors.accent,
+    backgroundColor: affairGoTheme.colors.accent,
+  },
+  radiusHandle: {
+    position: 'absolute',
+    top: 10,
+    marginLeft: -16,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: affairGoTheme.colors.cardStrong,
+    borderWidth: 2,
+    borderColor: affairGoTheme.colors.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...affairGoTheme.shadow,
+  },
+  radiusHandleInner: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: affairGoTheme.colors.accent,
+  },
+  radiusLabelsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  radiusLabel: {
+    flex: 1,
+    color: affairGoTheme.colors.textMuted,
+    fontSize: 11,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  radiusLabelActive: {
+    color: affairGoTheme.colors.text,
   },
   permissionTitle: {
     color: affairGoTheme.colors.text,
